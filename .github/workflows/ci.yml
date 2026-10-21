@@ -17,7 +17,6 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CARGO_TERM_COLOR: always
   WASM_BINDGEN_VERSION: 0.2.129
 
@@ -26,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Rust (stable + wasm32)
         uses: dtolnay/rust-toolchain@stable
@@ -40,7 +39,7 @@ jobs:
 
       - name: wasm-bindgen-cli cache
         id: wbg
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/wasm-bindgen
           key: wasm-bindgen-cli-${{ env.WASM_BINDGEN_VERSION }}-${{ runner.os }}
@@ -50,12 +49,12 @@ jobs:
         run: cargo install wasm-bindgen-cli --version "=${WASM_BINDGEN_VERSION}" --locked
 
       - name: Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -80,7 +79,7 @@ jobs:
         run: app/ci.sh browser
 
       - name: Keep the site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: site
           path: _site

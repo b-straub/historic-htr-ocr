@@ -43,6 +43,7 @@ model-index:
 ---
 
 # LightOnOCR-3-1B · Historic German Handwriting
+
 A fine-tune of [LightOnOCR-3-1B](https://huggingface.co/lightonai/LightOnOCR-3-1B) that reads **whole pages of
 historic handwriting** — German Kurrent and Latin-script hands, mainly of the 19th century (the training pages run from
 the 1790s to the mid-20th century, most of them 1820–1880): letters, minutes, land registers, lecture notes and diaries.
@@ -282,6 +283,7 @@ Two decoding settings, both measured on all 610 validation pages ([Decoding](#de
   Transformers and vLLM only offer a whole-context penalty, so they need the small processor shown below.
 
 ### Transformers (≥ 5.0)
+
 ```python
 import torch
 from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor, LogitsProcessor, LogitsProcessorList
@@ -316,6 +318,7 @@ Transformers logs that a model of type `mistral3` is used to instantiate `lighto
 model's own (`lightonai/LightOnOCR-3-1B` ships the same), all weights load — the warning is harmless.
 
 ### vLLM
+
 The windowed penalty is a small vLLM logits processor, `window_rep_penalty.py`, in this repository next to
 `convert_output.py`. Every request must carry `rep_penalty` / `rep_window`, and the built-in `repetition_penalty`
 must stay 1.0 — the processor rejects a request otherwise.
@@ -345,7 +348,9 @@ print(r.json()["choices"][0]["message"]["content"])
 
 On one RTX A4000 (bf16) vLLM read dense manuscript pages in 7.0 s each one at a time, 3.4 s per page with 15 in
 parallel.
+
 ### GGUF / llama.cpp
+
 Two files: **`text-q8_0.gguf`** (language model, 8-bit, 639 MB) + **`mmproj-bf16.gguf`** (vision encoder +
 projector, bf16, 829 MB). The vision encoder ships in **bf16, not f16**: in f16 its activations overflow on CUDA and
 the model writes only `!!!!`; bf16 (the trained dtype, same size) reads correctly at full speed. The 8-bit text model
@@ -365,7 +370,8 @@ cannot change the pick.
   page) · Apple M3 Metal ≈ 53 tok/s (30 s per page) · CPU only 0.6–1.7 tok/s (not usable for full pages).
 - llama.cpp scales **every** image of this model up to 1540 px on its longest edge (Transformers / vLLM only scale
   down), and pads to the 28 px grid in black. Whole pages at 1540 px are unaffected; feed whole pages, not small
-  crops.- `--repeat-penalty 1.1 --repeat-last-n 20` is the same penalty (each distinct token once; logit ≤ 0 → × 1.1, else
+  crops.
+- `--repeat-penalty 1.1 --repeat-last-n 20` is the same penalty (each distinct token once; logit ≤ 0 → × 1.1, else
   ÷ 1.1) with one difference: the CLI's window holds only generated tokens, so for the first 20 output tokens it does
   not reach back into the prompt tail. OCR Lite applies the exact window itself (not llama.cpp's sampler). In a test on three
   pages, llama.cpp left out one block on one page — for full pages prefer Transformers, vLLM or OCR Lite.
@@ -405,9 +411,11 @@ On all 610 validation pages `greedy_rp1.1` read at least as well as the alternat
 on the page (marks, line breaks) and caused block loops in our tests.
 `generation_config.json` ships the **plain** setting (temperature 0.1, top_p 0.9, max 7024 new tokens): a config file
 cannot express the 20-token window, and a whole-context penalty there would hurt.
+
 Always cap `max_tokens` (a runaway otherwise writes to the limit). A page read is one draw: on hard pages vLLM,
 Transformers, llama.cpp and bf16 / fp32 can differ in a few words — where the model itself is unsure between two
 readings, not because one engine is wrong.
+
 ## Output format
 
 The model writes **what is on the page, as it is laid out** — not an edition. The full definition:
@@ -558,6 +566,7 @@ the text under-fills the page, a catchword unread), pages that failed the crop c
 **Checkpoint choice.** In two training runs on this recipe, the later, annealed checkpoints read no better than the
 validation-loss minimum, and the minimum keeps the most
 exactly read words.
+
 ## Evaluation
 
 **Validation set**: 610 pages held out by a seeded 3 % hash of the page id (the same rule for every source), never
