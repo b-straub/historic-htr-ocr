@@ -31,7 +31,8 @@ The model's output format (one page):
         ⟦struck⟧  ⟨inserted⟩  〔underlined〕  ⌈superscript⌉  ⌊subscript⌋
     ⌈+⌉ is the writer's insertion / reference sign; ▨ marks one lost or illegible spot
   - a table row is one line with its cells separated by TAB; ↵ is a line break inside a cell, ↵↵ a paragraph break
-    inside a cell
+    inside a cell; ↵ in a line without a TAB is a line break as well (a one-column list the reader saw as a table:
+    the format has no one-column table, so the model writes it as one cell)
 
 Mapping:
     mark      TEI                                      viewer (rendered from the TEI)
@@ -266,7 +267,8 @@ def to_tei(text, title, rep, image=None, source_url=None, status="raw", base_ocr
             if kind == "table":
                 body += table(lines, rep, "        ")
             else:
-                body += [f"        <lb/>{inline(ln, n, rep)}" for n, ln in lines]
+                # ↵ outside a table = a line break too (a one-column table: the model writes such a list as one cell)
+                body += [f"        <lb/>{inline(p, n, rep)}" for n, ln in lines for p in ln.split(CELL_BREAK)]
         body.append(close)
     for rest in rule_before.values():               # a rule before a block that did not come (re-blocked text): at the end
         rule_end += rest

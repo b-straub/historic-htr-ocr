@@ -84,6 +84,8 @@ a few paired marks for what a plain transcription loses. The training ground tru
   <li>A line break inside a cell is <code>↵</code>; a paragraph break inside a cell is <code>↵↵</code>.</li>
   <li>A cell spanning several columns is one field; a cell spanning several rows writes its text in its top row.</li>
   <li>A table of one column is written as plain lines. Inline marks work inside cells as anywhere else.</li>
+  <li>The model sometimes writes a one-column list it reads as a table as one line, its rows separated by
+    <code>↵</code>. Read <code>↵</code> outside a table as a line break: OCR Lite and <code>convert_output.py</code> do.</li>
 </ul>
 <pre><code>Name	Ort	Jahr
 Humboldt	Berlin	1856

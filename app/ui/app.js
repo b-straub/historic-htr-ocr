@@ -1034,17 +1034,6 @@ async function checkModel() {
   applyState();
 }
 
-// iPadOS takes the status bar's look from what sits at the top edge when the page loads; a modal dialog open at that
-// moment (the setup on an installed app's first start) puts its backdrop above the edge band, and the status bar stays
-// blurred after the dialog closes. Re-inserting the band when a dialog closes makes Safari look again.
-for (const dlg of document.querySelectorAll("dialog")) {
-  dlg.addEventListener("close", () => {
-    const band = document.querySelector(".edgeband");
-    band.remove();
-    document.body.prepend(band);
-  });
-}
-
 // ── start ─────────────────────────────────────────────────────────────
 (async () => {
   paintIcons();

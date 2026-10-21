@@ -7,6 +7,7 @@
 // character; the rest of the line renders normally.
 //   ⟦del⟧ ⟨ins⟩ 〔u〕 ⌈sup⌉ ⌊sub⌋ → the HTML element of the profile tag's name · ▨ (gap) kept, marked
 //   consecutive lines holding a TAB = one table (TAB = cell, ↵ = line break inside a cell, ↵↵ = block break)
+//   ↵ in a line without a TAB = a line break too (a one-column table: the model writes such a list as one cell)
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -161,8 +162,15 @@ impl Marks {
                     // a <br> holds the empty line open (an editable caret position; one line high in a saved page)
                     out.push_str("<div class=\"l empty\"><br></div>\n");
                 } else {
+                    // ↵ outside a table: the model's form of a one-column table (a list it reads as table-like ink,
+                    // no TAB to write) — each piece on its own visual line, marks paired per piece as in a cell
                     out.push_str("<div class=\"l\">");
-                    self.line_html(lines[i], &mut out);
+                    for (n, piece) in lines[i].split(self.cell_break).enumerate() {
+                        if n > 0 {
+                            out.push_str("<br>");
+                        }
+                        self.line_html(piece, &mut out);
+                    }
                     out.push_str("</div>\n");
                 }
                 i += 1;
@@ -222,6 +230,12 @@ mod tests {
         let m = Marks::profile().unwrap();
         let h = m.html("A\tB↵C\n\tD");
         assert_eq!(h, "<table class=\"t\">\n<tr><td>A</td><td>B<br>C</td></tr>\n<tr><td></td><td>D</td></tr>\n</table>\n");
+    }
+
+    #[test]
+    fn break_outside_a_table_is_a_line_break() {
+        let m = Marks::profile().unwrap();
+        assert_eq!(m.html("un — a↵⟦▨⟧col. — b"), "<div class=\"l\">un — a<br><del><span class=\"gap\">▨</span></del>col. — b</div>\n");
     }
 
     #[test]

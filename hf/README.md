@@ -426,6 +426,8 @@ The model writes **what is on the page, as it is laid out** — not an edition. 
 - page reading order: main text first, then margin notes, insertions placed apart, footnotes, catchwords
   (see [Reading order](#reading-order-vs-scholarly-editions))
 - tables: one line per row, TAB between cells, `↵` for a line break inside a cell
+- `↵` in a line without a TAB is a line break as well: the model sometimes writes a one-column list it reads as a
+  table as one line, its rows separated by `↵` (OCR Lite and `convert_output.py` render it as separate lines)
 
 **Inline marks** (opening and closing marks differ, so nesting stays readable)
 
