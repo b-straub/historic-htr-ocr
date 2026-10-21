@@ -1,0 +1,23 @@
+/* OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT */
+/* the rendered read — ONE stylesheet for the app and the saved .html (ocr-core render.rs includes this file) */
+.page {
+  --ins-fg: #0b6b2a;
+  --ins-bg: rgba(52, 199, 89, 0.18);
+  --gap-fg: #8a8a8a;
+  --cell-border: #b9b9b9;
+  font-family: "Iowan Old Style", "Palatino", Georgia, serif;
+  font-size: 17px;
+  line-height: 1.5;
+}
+@media (prefers-color-scheme: dark) {
+  .page { --ins-fg: #74d97f; --cell-border: #555; }
+}
+.page .l { white-space: pre-wrap; overflow-wrap: anywhere; }
+.page .l.empty { min-height: 1.5em; }
+.page del { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.page ins { text-decoration: none; color: var(--ins-fg); background: var(--ins-bg); border-radius: 2px; }
+.page u { text-decoration: underline; }
+.page sup, .page sub { font-size: 0.7em; line-height: 0; }
+.page .gap { color: var(--gap-fg); }
+.page table.t { border-collapse: collapse; margin: 0.35em 0; }
+.page table.t td { border: 1px solid var(--cell-border); padding: 2px 8px; vertical-align: top; white-space: pre-wrap; }

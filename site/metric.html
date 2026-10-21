@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The oCER Metric</title>
+<meta name="description" content="How the reads are scored: the standard CER, the order-tolerant oCER, exact words and runaways.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html">Output format</a>
+  <a href="training.html">Training</a>
+  <a href="data.html">Data</a>
+  <a href="metric.html" aria-current="page">Metric</a>
+  <a href="outlook.html">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>How the reads are scored</h1>
+<p class="lead">Two numbers per page: the standard CER, comparable to other HTR benchmarks, and oCER, which also
+scores the marks and does not punish a correctly read block in another place.</p>
+<p class="note">The metric code follows with the code release.</p>
+
+<h2>Shared normalisation</h2>
+<p>Both numbers compare the read with the ground truth after Unicode NFC, with runs of white space collapsed and blank
+lines dropped; a line break counts as one character. One page is one scoring unit; the figures of a set are pooled —
+the sum of the errors over the sum of the ground-truth characters, so long pages weigh more than short ones.</p>
+
+<h2>CER — the standard</h2>
+<p>Levenshtein distance divided by the number of ground-truth characters. The marks for struck and underlined text are
+removed and the text inside them counts as ordinary text; super- and subscripts are compared as written.</p>
+
+<h2>oCER — order-tolerant, marks scored</h2>
+<ul>
+  <li><b>Order-tolerant.</b> The blocks of the read (separated by blank lines) are paired with the ground truth's
+    blocks by an optimal assignment and put into the ground truth's order; the page keeps the better of the read as
+    written and the re-ordered read. A missing or extra block break costs one character. A margin note read before
+    the main text instead of after it is therefore not counted as dozens of errors.</li>
+  <li><b>Marks scored.</b> Every character carries its marks (struck, underlined, superscript, subscript); a word whose
+    marks differ from the ground truth costs +1. An error inside struck text costs ½ — struck ink is hard to read by
+    design.</li>
+  <li><b>Spaces next to punctuation are free.</b> A space beside a character that is not a letter or digit may be
+    inserted or dropped without cost (<code>Nr! (xxx)</code> = <code>Nr!(xxx)</code>); a space between letters or digits
+    counts (<code>ichgebe</code>, <code>han deln</code>).</li>
+  <li><b>Illegible spots.</b> A <code>▨</code> in the ground truth costs at most one character, whatever the read writes
+    there.</li>
+</ul>
+
+<h2>Words exact</h2>
+<p>The share of ground-truth words read exactly, aligned in reading order — stricter than oCER, closer to what an
+index or a search needs. (A near-miss class — the same word with at most a third of its letters wrong and the first
+letter right — is reported separately, never as exact.)</p>
+
+<h2>Runaways</h2>
+<p>A read that loops (a repeated line or block), or that has more oCER errors than the page has ground-truth
+characters, is a runaway. Runaways are counted and reported, and included in the pooled figures; in evaluation every
+read is capped at twice the ground truth's token count.</p>
+
+<h2>Why not plain CER alone</h2>
+<p>This model writes the page in page order and marks what was struck or inserted. Plain CER against an edition's
+reading text punishes both: a margin note in the "wrong" place can cost up to twice its length, and a correctly marked
+strike is invisible. oCER keeps the comparison fair to the format and makes the marks count; CER stays the number to
+compare with other systems. On the 610 validation pages the model reads at 4.74 % CER and 3.85 % oCER.</p>
+
+<footer>Bernhard Straub · <a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>

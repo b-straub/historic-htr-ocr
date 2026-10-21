@@ -1,0 +1,17 @@
+# macOS / editors
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# build output and dependencies (CI builds them; nothing built is committed)
+target/
+node_modules/
+app/web/pkg/
+app/dist/
+_site/
+
+# local test output
+test-output/
+*.log
+__pycache__/

@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historic German Handwriting OCR</title>
+<meta name="description" content="A page-level reader for historic German handwriting: an open model, a browser app that runs on your device, and how it was made.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./" aria-current="page">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html">Output format</a>
+  <a href="training.html">Training</a>
+  <a href="data.html">Data</a>
+  <a href="metric.html">Metric</a>
+  <a href="outlook.html">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>Reading historic German handwriting, a whole page at a time</h1>
+<p class="lead">An open model that reads pages of German Kurrent and Latin-script handwriting, mainly of the 19th
+century, and writes them as written — line by line, with struck-out, inserted and underlined text marked. It runs in
+your browser, on your own device.</p>
+
+<div class="cta">
+  <a class="primary" href="app/">Try it in the browser</a>
+  <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">The model on Hugging Face</a>
+  <a href="examples/humboldt_48r.html">See an example</a>
+</div>
+
+<h2>Why</h2>
+<p>Archives and libraries hold millions of handwritten pages that nobody can search, and fewer people every year can
+read Kurrent. A first transcription — not an edition, but a draft that follows the page — makes a collection
+findable, lets a reader check a passage against the scan, and saves an editor from starting at zero. This project
+trains such a reader only on openly licensed editions and archives and gives it back openly.</p>
+
+<h2>The model</h2>
+<p><b>LightOnOCR-3-1B · Historic German Handwriting</b> is a fine-tune of
+<a href="https://huggingface.co/lightonai/LightOnOCR-3-1B">LightOnOCR-3-1B</a> (LightOn): one page image in, the whole
+page out, with no line segmentation step before it. On 610 held-out validation pages from 11 sources it reads at
+<b>4.7 % CER</b> (3.85 % oCER, our order-tolerant metric); the stock base model reads the same pages at 45 %.
+Hard hands stay hard — see the <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">model
+card</a> for every figure, the limitations and how to run it with Transformers, vLLM or llama.cpp.</p>
+
+<h2>Try it: OCR Lite</h2>
+<p><a href="app/">OCR Lite</a> is a small web app that runs the model <b>entirely on your device</b> with WebGPU: the
+model (1.4 GB) is downloaded once from Hugging Face into the browser's storage; your images never leave the machine.
+Open a scan, crop it to the page, read, correct the text, save it as text or HTML. It needs Chrome / Edge 113+ or
+Safari 26+ (Mac, iPad) and about 2 GB of GPU memory; a device check tells you before the download whether your
+machine can run it.</p>
+
+<h2>Examples</h2>
+<p>Two validation pages the model never trained on, from Alexander von Humboldt's notes of 1799 (Staatsbibliothek zu
+Berlin, Public Domain Mark). The text is the model's output as read — not proofread — rendered as a TEI page you can
+edit and download.</p>
+<div class="figs">
+  <a href="examples/humboldt_48r.html">Humboldt, page 48r<span>CER 5.1 % · oCER 3.4 %</span></a>
+  <a href="examples/humboldt_17r.html">Humboldt, page 17r<span>CER 3.1 % · oCER 2.7 %</span></a>
+</div>
+<p>And one page from outside all training material: a letter of Johann Wolfgang von Goethe to his son August,
+25–29 June 1830 (Badische Landesbibliothek Karlsruhe, K 703, Public Domain Mark). Against a transcription corrected
+by the author, the model read it with 18 character errors on 1,333 characters.</p>
+<div class="figs">
+  <a href="examples/goethe_blb_6171314.html">Goethe to August von Goethe, 1830<span>CER 1.35 % · oCER 1.4 %</span></a>
+</div>
+
+<h2>More</h2>
+<ul>
+  <li><a href="markup.html">The output format</a> — lines, blocks and the inline marks</li>
+  <li><a href="training.html">Training</a> — the recipe and how the checkpoint was chosen</li>
+  <li><a href="data.html">Data</a> — the sources and how editions became page ground truth</li>
+  <li><a href="metric.html">The metric</a> — CER and the order-tolerant oCER</li>
+  <li><a href="outlook.html">Outlook</a> — what comes next</li>
+</ul>
+
+<h2>Licence and credits</h2>
+<p>The model is released under <b>CC BY-SA 4.0</b> on Hugging Face; the base model is Apache-2.0 (© LightOn). The OCR Lite
+app and the code in <a href="https://github.com/b-straub/historic-htr-ocr">this repository</a> are MIT-licensed.
+The texts of these pages are <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
+<p class="note">Trained on the open editions and archives of the Staatsarchiv des Kantons Zürich, the Digital Humanities
+group of the University of Bern, the Berlin-Brandenburgische Akademie der Wissenschaften (Deutsches Textarchiv, edition
+humboldt digital), the Zentralbibliothek Zürich and e-manuscripta, the Universität Potsdam, the Universität der Künste
+Berlin and M. Gantner, with digitisations of the Staatsbibliothek zu Berlin – Preußischer Kulturbesitz. The full list
+with licences: <a href="data.html">Data</a>.</p>
+
+<footer>Bernhard Straub · questions and reading errors worth reporting:
+<a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>

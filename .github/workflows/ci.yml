@@ -1,0 +1,88 @@
+# OCR Lite — Copyright (c) 2026 Bernhard Straub
+# SPDX-License-Identifier: MIT
+#
+# The full CI on every push and pull request: app/ci.sh (test, build, site, browser) — the same script a local check
+# runs. Also callable (workflow_call): pages.yml runs THIS job first and deploys only what it built and tested.
+# The Pages artifact (_site) is kept as the workflow artifact "site" for that deploy.
+name: CI
+
+on:
+  push:
+    branches: ['**']   # every branch push; a tag push runs this through pages.yml (no second run)
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_TERM_COLOR: always
+  WASM_BINDGEN_VERSION: 0.2.129
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust (stable + wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - name: wasm-bindgen-cli cache
+        id: wbg
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-${{ env.WASM_BINDGEN_VERSION }}-${{ runner.os }}
+
+      - name: wasm-bindgen-cli ${{ env.WASM_BINDGEN_VERSION }}
+        if: steps.wbg.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version "=${WASM_BINDGEN_VERSION}" --locked
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/tests/package-lock.json
+
+      - name: Test dependencies (npm)
+        working-directory: app/tests
+        run: npm ci --ignore-scripts
+
+      - name: Tests (cargo + node)
+        run: app/ci.sh test
+
+      - name: Build (web app)
+        run: app/ci.sh build
+
+      - name: Site (Pages artifact + link check)
+        run: app/ci.sh site
+
+      - name: Browser tests (headless Chrome, no GPU / no model)
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: app/ci.sh browser
+
+      - name: Keep the site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: _site
+          include-hidden-files: true
+          retention-days: 7

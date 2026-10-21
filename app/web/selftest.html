@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR Lite selftest</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 14px/1.5 ui-monospace, Menlo, monospace; margin: 16px; background: Canvas; color: CanvasText; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>OCR Lite — browser selftest</h1>
+  <p>Query: <code>?image=/data/small_a.png&amp;expect=/data/small_a.txt&amp;source=http|opfs&amp;fill=1&amp;preset=NAME</code>
+    — <code>source=opfs&amp;fill=1</code> first downloads the model from <code>/model/</code> into this browser's storage.</p>
+  <pre id="out"></pre>
+  <script type="module" src="selftest.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# OCR Lite — the Cargo workspace:
+#   crates/ocr-decode  the decoding presets + the decoding step (choose) — pure Rust, builds for the browser too
+#   crates/ocr-core    the bake + cheap image ops, the auto crop, the tagged-markup renderer
+#   crates/ocr-gguf    the GGUF reader (pure Rust) — the wgpu engine's loader
+#   crates/ocr-wgpu    the purpose-built LightOnOCR engine on wgpu (WGSL kernels): WebGPU in the browser, Metal / Vulkan /
+#                      DX12 natively
+#   crates/ocr-web     the browser build: ocr-core + ocr-wgpu on WebGPU behind wasm-bindgen (web/, wasm32 only)
+[workspace]
+resolver = "3"
+members = ["crates/ocr-decode", "crates/ocr-core", "crates/ocr-gguf", "crates/ocr-wgpu", "crates/ocr-web"]
+
+# a placeholder: the crates are never published, and the app's version is the release tag (web/dist.py → About)
+[workspace.package]
+version = "0.0.0"
+
+[profile.release]
+debug = false

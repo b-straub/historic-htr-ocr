@@ -1,0 +1,128 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Output Format</title>
+<meta name="description" content="What the model writes: one line per written line, blocks in page order, and a few paired marks for struck, inserted, underlined, raised and lowered text.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html" aria-current="page">Output format</a>
+  <a href="training.html">Training</a>
+  <a href="data.html">Data</a>
+  <a href="metric.html">Metric</a>
+  <a href="outlook.html">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>The output format</h1>
+<p class="lead">The model writes what is on the page, as it is laid out — plain text, one line per written line, plus
+a few paired marks for what a plain transcription loses. The training ground truth is written in the same format.</p>
+
+<h2>Lines and blocks</h2>
+<ul>
+  <li>One output line per written line; a blank line between blocks (paragraphs, margin notes, address, footer).</li>
+  <li>Page reading order: main text first, then margin notes, insertions placed apart, footnotes, catchwords
+    (<a href="#order">below</a>).</li>
+  <li>A line-end hyphen only where the ink has one, written <code>-</code>.</li>
+</ul>
+
+<h2>Inline marks</h2>
+<p>Each mark has its own opening and closing character, so nesting stays readable.</p>
+<div class="tablewrap"><table>
+  <tr><th>Mark</th><th>Meaning</th><th>Example</th></tr>
+  <tr><td><code>⟦…⟧</code></td><td>struck through (words, phrases, a line)</td><td><code>Sie werden ⟦bereits⟧ wissen</code></td></tr>
+  <tr><td><code>⟨…⟩</code></td><td>inserted (above or below the line, in the margin)</td><td><code>der ⟨alte⟩ Freund</code></td></tr>
+  <tr><td><code>〔…〕</code></td><td>underlined</td><td><code>〔Berlin〕</code></td></tr>
+  <tr><td><code>〔〔…〕〕</code></td><td>double underlined — in the format and the converter; the current model has not been trained on it yet</td><td><code>〔〔Zürich〕〕</code></td></tr>
+  <tr><td><code>⌈…⌉</code></td><td>superscript</td><td><code>1⌈te⌉</code>, <code>D⌈r⌉</code></td></tr>
+  <tr><td><code>⌊…⌋</code></td><td>subscript</td><td><code>H⌊2⌋O</code></td></tr>
+  <tr><td><code>⌈+⌉</code></td><td>the writer's insertion or reference sign</td><td></td></tr>
+  <tr><td><code>▨</code></td><td>one lost or illegible spot (damage, blot, unreadable) — no length</td><td><code>am ▨ Juni</code></td></tr>
+</table></div>
+<ul>
+  <li><b>Per line.</b> A mark opens and closes on the same line (or table cell); a span across lines is closed at the
+    line end and opened again on the next line.</li>
+  <li><b>Nesting.</b> Different marks nest properly: <code>⟦ab⌈c⌉⟧</code>. The same mark does not nest in itself —
+    except the double underline, two underline pairs directly inside each other.</li>
+  <li><b>No clashes.</b> None of the mark characters occurs as real ink in the training corpora (0 of 33,690 pages), so
+    a mark is always a mark.</li>
+</ul>
+
+<h2>What is kept as written</h2>
+<ul>
+  <li>Spelling, abbreviations (<code>u.</code>, <code>Hr.</code>, <code>d. J.</code>), punctuation, capitalisation;
+    nothing is expanded or normalised.</li>
+  <li>The nasal bar over <code>m</code> / <code>n</code> (U+0305, e.g. <code>m̅</code>).</li>
+  <li>Long s: kept as the training editions wrote it — most write <code>s</code>, two keep <code>ſ</code>. The model
+    therefore writes <code>ſ</code> only occasionally (in hands like those sources); normalise <code>ſ</code> → <code>s</code>
+    if you need uniform text.</li>
+</ul>
+
+<h2>What is deliberately left plain</h2>
+<ul>
+  <li><b>Passage strike-outs.</b> A whole passage crossed out (a paragraph, a region) is written as plain text —
+    striking a passage is an editing step, not a reading step. Word- and line-level strikes are marked.</li>
+  <li><b>A replacement written in the line.</b> When a struck word is followed directly by its replacement in the same
+    line, the replacement is plain: <code>⟦bereits⟧ schon</code>. Only a replacement written elsewhere (above, below, in
+    the margin) carries <code>⟨ ⟩</code>.</li>
+  <li><b>An insertion that starts with a reference sign</b> (<code>⌈+⌉</code>) is not wrapped in <code>⟨ ⟩</code>: the
+    sign already says it was moved.</li>
+  <li>Bold, italic, letter-spacing, colour, changes of hand or script (Latin words inside Kurrent are just text),
+    overwritten under-layers (only the final letters are given), editors' additions, expansions, notes.</li>
+</ul>
+
+<h2>Tables</h2>
+<ul>
+  <li>One line per table row; cells separated by a <b>TAB</b>. An empty cell is nothing between two TABs.</li>
+  <li>A line break inside a cell is <code>↵</code>; a paragraph break inside a cell is <code>↵↵</code>.</li>
+  <li>A cell spanning several columns is one field; a cell spanning several rows writes its text in its top row.</li>
+  <li>A table of one column is written as plain lines. Inline marks work inside cells as anywhere else.</li>
+</ul>
+<pre><code>Name	Ort	Jahr
+Humboldt	Berlin	1856
+	Kardong↵(Lahaul)	</code></pre>
+
+<h2 id="order">Reading order vs. scholarly editions</h2>
+<p>Editions (TEI) follow the logic of the text; this model follows the layout of the page. Where they differ, the
+ground truth was rebuilt in page order:</p>
+<ul>
+  <li>margin notes and insertions written apart from their anchor come as their own block, not inline</li>
+  <li>marks by a later hand (archive stamps, pencil numbering) are their own blocks</li>
+  <li>footnotes and catchwords stand at the foot of the page as written</li>
+  <li>two-column drafts are read left column, then right column</li>
+  <li>tables are rows, not the edition's prose</li>
+</ul>
+<p>Compare the output with an edition's text only after accounting for this: plain CER against an edition's reading
+text overstates the error.</p>
+
+<h2>Converting the output</h2>
+<p><code>convert_output.py</code> (shipped with the model on Hugging Face) turns the output into plain TEI P5, or into
+a self-contained HTML viewer of that TEI — the <a href="examples/humboldt_48r.html">examples</a> are made with it:</p>
+<pre><code>python convert_output.py page.txt --to tei  --status raw &gt; page.xml
+python convert_output.py page.txt --to html --status raw &gt; page.html</code></pre>
+<div class="tablewrap"><table>
+  <tr><th>Output</th><th>TEI</th></tr>
+  <tr><td>line / blank line</td><td><code>&lt;lb/&gt;</code> / <code>&lt;ab&gt;</code> per block</td></tr>
+  <tr><td><code>⟦…⟧</code></td><td><code>&lt;del rend="strikethrough"&gt;</code></td></tr>
+  <tr><td><code>⟨…⟩</code></td><td><code>&lt;add&gt;</code></td></tr>
+  <tr><td><code>〔…〕</code> / <code>〔〔…〕〕</code></td><td><code>&lt;hi rend="underline"&gt;</code> / <code>&lt;hi rend="double-underline"&gt;</code></td></tr>
+  <tr><td><code>⌈…⌉</code> / <code>⌊…⌋</code></td><td><code>&lt;hi rend="superscript"&gt;</code> / <code>&lt;hi rend="subscript"&gt;</code></td></tr>
+  <tr><td><code>⌈+⌉</code></td><td><code>&lt;metamark rend="superscript"&gt;+&lt;/metamark&gt;</code></td></tr>
+  <tr><td><code>▨</code></td><td><code>&lt;gap/&gt;</code></td></tr>
+  <tr><td>TAB / <code>↵</code></td><td><code>&lt;table&gt;&lt;row&gt;&lt;cell&gt;</code>, <code>&lt;lb/&gt;</code> in a cell</td></tr>
+</table></div>
+<p>The TEI is a diplomatic transcription in page order, with no <code>&lt;choice&gt;</code>, <code>&lt;expan&gt;</code>
+or editorial apparatus. A mark the model runs across a line break is closed and reopened per line, and noted; any other
+malformed mark is reported with its line number and nothing is written.</p>
+
+<footer>Bernhard Straub · <a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>

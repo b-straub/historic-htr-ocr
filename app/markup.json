@@ -1,0 +1,14 @@
+{
+ "about": "The tagged markup the model writes (site/markup.html): each inline mark is an open + close pair; a table row's cells are TAB-separated, a line break inside a cell is ↵. Compiled into ocr-core (render.rs).",
+ "markup": {
+  "inline": {
+   "del": "⟦⟧",
+   "ins": "⟨⟩",
+   "u": "〔〕",
+   "sup": "⌈⌉",
+   "sub": "⌊⌋"
+  },
+  "cellSep": "\t",
+  "cellBreak": "↵"
+ }
+}

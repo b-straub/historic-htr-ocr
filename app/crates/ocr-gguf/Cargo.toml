@@ -1,0 +1,11 @@
+[package]
+name = "ocr-gguf"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+# The GGUF reader (pure Rust, no llama.cpp): used by the wgpu engine (ocr-wgpu) to load the model and to show the model
+# files' weight formats.
+[dependencies]
+anyhow = "1.0.104"
+half = "=2.7.1"

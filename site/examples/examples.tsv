@@ -1,0 +1,4 @@
+# name	title (convert_output.py --title) — inputs: <name>.txt (the model's output) + <name>.jpg (the page, 1540 px)
+humboldt_48r	Alexander von Humboldt, notes of 1799 — page 48r (model output, greedy_rp1.1, not proofread)
+humboldt_17r	Alexander von Humboldt, notes of 1799 — page 17r (model output, greedy_rp1.1, not proofread)
+goethe_blb_6171314	Johann Wolfgang von Goethe to August von Goethe, 25–29 June 1830 (BLB Karlsruhe, K 703) — model output, greedy_rp1.1, not proofread

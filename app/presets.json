@@ -1,0 +1,21 @@
+{
+ "why": "THE decoding presets of OCR Lite (compiled into the app, read-only there) — the same presets an evaluation or a server-side read (vLLM, Transformers) uses, so a read in the browser and a scored read decode alike. A knob not listed here does not exist. Change a preset here, nowhere else.",
+ "fields": {
+  "temperature": "0 = greedy (vLLM: temperature 0 + top_k 1)",
+  "topP": "nucleus cut, only with temperature > 0 (1.0 = off)",
+  "repetitionPenalty": "windowed: each distinct token among the last repetitionWindow tokens (prompt tail + output): logit < 0 → × rp, else ÷ rp (hf/window_rep_penalty.py); 1.0 = off",
+  "repetitionWindow": "tokens the repetition penalty looks back",
+  "frequencyPenalty": "logit −= value × count of the token in the OUTPUT so far (vLLM's frequency_penalty); 0 = off",
+  "maxNewTokens": "hard token limit of one read",
+  "gtTokenCapFactor": "scoring a page with a reference transcription: max tokens = max(gtTokenCapFloor, min(maxNewTokens, int(factor × the reference's tokens))), counted by the model's own tokenizer"
+ },
+ "gtTokenCapFloor": 256,
+ "names": "letters, digits, . _ - only (a preset name is passed as one shell word)",
+ "seedRule": "a sampled read (temperature > 0) uses seed = int(md5(page stem, UTF-8).hexdigest()[:8], 16) — the same page reads the same every time",
+ "cliDefault": "greedy_rp1.1",
+ "presets": [
+  {"name": "greedy_rp1.1", "temperature": 0, "topP": 1.0, "repetitionPenalty": 1.1, "repetitionWindow": 20, "frequencyPenalty": 0, "maxNewTokens": 7024, "gtTokenCapFactor": 2.0},
+  {"name": "greedy_rp1.1_fp0.1", "temperature": 0, "topP": 1.0, "repetitionPenalty": 1.1, "repetitionWindow": 20, "frequencyPenalty": 0.1, "maxNewTokens": 7024, "gtTokenCapFactor": 2.0},
+  {"name": "sampled_T0.1_p0.9", "temperature": 0.1, "topP": 0.9, "repetitionPenalty": 1.0, "repetitionWindow": 20, "frequencyPenalty": 0, "maxNewTokens": 7024, "gtTokenCapFactor": 2.0}
+ ]
+}

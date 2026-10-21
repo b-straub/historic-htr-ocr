@@ -1,0 +1,336 @@
+<!doctype html>
+<!-- OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR Lite</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="render.css">
+</head>
+<body>
+  <div class="edgeband" aria-hidden="true"></div>
+  <header class="titlebar">
+    <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span>OCR Lite</button>
+    <button class="btn" id="openBtn"><i data-icon="folder"></i>Open</button>
+    <div class="seg" title="image steps — applied in order, each one undoable">
+      <button class="ib" data-op="rotateLeft" title="Rotate left"><i data-icon="rotl"></i></button>
+      <button class="ib" data-op="rotateRight" title="Rotate right"><i data-icon="rotr"></i></button>
+      <button class="ib" data-op="rotate180" title="Rotate 180°"><i data-icon="flip"></i></button>
+      <span class="div"></span>
+      <button class="ib" data-op="autoContrast" title="Auto contrast (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
+      <button class="ib" data-op="pencil" title="Pencil preset: flatten paper · green channel"><i data-icon="pencil"></i></button>
+      <span class="div"></span>
+      <div class="menuwrap">
+        <button class="ib" id="autoCropBtn" title="Crop: auto crop to the paper (built-in algorithm) or draw one by hand"><i data-icon="autocrop"></i></button>
+        <div class="menu pop" id="autoCropMenu" hidden>
+          <div class="poprow"><span>Page</span>
+            <span class="seg" id="pageSideSeg">
+              <button class="ib on" data-side="" title="the algorithm decides (a spread may be split)">Auto</button>
+              <button class="ib" data-side="left" title="the left page of a spread">Left</button>
+              <button class="ib" data-side="right" title="the right page of a spread">Right</button>
+              <button class="ib" data-side="double" title="keep both pages of a spread">Double</button>
+              <button class="ib" data-side="leaf" title="one loose sheet — card, postcard, letter: keep the whole leaf, trim a facing-leaf sliver at a fold">Leaf</button>
+            </span>
+          </div>
+          <div class="poprow">
+            <button class="btn small" id="drawCropBtn" title="drag a rectangle on the image by hand">Draw crop</button>
+            <button class="btn primary small" id="autoCropGo">Find crop</button>
+          </div>
+        </div>
+      </div>
+      <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
+      <button class="ib" id="resetBtn" title="Back to the original"><i data-icon="reset"></i></button>
+    </div>
+    <div class="grow"></div>
+    <label class="select"><select id="presetSel" title="decoding preset"></select></label>
+    <button class="ib ghost" id="helpBtn" title="Help"><i data-icon="help"></i></button>
+    <button class="ib ghost" id="settingsBtn" title="Settings"><i data-icon="gear"></i></button>
+    <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
+  </header>
+
+  <main>
+    <section class="card" id="imgCard">
+      <div class="cardhead">
+        <span class="label">Image</span>
+        <span class="chips" id="opsChips"></span>
+        <span class="grow"></span>
+        <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
+          <button class="ib" id="zoomOutBtn" title="Zoom out"><i data-icon="zoomout"></i></button>
+          <span class="meta zoomval" id="zoomVal">100 %</span>
+          <button class="ib" id="zoomInBtn" title="Zoom in"><i data-icon="zoomin"></i></button>
+          <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
+        </span>
+        <span class="meta" id="bakeInfo"></span>
+      </div>
+      <div class="hintbar" id="cropHint" role="status" hidden>
+        <span class="hinttext">Tip: crop to the page — the model reads best on the paper alone.</span>
+        <span class="hintbtns">
+          <button class="btn small primary" id="cropHintFind" title="Find the paper (the crop menu's page setting) — Crop applies it">Find crop</button>
+          <button class="btn small" id="cropHintDraw" title="Drag a rectangle on the image by hand">Draw crop</button>
+          <button class="btn small" id="cropHintWhole" title="Read the whole image — hide this tip">Use whole page</button>
+          <button class="linkbtn" id="cropHintNever" title="Hide this tip for good in this browser">Don't show again</button>
+        </span>
+      </div>
+      <div class="imgwrap" id="imgPane">
+        <div id="stage" hidden>
+          <img id="img" alt="page" draggable="false">
+          <div id="rect" hidden></div>
+          <div class="pill" id="cropPill" hidden>
+            <button class="btn small primary" id="cropApply">Crop</button>
+            <button class="btn small" id="cropCancel">Cancel</button>
+          </div>
+        </div>
+        <div class="empty" id="drop">
+          <i data-icon="image"></i>
+          <div>Drop an image here</div>
+          <div class="sub">or <a href="#" id="openLink">open a file</a> · crop: the crop button</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="textCard">
+      <div class="cardhead tools" id="editbar">
+        <span class="label">Text</span>
+        <span class="seg" id="fmtSeg"></span>
+        <span class="seg">
+          <button class="ib" id="gapBtn" title="Insert ▨ (illegible)">▨</button>
+          <button class="ib" id="tabBtn" title="New table cell (Tab)"><i data-icon="table"></i></button>
+        </span>
+        <span class="seg">
+          <button class="ib" id="undoBtn" title="Undo (⌘Z)"><i data-icon="undo"></i></button>
+          <button class="ib" id="redoBtn" title="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
+        </span>
+        <span class="grow"></span>
+        <button class="btn small toggle" id="markupBtn" title="Show the raw markup">Markup</button>
+        <button class="ib ghost" id="copyBtn" title="Copy markup"><i data-icon="copy"></i></button>
+        <div class="menuwrap">
+          <button class="ib ghost" id="saveBtn" title="Save"><i data-icon="save"></i></button>
+          <div class="menu" id="saveMenu" hidden>
+            <button data-save="txt">Markup (.txt)</button>
+            <button data-save="html">Rendered page (.html)</button>
+            <button data-save="png">Model input image (.png)</button>
+          </div>
+        </div>
+      </div>
+      <div id="editor" class="page" contenteditable="true" spellcheck="false" data-placeholder="Read an image — the text appears here and can be edited"></div>
+      <textarea id="src" spellcheck="false" hidden></textarea>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span class="dot" id="dot"></span>
+    <span id="status">Ready</span>
+    <span class="grow"></span>
+    <span class="meta" id="backendInfo"></span>
+  </footer>
+
+  <dialog id="aboutDlg" class="about">
+    <form method="dialog">
+      <div class="dlghead">
+        <h2><span class="logo"></span>OCR Lite</h2>
+        <button type="submit" class="ib ghost" title="Close"><i data-icon="close"></i></button>
+      </div>
+      <dl class="facts">
+        <dt>Version</dt><dd id="aboutVersion"></dd>
+        <dt>Build</dt><dd id="aboutGit"></dd>
+        <dt>Built</dt><dd id="aboutBuilt"></dd>
+        <dt>Engine</dt><dd id="aboutEngine"></dd>
+      </dl>
+      <p class="hint">Reads historic handwriting with a LightOnOCR model fine-tuned for this project. Everything runs on this device; images never leave it.</p>
+      <section class="lic">
+        <h3>Licences</h3>
+        <dl>
+          <dt>OCR Lite</dt>
+          <dd>MIT — Copyright (c) 2026 Bernhard Straub. Covers this app's code only, not the model.</dd>
+          <dt>Model</dt>
+          <dd><a class="ext" href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">LightOnOCR-3-1B · Historic German Handwriting</a> — open, under <b>CC BY-SA 4.0</b>;
+            a fine-tune of <a class="ext" href="https://huggingface.co/lightonai/LightOnOCR-3-1B">LightOnOCR-3-1B</a> (LightOn, Apache-2.0).
+            Project, source and issues: <a class="ext" href="https://github.com/b-straub/historic-htr-ocr">github.com/b-straub/historic-htr-ocr</a>.</dd>
+          <dt>Training data</dt>
+          <dd>Trained only on openly licensed editions and archives (the list of the model card):
+            <ul class="srcs">
+              <li><a class="ext" href="https://www.briefedition.alfred-escher.ch">Digitale Briefedition Alfred Escher</a> — Staatsarchiv des Kantons Zürich · Zenodo 10927129<br><span class="meta">text CC BY-SA 4.0¹ · images CC BY-SA 4.0¹</span></li>
+              <li><a class="ext" href="https://huggingface.co/datasets/dh-unibe/image-text_kurrent-xix">Kurrent XIX — Regierungsratsprotokolle</a> — Staatsarchiv Zürich / DH Uni Bern<br><span class="meta">text MIT · images MIT</span></li>
+              <li><a class="ext" href="https://huggingface.co/datasets/dh-unibe/image-text_historisches-grundbuch-basel_xix-xx">Historisches Grundbuch Basel</a> — DH Uni Bern<br><span class="meta">text MIT · images MIT</span></li>
+              <li><a class="ext" href="https://www.deutschestextarchiv.de">DTA · Hidden Kosmos</a> — Deutsches Textarchiv (BBAW); images SBB<br><span class="meta">text CC BY 4.0 · images Public Domain Mark (SBB)</span></li>
+              <li><a class="ext" href="https://edition-humboldt.de">edition humboldt digital</a> — BBAW · v12.0.0<br><span class="meta">text CC BY-SA 4.0¹ · images Public Domain Mark (SBB)</span></li>
+              <li><a class="ext" href="https://naegeli-briefe.ch">Nägeli-Briefe</a> — Zentralbibliothek Zürich<br><span class="meta">text CC BY-SA 4.0 · images Public Domain Mark (e-manuscripta)</span></li>
+              <li><a class="ext" href="https://zenodo.org/records/11038498">Frauen im Fokus</a> — SBB / Universität Potsdam<br><span class="meta">text CC0 1.0 · images Public Domain Mark (SBB)</span></li>
+              <li><a class="ext" href="https://zenodo.org/records/15223355">Fanny Hensel</a> — SBB / UdK Berlin<br><span class="meta">text CC BY 4.0 · images Public Domain Mark (SBB)</span></li>
+              <li><a class="ext" href="https://huggingface.co/datasets/dh-unibe/image-text_german-20th-century">German 20th century (3 subsets)</a> — DH Uni Bern<br><span class="meta">text MIT · images MIT</span></li>
+              <li><a class="ext" href="https://zenodo.org/records/17252677">Gantner (DTA part)</a> — M. Gantner<br><span class="meta">text CC BY 4.0 · images CC BY 4.0</span></li>
+            </ul>
+            ¹ Licence clarification in process: move to CC BY 4.0 (without ShareAlike).<br>
+            Digitisations of the Staatsbibliothek zu Berlin: „Staatsbibliothek zu Berlin – Preußischer Kulturbesitz",
+            <a class="ext" href="https://digital.staatsbibliothek-berlin.de">https://digital.staatsbibliothek-berlin.de</a> (Public Domain Mark 1.0).
+            The MIT-licensed datasets (DH Uni Bern) are used under the MIT licence. No images or transcriptions are
+            redistributed with the model or this app.</dd>
+          <dt>Components</dt>
+          <dd>
+            <ul>
+              <li>wgpu (MIT OR Apache-2.0)</li>
+              <li>image (MIT OR Apache-2.0)</li>
+              <li>jxl-oxide (MIT OR Apache-2.0)</li>
+              <li>moxcms (BSD-3-Clause OR Apache-2.0)</li>
+              <li>wasm-bindgen (MIT OR Apache-2.0)</li>
+              <li>and further Rust crates under open-source licences — mostly MIT / Apache-2.0, some BSD, ISC, Zlib, Unicode-3.0, MPL-2.0</li>
+            </ul>
+          </dd>
+        </dl>
+      </section>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDlg">
+    <form method="dialog" id="settingsForm">
+      <div class="dlghead">
+        <h2>Settings</h2>
+        <button type="button" class="ib ghost" id="settingsCancel" title="Close"><i data-icon="close"></i></button>
+      </div>
+      <section class="group">
+        <h3>Model <span class="meta">this browser's storage (OPFS)</span></h3>
+        <p class="hint">text-q8_0.gguf + mmproj-bf16.gguf (1.4 GB) — stored once, read from here by the engine; never held in memory as a whole.</p>
+        <div class="tablewrap"><table id="opfsTable"></table></div>
+        <p class="hint" id="opfsQuota"></p>
+        <p class="hint" id="modelSourceWeb"></p>
+        <p class="hint">The model is open (CC BY-SA 4.0): downloaded once from its <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">Hugging Face repository</a>, then read from this browser's storage, offline too.</p>
+        <div class="field wide">
+          <button type="button" class="btn primary" id="modelFromHub">Download from Hugging Face</button>
+        </div>
+        <div class="field wide" id="modelOtherSources">
+          <label class="btn" for="modelFiles">Upload model files…</label>
+          <input id="modelFiles" type="file" accept=".gguf" multiple hidden>
+          <input id="modelUrl" type="url" spellcheck="false" placeholder="or download from a folder URL holding both files (https://…)">
+          <button type="button" class="btn" id="modelDownload">Download</button>
+        </div>
+        <progress id="modelProgress" max="1" value="0" hidden></progress>
+        <p class="hint" id="modelProgressText"></p>
+        <p class="hint" id="modelFormatWeb"></p>
+        <p class="hint" id="gpuMemoryWeb"></p>
+      </section>
+      <section class="group">
+        <h3>Decoding presets</h3>
+        <p class="hint">Shipped presets (presets.json) are read-only — duplicate one to make your own.</p>
+        <div class="tablewrap"><table id="presetTable"></table></div>
+      </section>
+      <p id="settingsErr" class="err"></p>
+      <div class="dlgfoot">
+        <button type="button" class="btn primary" id="settingsSave">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- the first-run setup (setup.js; browser build only) — a sheet over the app, one step shown at a time -->
+  <dialog id="setupDlg" class="setup">
+    <div class="sheet">
+      <div class="dlghead">
+        <h2><span class="logo"></span>Set up OCR Lite</h2>
+        <button type="button" class="ib ghost" id="suClose" title="Close"><i data-icon="close"></i></button>
+      </div>
+      <ol class="steps" id="suSteps">
+        <li data-for="gpu">Device</li><li data-for="where">Install</li>
+        <li data-for="model">Model</li><li data-for="done">Read</li>
+      </ol>
+      <section data-step="gpu">
+        <p class="suverdict" id="suGpuHead"></p>
+        <ul class="sudetected" id="suGpuDetected"></ul>
+        <ul class="err" id="suGpuProblems"></ul>
+        <div id="suGpuNotes"></div>
+        <div id="suGpuHints"></div>
+        <p class="hint" id="suGpuLast"></p>
+        <div class="dlgfoot">
+          <button type="button" class="btn" id="suGpuHelp">Help</button>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="suGpuAgain">Check again</button>
+          <button type="button" class="btn" id="suGpuAnyway" hidden>Continue anyway</button>
+          <button type="button" class="btn primary" id="suGpuNext" hidden>Continue</button>
+        </div>
+      </section>
+      <section data-step="where" hidden>
+        <p>OCR Lite reads on this device. It needs the model (1.4 GB, downloaded once from Hugging Face) in the browser's storage.</p>
+        <p class="hint">An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage, apart from this tab — so download the model inside the app you will use.</p>
+        <p class="hint" id="suNoInstall" hidden></p>
+        <div class="dlgfoot">
+          <button type="button" class="btn" id="suInBrowser">Continue in this browser</button>
+          <button type="button" class="btn primary" id="suToInstall">Install as app (recommended)</button>
+        </div>
+      </section>
+      <section data-step="install" hidden>
+        <div id="suHint"></div>
+        <div class="dlgfoot start"><button type="button" class="btn primary" id="suInstallBtn" hidden>Install OCR Lite</button></div>
+        <p class="hint">Then open the installed OCR Lite and continue the setup there — this tab can be closed.</p>
+        <p class="hint ok" id="suInstalled"></p>
+        <details class="suother"><summary>Other devices</summary><div id="suOtherHints"></div></details>
+        <div class="dlgfoot">
+          <button type="button" class="btn" id="suInstallBack">Back</button>
+          <button type="button" class="btn" id="suInstallSkip">Continue in this browser instead</button>
+        </div>
+      </section>
+      <section data-step="model" hidden>
+        <p id="suModelNote"></p>
+        <progress id="suProgress" max="1" value="0" hidden></progress>
+        <p class="hint" id="suProgressText"></p>
+        <p class="err" id="suModelErr"></p>
+        <div class="dlgfoot">
+          <label class="btn" id="suFilesBtn" for="suFiles" title="text-q8_0.gguf + mmproj-bf16.gguf">I have the files</label>
+          <input id="suFiles" type="file" accept=".gguf" multiple hidden>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="suCancel" hidden>Cancel</button>
+          <button type="button" class="btn" id="suDownload">Download</button>
+          <button type="button" class="btn primary" id="suNext" hidden>Next</button>
+        </div>
+      </section>
+      <section data-step="done" hidden>
+        <p><b>Ready — open an image and press Read.</b></p>
+        <p class="hint">Crop to the text first (crop button → Find crop or Draw crop); Contrast or Pencil help with faint ink or uneven paper.</p>
+        <div class="dlgfoot">
+          <button type="button" class="btn" id="suDone">Close</button>
+          <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i>Open an image</button>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="helpDlg" class="about help">
+    <form method="dialog">
+      <div class="dlghead">
+        <h2><span class="logo"></span>Help</h2>
+        <button type="submit" class="ib ghost" title="Close"><i data-icon="close"></i></button>
+      </div>
+      <section class="helpbody">
+        <h3>Setup</h3>
+        <p>OCR Lite needs the model (1.4 GB) in this browser's storage — the setup checks the device and downloads it once from Hugging Face. An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage: set it up inside the app you use.</p>
+        <p>The model is <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">LightOnOCR-3-1B · Historic German Handwriting</a> (open, CC BY-SA 4.0). About the project, the output format and the source: <a href="https://b-straub.github.io/historic-htr-ocr/" target="_blank" rel="noopener">the project page</a> and <a href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">GitHub</a> (questions and reading errors worth reporting: its issues).</p>
+        <h3>Workflow</h3>
+        <ol>
+          <li><b>Open</b> an image, or drop it on the image pane.</li>
+          <li><b>Crop</b> to the text: the crop button → <b>Find crop</b> (Page: Auto, Left, Right, Double, Leaf) or <b>Draw crop</b>, then Crop.</li>
+          <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper. Undo / back to the original beside them.</li>
+          <li><b>Read</b> — the text streams in; Stop ends the read.</li>
+          <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup.</li>
+          <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
+        </ol>
+        <h3>Zoom</h3>
+        <p>− / + / fit above the image; ⌘ / ctrl + wheel or a trackpad pinch; two fingers on a touch screen. A drag pans; a double-click or double-tap fits.</p>
+        <h3>Status line</h3>
+        <p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset.</p>
+        <h3>Offline</h3>
+        <p>Once downloaded, the model stays in this browser's storage and OCR Lite reads without a connection. Settings shows the stored files; deleting them frees the 1.4 GB.</p>
+        <h3>Devices</h3>
+        <p>A read needs about 2 GB of GPU memory: iPad and Mac with Apple silicon are fine, iPhones are not supported (they run out of memory). Chrome / Edge 113+, Safari 26+.</p>
+        <p><b>Check this device</b> tests the GPU (WebGPU, its limits, a 1-second speed test) and estimates the reading speed. A laptop with two GPUs may run the browser on the slower built-in one — the check then says how to switch to the graphics card.</p>
+        <h3>Privacy</h3>
+        <p>Everything runs on this device: images and texts never leave it.</p>
+      </section>
+      <div class="dlgfoot">
+        <button type="button" class="btn" id="helpCheckBtn">Check this device</button>
+        <button type="button" class="btn" id="helpSetupBtn">Run setup again</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="editor.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

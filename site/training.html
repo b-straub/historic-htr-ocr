@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training</title>
+<meta name="description" content="How the model was trained: the recipe, the data export, the checkpoint sweep and the pick.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html">Output format</a>
+  <a href="training.html" aria-current="page">Training</a>
+  <a href="data.html">Data</a>
+  <a href="metric.html">Metric</a>
+  <a href="outlook.html">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>Training</h1>
+<p class="lead">One run, one GPU, about eleven hours: the vision side of LightOnOCR-3-1B learns historic hands, the
+language model stays as it is.</p>
+<p class="note">The training code follows with the code release.</p>
+
+<h2>Recipe</h2>
+<div class="tablewrap"><table>
+  <tr><th>Base</th><td><code>lightonai/LightOnOCR-3-1B</code>, revision <code>23d5440</code></td></tr>
+  <tr><th>Trained</th><td>vision encoder + projector, 409.6 M of 1,005.6 M parameters; the language model frozen</td></tr>
+  <tr><th>Data</th><td>21,038 pages / 17.7 M characters from 12 subsets (<a href="data.html">Data</a>); validation 610 pages</td></tr>
+  <tr><th>Image</th><td>cropped to the sheet, longest edge 1540 px on a 28 px grid, JPEG XL distance 1, colour</td></tr>
+  <tr><th>Optimiser</th><td>AdamW, LR 2e-4, 50 warm-up steps, cosine to 0, gradient-norm clip 0.5, no weight decay</td></tr>
+  <tr><th>Batch</th><td>8 pages per step × 4 accumulation = 32 pages</td></tr>
+  <tr><th>Length</th><td>3,488 steps = 5.3 epochs; max sequence 6,144 tokens (no page cut); FlashAttention 2</td></tr>
+  <tr><th>Hardware</th><td>1 × NVIDIA RTX PRO 6000 Blackwell (peak memory 88.6 GB), 10 h 56 min</td></tr>
+</table></div>
+
+<h2>Why the language model stays frozen</h2>
+<p>The base model already writes German, French and Latin well; what it cannot do is read historic hands. Training
+only the vision encoder and the projector (41 % of the parameters) keeps its language knowledge intact. In
+a side test on the hardest source (Humboldt's manuscripts), opening the last four language layers or the whole language
+model at a low learning rate lowered the validation loss but did not read better beyond noise.</p>
+
+<h2>The data export</h2>
+<p>Every page is cropped to the paper edge (no scanner bed, colour chart or second page of a spread), scaled to
+1540 px on its longest edge and stored as lossy JPEG XL. The validation set is a seeded 3 % hash of the page id — the
+same rule for every source — so no page is ever both trained and scored. Pages with a defect flag (the edition omits
+text, the text under-fills the page, a catchword unread), pages that failed the crop check and pages under 50
+characters of ground truth are left out. The sources are not re-weighted: every page is seen once per epoch.</p>
+
+<h2>Choosing the checkpoint</h2>
+<p>Checkpoints were saved along the run and each one read the 610 validation pages. The release is <b>step 2600</b>, the
+minimum of the validation loss on the 530 pages with checked ground truth. In two training runs with this recipe the
+later, annealed checkpoints read no better than that minimum — not on the validation pages
+— and the minimum kept the most exactly read words.</p>
+
+<h2>Decoding</h2>
+<p>The recommended setting, <code>greedy_rp1.1</code>, is greedy decoding with a repetition penalty of 1.1 over only
+the last 20 tokens. On all 610 validation pages it read at 4.74 % CER and ran away on 2 pages; the plain sampled setting
+(temperature 0.1, top-p 0.9) read at 5.09 % with 7 runaways. A whole-context repetition penalty, as built into most
+inference libraries, taxes every mark and line break on the page and caused block loops.</p>
+
+<h2>Cost</h2>
+<p>About 11 GPU-hours on one RTX PRO 6000. Adapting the model to a new hand costs far less: in a first few-shot test,
+28 pages of an unseen, hard collection and 60 training steps (under an hour) roughly halved its CER, from 44 % to 25 %
+— one collection, a preliminary result.</p>
+
+<footer>Bernhard Straub · <a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>

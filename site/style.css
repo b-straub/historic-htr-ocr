@@ -1,0 +1,62 @@
+/* OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT */
+/* historic-htr-ocr — the project pages (GitHub Pages, docs/). One small sheet, light + dark, no external fonts. */
+:root {
+  --bg: #fbfaf7;
+  --fg: #1d1c1a;
+  --muted: #5d5a54;
+  --line: #dedad2;
+  --accent: #2b5d8a;
+  --code-bg: #f0ede6;
+  --del: #8a3b3b;
+  --todo-bg: #fff2c4;
+  --todo-fg: #5a4600;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181a1d;
+    --fg: #e6e3dc;
+    --muted: #a19d95;
+    --line: #34373c;
+    --accent: #8db8e0;
+    --code-bg: #24272b;
+    --del: #e09a9a;
+    --todo-bg: #4a3f12;
+    --todo-fg: #f5e4a3;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 46rem; margin: 0 auto; padding: 1.2rem 16px 3rem; }
+nav { display: flex; flex-wrap: wrap; gap: .3rem 1rem; font-size: .92rem; padding-bottom: .8rem; border-bottom: 1px solid var(--line); }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover, nav a[aria-current] { color: var(--fg); }
+h1 { font-size: 1.7rem; line-height: 1.25; margin: 1.4rem 0 .4rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; }
+h3 { font-size: 1.02rem; margin: 1.4rem 0 .3rem; }
+p, ul, ol { margin: 0 0 .9rem; }
+a { color: var(--accent); }
+.lead { font-size: 1.08rem; color: var(--muted); }
+.cta { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.2rem 0; }
+.cta a { display: inline-block; padding: .5rem .9rem; border: 1px solid var(--accent); border-radius: 6px; text-decoration: none; }
+.cta a.primary { background: var(--accent); color: var(--bg); }
+code, pre { font: .88em/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+code { background: var(--code-bg); padding: .05em .3em; border-radius: 3px; }
+pre { background: var(--code-bg); padding: .8rem 1rem; border-radius: 6px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+.tablewrap { overflow-x: auto; margin: 0 0 1rem; }
+table { border-collapse: collapse; font-size: .93rem; }
+th, td { border-bottom: 1px solid var(--line); padding: .35rem .6rem .35rem 0; text-align: left; vertical-align: top; }
+th { font-weight: 600; }
+td.num, th.num { text-align: right; }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+.figs a { display: block; padding: .8rem; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--fg); }
+.figs a span { display: block; color: var(--muted); font-size: .9rem; }
+.todo { background: var(--todo-bg); color: var(--todo-fg); padding: .05em .3em; border-radius: 3px; font-size: .92em; }
+.note { color: var(--muted); font-size: .92rem; }
+footer { margin-top: 3rem; padding-top: .8rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }

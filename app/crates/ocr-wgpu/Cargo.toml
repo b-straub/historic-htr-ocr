@@ -1,0 +1,30 @@
+[package]
+name = "ocr-wgpu"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+# The purpose-built LightOnOCR engine on wgpu (WebGPU in the browser; Metal / Vulkan / DX12 natively).
+# No llama.cpp: GGUF read in Rust, every op a hand-written WGSL kernel. Checked against llama.cpp's reads during
+# development (examples/read.rs --ref / --ref-embd take such reference dumps).
+[dependencies]
+anyhow = "1.0.104"
+# the oneshot channel the GPU callbacks complete (map_async, on_submitted_work_done) — awaited natively and in the browser
+futures-channel = "=0.3.34"
+bytemuck = { version = "=1.25.2", features = ["derive"] }
+half = "=2.7.1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+ocr-decode = { path = "../ocr-decode" }
+ocr-gguf = { path = "../ocr-gguf" }
+pollster = "=1.0.1"
+# \p{L} for the qwen2 pre-tokenizer (tokenizer.rs)
+regex = "1.13.1"
+# std::time::Instant panics on wasm32-unknown-unknown; web-time is std's Instant natively, performance.now() in the browser
+web-time = "=1.1.0"
+serde_json = "1"
+# pinned: 30.0.1, a release older than two weeks when it was picked
+wgpu = "=30.0.1"
+
+[dev-dependencies]
+# examples/read.rs bakes an unbaked image exactly as the app does (imageops only: no llama.cpp)
+ocr-core = { path = "../ocr-core", default-features = false }

@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outlook</title>
+<meta name="description" content="What comes next: harder hands, cheap adaptation to new editions, and more open sources.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html">Output format</a>
+  <a href="training.html">Training</a>
+  <a href="data.html">Data</a>
+  <a href="metric.html">Metric</a>
+  <a href="outlook.html" aria-current="page">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>Outlook</h1>
+<p class="lead">The first release reads the well-represented hands well and the rare ones less so. These are the
+directions worth pursuing — no roadmap or dates.</p>
+
+<h2>Adapting to a new collection</h2>
+<p>A model that already reads 19th-century hands should need only a few pages to learn a new one. A first test points
+that way: 28 transcribed pages of an unseen, hard notebook and under an hour of training halved its CER (44 % → 25 %).
+One collection is not a rule — the next step is to repeat it on other hands and to make it a simple recipe an edition
+project can run on its own pages.</p>
+
+<h2>Hard hands</h2>
+<p>Humboldt's late hand (28 % CER on the validation pages) and the Nägeli letters (13 %) show where the model is
+weakest; unknown hands range from near-perfect to hard. More ground truth for such hands, and the few-shot route above,
+are the levers.</p>
+
+<h2>The format</h2>
+<ul>
+  <li>Double underlining (<code>〔〔…〕〕</code>) is in the format and the converter; the model learns it with the next
+    training round.</li>
+</ul>
+
+<h2>More open sources, a freer licence</h2>
+<p>The model is CC BY-SA 4.0 because some of its training texts are. Licence clarifications with the ShareAlike sources
+are in process; once they are settled, a later release may be CC BY 4.0. Editions and archives that publish transcriptions with their scans
+openly are the material this project depends on — more of them means a better reader for everyone.</p>
+<p>Editions and archives that want to help: the most valuable contribution is an openly licensed corpus with a
+<b>diplomatic TEI transcription</b> and its scans — every such edition makes the reader better for everyone. Pages
+that read badly are welcome too. Please <a href="https://github.com/b-straub/historic-htr-ocr/issues">open an issue</a>.</p>
+
+<h2>Code</h2>
+<p>The sources will follow here step by step, as each part is cleaned up — no dates yet:</p>
+<ol>
+  <li><b>OCR Lite</b> — the browser app and its engine (Rust, WebGPU), the first and smallest step.</li>
+  <li><b>The converter and the metric</b> — <code>convert_output.py</code> (already on the model page) and the oCER code.</li>
+  <li><b>Data and training tooling</b> — from the editions to page ground truth, and the training setup: the largest
+    part, and the one that needs the most polishing before it is useful to others.</li>
+</ol>
+<p>Until then, the model page on Hugging Face describes the data, the training and the evaluation.</p>
+
+<footer>Bernhard Straub · <a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>

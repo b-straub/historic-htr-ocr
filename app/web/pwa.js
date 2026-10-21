@@ -1,0 +1,53 @@
+// OCR Lite — Copyright (c) 2026 Bernhard Straub
+// SPDX-License-Identifier: MIT
+//
+// The deployed browser build's service worker hook-up (dist only — web/dist.py links it into index.html):
+// registers sw.js, and when a new deploy has been installed in the background, shows a small banner
+// "New version available — Reload". Nothing is reloaded on its own: a running read is never interrupted; the click
+// activates the worker waiting at that moment (postMessage skipWaiting) and reloads once it has taken over. The worker
+// is looked up at the click, not when the banner appeared: a deploy that lands while the banner shows replaces the
+// waiting worker, and the earlier one turns redundant (a message to it does nothing).
+const $ = (id) => document.getElementById(id);
+
+function reading() {
+  return $("readBtn").classList.contains("stop");
+}
+
+let wanted = false;
+function offer(reg) {
+  if ($("updBar")) return;
+  const bar = Object.assign(document.createElement("div"), { id: "updBar", className: "updbar" });
+  const text = Object.assign(document.createElement("span"), { textContent: "New version available" });
+  const btn = Object.assign(document.createElement("button"), { type: "button", className: "btn small primary", textContent: "Reload" });
+  const later = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: "Later" });
+  btn.onclick = () => {
+    if (reading()) { text.textContent = "A read is running — reload when it is done"; return; }
+    if ($("editor").textContent.trim() && !confirm("Reload now? The text on the right is not saved.")) return;
+    if (reg.waiting === null) { location.reload(); return; } // already taken over (e.g. by another window)
+    wanted = true;
+    reg.waiting.postMessage("skipWaiting");
+  };
+  later.onclick = () => bar.remove();
+  bar.append(text, btn, later);
+  document.body.append(bar);
+}
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (wanted) location.reload(); // only after the click (the first install also takes control: no reload then)
+  });
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    if (reg.waiting && navigator.serviceWorker.controller) offer(reg);
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      w.addEventListener("statechange", () => {
+        if (w.state === "installed" && navigator.serviceWorker.controller) offer(reg);
+      });
+    });
+    // a long-open tab looks for a new deploy now and then (and whenever it comes back to the front)
+    setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update().catch(() => {});
+    });
+  }, (e) => console.warn(`service worker not registered: ${e.message}`));
+}

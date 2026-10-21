@@ -1,0 +1,60 @@
+# OCR Lite — Copyright (c) 2026 Bernhard Straub
+# SPDX-License-Identifier: MIT
+#
+# Publish to GitHub Pages on a version tag (v1.2.3) or by hand — ALWAYS through the full CI first: the test job is
+# ci.yml itself (workflow_call), the build job needs it and takes the very site it built and tested, the deploy job
+# needs the build. A tag whose tests fail never deploys; there is no path around the tests.
+# Pages source: Settings → Pages → Build and deployment → Source "GitHub Actions".
+# The site: site/ at https://b-straub.github.io/historic-htr-ocr/, the app at …/app/, the examples at …/examples/.
+name: Deploy Pages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: The tested site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: _site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

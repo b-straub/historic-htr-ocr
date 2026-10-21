@@ -1,0 +1,25 @@
+[package]
+name = "ocr-web"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+
+# The browser build: ocr-core's image work + ocr-wgpu's engine on WebGPU behind wasm-bindgen
+# exports, used by web/ (the main thread: image commands; the worker: model + read). The whole
+# crate is wasm32-only — natively it is an empty library. Build: web/build.sh (cargo + wasm-bindgen-cli =0.2.129).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+anyhow = "1.0.104"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+js-sys = "=0.3.106"
+ocr-core = { path = "../ocr-core", default-features = false }
+ocr-decode = { path = "../ocr-decode" }
+ocr-wgpu = { path = "../ocr-wgpu" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# the CLI that generates the JS glue must be the SAME version (web/build.sh checks it)
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "=0.4.79"
+web-time = "=1.1.0"

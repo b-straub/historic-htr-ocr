@@ -1,0 +1,81 @@
+<!doctype html>
+<!-- Text: Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: CC-BY-4.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training Data</title>
+<meta name="description" content="The open editions and archives the model was trained on, and how their transcriptions became page ground truth.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="./">Home</a>
+  <a href="app/">Try it</a>
+  <a href="markup.html">Output format</a>
+  <a href="training.html">Training</a>
+  <a href="data.html" aria-current="page">Data</a>
+  <a href="metric.html">Metric</a>
+  <a href="outlook.html">Outlook</a>
+  <a href="https://github.com/b-straub/historic-htr-ocr">GitHub</a>
+</nav>
+
+<h1>Training data</h1>
+<p class="lead">21,038 training pages (17.7 M characters) from openly licensed editions and archives. No images or
+transcriptions are redistributed here or with the model.</p>
+<p class="note">The per-corpus extraction code follows with the code release.</p>
+
+<h2>Sources</h2>
+<div class="tablewrap"><table>
+  <tr><th>Source</th><th>Holder</th><th class="num">Train pages</th><th>Period</th><th>Text · images</th></tr>
+  <tr><td><a href="https://www.briefedition.alfred-escher.ch">Digitale Briefedition Alfred Escher</a></td><td>Staatsarchiv des Kantons Zürich</td><td class="num">13,156</td><td>1831–1882</td><td>CC BY-SA 4.0¹ · CC BY-SA 4.0¹</td></tr>
+  <tr><td><a href="https://huggingface.co/datasets/dh-unibe/image-text_kurrent-xix">Kurrent XIX — Regierungsratsprotokolle</a></td><td>Staatsarchiv Zürich / DH Uni Bern</td><td class="num">1,796</td><td>1868–1887</td><td>MIT · MIT</td></tr>
+  <tr><td><a href="https://huggingface.co/datasets/dh-unibe/image-text_historisches-grundbuch-basel_xix-xx">Historisches Grundbuch Basel</a></td><td>DH Uni Bern</td><td class="num">1,907</td><td>c. 1895–</td><td>MIT · MIT</td></tr>
+  <tr><td><a href="https://www.deutschestextarchiv.de">DTA · Hidden Kosmos</a></td><td>Deutsches Textarchiv (BBAW); images SBB</td><td class="num">1,640</td><td>1827–1828</td><td>CC BY 4.0 · Public Domain Mark</td></tr>
+  <tr><td><a href="https://edition-humboldt.de">edition humboldt digital</a></td><td>BBAW</td><td class="num">925</td><td>1797–1859</td><td>CC BY-SA 4.0¹ · Public Domain Mark</td></tr>
+  <tr><td><a href="https://naegeli-briefe.ch">Nägeli-Briefe</a></td><td>Zentralbibliothek Zürich</td><td class="num">680</td><td>1791–1870</td><td>CC BY-SA 4.0 · Public Domain Mark</td></tr>
+  <tr><td><a href="https://zenodo.org/records/11038498">Frauen im Fokus</a></td><td>SBB / Universität Potsdam</td><td class="num">180</td><td>1869–1921</td><td>CC0 1.0 · Public Domain Mark</td></tr>
+  <tr><td><a href="https://zenodo.org/records/15223355">Fanny Hensel</a></td><td>SBB / UdK Berlin</td><td class="num">158</td><td>1829</td><td>CC BY 4.0 · Public Domain Mark</td></tr>
+  <tr><td><a href="https://huggingface.co/datasets/dh-unibe/image-text_german-20th-century">German 20th century</a> (3 subsets)</td><td>DH Uni Bern</td><td class="num">584</td><td>c. 1900–1920 (dated part)</td><td>MIT · MIT</td></tr>
+  <tr><td><a href="https://zenodo.org/records/17252677">Gantner</a> (DTA part)</td><td>M. Gantner</td><td class="num">12</td><td>1828–1880</td><td>CC BY 4.0 · CC BY 4.0</td></tr>
+</table></div>
+<p class="note">¹ Licence clarification in process: move to CC BY 4.0 (without ShareAlike). Digitisations of the
+Staatsbibliothek zu Berlin: „Staatsbibliothek zu Berlin – Preußischer Kulturbesitz",
+<a href="https://digital.staatsbibliothek-berlin.de">digital.staatsbibliothek-berlin.de</a> (Public Domain Mark 1.0).
+The MIT notice of the University of Bern datasets is reproduced in the
+<a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">model card</a>.</p>
+
+<h2>Whose hands</h2>
+<p>83 % of the training pages come from German-speaking Switzerland. The Escher letters alone are 62.5 % of the pages
+— but many hands, not one: 76 % of those pages are letters <i>to</i> Escher from 702 named senders, Escher's own letters
+are 14 % of all training pages. French is about 8 % of the pages, Latin and English under 1 % each.</p>
+
+<h2>From an edition to page ground truth</h2>
+<p>The editions publish their text for reading — usually TEI, sometimes PAGE XML from Transkribus — not for training a
+page reader. Each source therefore has its own small extractor that turns its files into one page of ground truth per
+scan, all under one rule set:</p>
+<ul>
+  <li><b>Page order, not text order.</b> Margin notes, insertions written apart, later stamps and numbering become
+    their own blocks where they stand on the page; footnotes and catchwords stay at the foot
+    (<a href="markup.html#order">reading order</a>).</li>
+  <li><b>As written.</b> The edition's expansions, normalisations and editorial notes are dropped; abbreviations,
+    spelling and line breaks follow the ink. Strikes, insertions, underlines, super- and subscripts become the
+    <a href="markup.html">inline marks</a>.</li>
+  <li><b>Defects are flagged, not guessed.</b> A page where the edition omits text, where the text under-fills the
+    page or a catchword is unread is left out of training.</li>
+  <li><b>Cropped to the sheet.</b> Every scan is cropped to the paper edge (one page of a double spread) and must pass a
+    crop check before it is used.</li>
+  <li><b>Reviewed samples.</b> Page samples of every source were checked by hand against the scans.</li>
+</ul>
+
+<h2>Checked and unchecked ground truth</h2>
+<p>530 of the 610 validation pages have checked ground truth — an edition's transcription or hand-corrected
+Transkribus pages. The other 80 are unchecked: 65 Basel land-register pages are automatic HTR (PyLaia), 15 German
+20th-century pages are Transkribus transcriptions not marked as corrected. They are scored, but they do not decide the
+checkpoint.</p>
+
+<footer>Bernhard Straub · <a href="https://github.com/b-straub/historic-htr-ocr/issues">GitHub issues</a></footer>
+</div>
+</body>
+</html>
