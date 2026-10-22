@@ -6,6 +6,10 @@
 # needs the build. A tag whose tests fail never deploys; there is no path around the tests.
 # Pages source: Settings → Pages → Build and deployment → Source "GitHub Actions".
 # The site: site/ at https://b-straub.github.io/historic-htr-ocr/, the app at …/app/, the examples at …/examples/.
+# After the deploy, on a tag only: the model card and its files (hf/ — README.md, the scripts, assets/) go to the model
+# repo on Hugging Face, so the card matches the release; the model files there are never touched (an upload only adds
+# or replaces the files of hf/, it deletes nothing). Needs the repository secret HF_TOKEN: a fine-grained Hugging Face
+# token with write access to that one model repo — without it the job fails (no silent skip).
 name: Deploy Pages
 
 on:
@@ -56,3 +60,39 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v5
+
+  huggingface:
+    needs: deploy
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    env:
+      HF_REPO: b-straub/LightOnOCR-3-1B-Historic-German-Handwriting
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: The Hugging Face client
+        run: python -m pip install --disable-pip-version-check 'huggingface_hub==2.2.0'
+
+      - name: The token is there
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error title=HF_TOKEN missing::the repository secret HF_TOKEN is not set — the card was not uploaded"
+            exit 1
+          fi
+
+      - name: Upload the card and its files (hf/)
+        run: hf upload "$HF_REPO" hf . --repo-type model --exclude '.DS_Store' --commit-message "Card and scripts from ${GITHUB_REF_NAME}"
+
+      - name: The Hub holds what was uploaded
+        run: |
+          files=$(cd hf && find . -type f ! -name '.DS_Store' | sed 's|^\./||' | sort)
+          hf download "$HF_REPO" $files --repo-type model --local-dir hub-check
+          for f in $files; do
+            cmp "hf/$f" "hub-check/$f" || { echo "::error title=Hub differs::$f on the Hub is not the one of ${GITHUB_REF_NAME}"; exit 1; }
+          done
+          echo "the Hub holds hf/ of ${GITHUB_REF_NAME}: $(echo "$files" | wc -l) files"

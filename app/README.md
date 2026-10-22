@@ -102,6 +102,11 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
   reusable workflow); the build job `needs` it and takes the very `_site` the CI built and tested; the deploy job
   `needs` the build. A tag whose tests fail never deploys; the manual run (workflow_dispatch) goes through the same gate.
   Pages source: Settings → Pages → Source "GitHub Actions".
+- **The model card follows the tag** (`pages.yml`, job `huggingface`, after the deploy, tags only): `hf/` — the card,
+  the scripts, `assets/` — is uploaded to the model repo on Hugging Face (add / replace only: the model files there are
+  never touched), then downloaded again and compared file by file. Needs the repository secret `HF_TOKEN` (a
+  fine-grained token with write access to that one model repo); without it the job fails. Edits made on the Hub's
+  website are overwritten by the next tag: GitHub is the card's source.
 - **Hosting elsewhere**: the dist is a plain static site; it needs HTTPS (WebGPU, OPFS, the service worker). For an
   Apache host it carries `.htaccess` (from `web/htaccess`, needs `AllowOverride FileInfo`): `.wasm` as
   `application/wasm`, `no-cache` for `index.html` / `sw.js` / the manifest, a year `immutable` for the hashed files,
