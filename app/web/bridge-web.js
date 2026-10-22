@@ -635,6 +635,10 @@ async function modelMissing() {
 // ── the first-run setup's host side (ui/setup.js) ─────────────────────
 // No state is kept for it: the setup is due exactly while the model is missing from this browser's storage.
 const MODEL_ROOM = 1.5e9; // the two files (1.4 GB) + headroom: less free storage for this site → the setup says so
+// the device check's verdicts, worst to best (a retry keeps the better); facts: the browser has WebGPU at all (no
+// retry without it — nothing to warm up)
+const RANK = { reject: 0, pending: 1, slow: 2, ok: 3 };
+const facts = () => NO_WEBGPU === null;
 // the device check's memory test (iPhone / iPad): the larger half of a read — the image encode measured on the iPad's F16
 // path at 1408 MiB — plus about a tenth; the crash marker's step while it runs
 const MEMORY_TEST_BYTES = 1536 * 2 ** 20;
@@ -654,7 +658,16 @@ export const setup = {
       secure: window.isSecureContext,
       flagged: unsupported ? unsupportedNote(unsupported).text : null,
     };
-    const r = await runGpuCheck(navigator.gpu, env, onStep);
+    // a first check right after a fresh install often failed or came out slow (the browser's GPU process and the test
+    // shaders cold); a second one, all anew (adapter, device), passed (user): one more run by itself, the better counts
+    let r = await runGpuCheck(navigator.gpu, env, onStep);
+    if (r.verdict !== "ok" && facts(r)) {
+      await new Promise((res) => setTimeout(res, 500));
+      const again = await runGpuCheck(navigator.gpu, env, onStep);
+      if (RANK[again.verdict] >= RANK[r.verdict]) {
+        r = again;
+      }
+    }
     // iPhone / iPad: the memory of the larger half of a read, held once — in the engine worker, ended after it (its
     // memory goes with it); iOS killing the page here is caught by the crash marker before the model's download
     const os = osOf(env.ua, env.maxTouchPoints);
