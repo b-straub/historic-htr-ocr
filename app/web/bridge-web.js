@@ -189,6 +189,9 @@ worker.onmessage = (e) => {
   if (m.ok) w.resolve(m.result); else w.reject(m.error);
 };
 worker.onerror = (e) => emit("ocr:error", `engine worker: ${e.message}`);
+// the update's reload (pwa.js reloadNow): the engine worker ends before the page goes — its wasm heap and its GPU
+// device (the weights are freed after each read anyway) are not left to be released behind the new page's start
+window.addEventListener("ocrlite:release", () => worker.terminate());
 function work(cmd, args = {}, transfer = []) {
   return new Promise((resolve, reject) => {
     const id = nextId++;

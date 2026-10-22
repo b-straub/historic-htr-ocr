@@ -13,6 +13,14 @@ function reading() {
   return $("readBtn").classList.contains("stop");
 }
 
+// the reload of an update: the page's engine goes first (ocrlite:release → bridge-web.js ends the engine worker, its
+// wasm heap and GPU device with it) — iOS counted the old page's memory on top of the new one's (the reload keeps the
+// page's process)
+function reloadNow() {
+  window.dispatchEvent(new Event("ocrlite:release"));
+  location.reload();
+}
+
 let wanted = false;
 function offer(reg) {
   if ($("updBar")) return;
@@ -23,7 +31,7 @@ function offer(reg) {
   btn.onclick = () => {
     if (reading()) { text.textContent = "A read is running — reload when it is done"; return; }
     if ($("editor").textContent.trim() && !confirm("Reload now? The text on the right is not saved.")) return;
-    if (reg.waiting === null) { location.reload(); return; } // already taken over (e.g. by another window)
+    if (reg.waiting === null) { reloadNow(); return; } // already taken over (e.g. by another window)
     wanted = true;
     reg.waiting.postMessage("skipWaiting");
   };
@@ -34,7 +42,7 @@ function offer(reg) {
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (wanted) location.reload(); // only after the click (the first install also takes control: no reload then)
+    if (wanted) reloadNow(); // only after the click (the first install also takes control: no reload then)
   });
   navigator.serviceWorker.register("sw.js").then((reg) => {
     if (reg.waiting && navigator.serviceWorker.controller) offer(reg);
