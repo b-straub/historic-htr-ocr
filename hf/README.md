@@ -382,14 +382,16 @@ cannot change the pick.
 web worker, the GGUF pair downloaded once from this repository into the browser's storage (≈ 1.5 GB), no server and
 no upload of your images. Crop, read, edit the marks, export.
 
-- Needs WebGPU in workers + OPFS: **Chrome / Edge 113+** or **Safari 26+** (macOS, iPadOS); not Firefox. About
+- Needs WebGPU in workers + OPFS: **Chrome / Edge 113+** or **Safari 26+** (macOS, iPadOS; iOS experimental); not Firefox. About
   1.4 GB of GPU memory per read (1.6 GB when a read runs to its token limit); a built-in device check estimates the
-  speed before the download.
+  speed before the download and, on iPhone and iPad, tests the memory.
 - Measured (one dense page, 980 × 1540, 869 output tokens): Apple M3 MacBook, Chrome — image 8.3 s, prefill 1.8 s,
-  decode 84 tok/s; iPad Pro 13" (M4), Safari — 24 s in total (66 tok/s); the same page on the M3 in Safari 26 s.
+  decode 84 tok/s; iPad Pro 13" (M4), Safari — 24 s in total (66 tok/s); the same page on the M3 in Safari 26 s;
+  iPhone 16 Pro, Safari — 43 tok/s on a dense Humboldt page.
 - Tested on an Apple-silicon Mac and an iPad Pro M4; a Windows notebook as a proof of concept (Chrome, 7 tok/s — most
   likely on the chipset graphics, not its RTX 2070). The app's device check and help say which GPU the browser uses and
-  how to switch a dual-GPU laptop to the fast one. Linux is untested; phones run out of memory.
+  how to switch a dual-GPU laptop to the fast one. Linux is untested. iPhone: experimental (the 16 Pro reads; older
+  iPhones may not have the memory — the device check tells before the download). A tech preview: edits are not kept.
 
 
 ## Input preparation

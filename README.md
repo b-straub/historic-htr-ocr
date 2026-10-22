@@ -7,8 +7,9 @@ LightOnOCR-3-1B, trained only on openly licensed editions and archives, and rele
 [Hugging Face](https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting).
 
 **Try it: [OCR Lite](https://b-straub.github.io/historic-htr-ocr/app/)** — a small web app that runs the model entirely
-on your device with WebGPU (Chrome / Edge 113+, Safari 26+): the model is downloaded once from Hugging Face into the
-browser's storage, and your images never leave the machine.
+on your device with WebGPU (Chrome / Edge 113+, Safari 26+; iPhone experimental): the model is downloaded once from
+Hugging Face into the browser's storage, and your images never leave the machine. A tech preview: edits are not kept
+yet.
 
 The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the output format and how the model was
 trained and scored. Questions, problems and reading errors worth reporting:

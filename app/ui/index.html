@@ -309,18 +309,20 @@
           <li><b>Crop</b> to the text: the crop button → <b>Find crop</b> (Page: Auto, Left, Right, Double, Leaf) or <b>Draw crop</b>, then Crop.</li>
           <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper. Undo / back to the original beside them.</li>
           <li><b>Read</b> — the text streams in; Stop ends the read.</li>
-          <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup.</li>
+          <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> shows every line as written, the text scaled to the panel's width.</li>
           <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
         </ol>
         <h3>Zoom</h3>
         <p>− / + / fit above the image; ⌘ / ctrl + wheel or a trackpad pinch; two fingers on a touch screen. A drag pans; a double-click or double-tap fits.</p>
         <h3>Status line</h3>
-        <p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset.</p>
+        <p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset. "stopped: the app went to the background" = switching apps stops a read; read again.</p>
         <h3>Offline</h3>
         <p>Once downloaded, the model stays in this browser's storage and OCR Lite reads without a connection. Settings shows the stored files; deleting them frees the 1.4 GB.</p>
         <h3>Devices</h3>
-        <p>A read needs about 2 GB of GPU memory: iPad and Mac with Apple silicon are fine, iPhones are not supported (they run out of memory). Chrome / Edge 113+, Safari 26+.</p>
+        <p>A read needs about 1.4 GB of GPU memory (1.6 GB when it runs to the token limit): iPad and Mac with Apple silicon are fine; iPhone is experimental (tested: iPhone 16 Pro, 43 tokens/s). On iPhone and iPad the device check also tests the memory, before the download. Chrome / Edge 113+, Safari 26+.</p>
         <p><b>Check this device</b> tests the GPU (WebGPU, its limits, a 1-second speed test) and estimates the reading speed. A laptop with two GPUs may run the browser on the slower built-in one — the check then says how to switch to the graphics card.</p>
+        <h3>Tech preview</h3>
+        <p>Reading in the browser with WebGPU is work in progress; on phones and tablets OCR Lite is not production-ready yet. Edits are not kept: a crash or a reload loses the text on the right — copy or save what you change. Real editing, with the work kept, is the next major step.</p>
         <h3>Privacy</h3>
         <p>Everything runs on this device: images and texts never leave it.</p>
       </section>

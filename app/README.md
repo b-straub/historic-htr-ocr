@@ -130,11 +130,22 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   2048 MB limit in the text load, after the vision weights were freed). So a read runs over two engine workers: the
   first loads the vision weights, encodes the image and is ended; a new one loads the text weights and reads on from
   the embeddings (~10 MB). A terminated worker's memory goes; the new engine's start costs a few tenths of a second.
+- **KV cache once per read**: sized at the prefill for the prompt + the image tokens (a page's text is rarely longer)
+  and grown only past that, by as much again — each growth allocates the whole larger cache and frees the old one, and
+  iOS counted every freed generation (an iPhone died at the end of a long read when it grew by 512 rows).
 - **Crash marker**: before each heavy step a marker goes to localStorage; still set at the next start means the tab
-  or its GPU process was killed (out of memory) — the device is flagged until "Try anyway".
+  or its GPU process was killed (out of memory) — the next start says so in a message box (with the tech-preview
+  note: edits are not kept), and the next read simply tries again.
 - **Device check** (`web/gpu-check.js`, the setup's first step and Help → Check this device): WebGPU present, a real
   (not software) adapter, the limits the kernels need, and a short bandwidth benchmark → an estimated reading speed
-  with hints (e.g. a laptop running the browser on its integrated GPU).
+  with hints (e.g. a laptop running the browser on its integrated GPU). A run that is not green repeats once by
+  itself (the first after a fresh install often came out cold). On iPhone / iPad also a **memory test**
+  (`worker.js` memoryTest: 1.5 GB of GPU memory written and held in the engine worker, which is ended after it); a
+  kill there → "not enough memory" at the next start, before the model's download.
+- **Phones and tablets**: side by side in landscape (one column only for a narrow screen held upright; on a low
+  screen Read moves beside the zoom); **Fit** (every line as written, the font scaled to the widest line); a read
+  stops when the app goes to the background (iOS freezes it, it came back scrambled); `maximum-scale=1` against
+  iOS zooming into small-font fields; the first edit of a session warns that edits are not kept (a tech preview).
 
 ### WebGPU pitfalls
 
