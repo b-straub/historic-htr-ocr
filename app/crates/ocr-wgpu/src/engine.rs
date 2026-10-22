@@ -207,9 +207,6 @@ impl Engine {
         let largest = largest_tensor(&text.tensors).into_iter().chain(largest_tensor(&mmproj.tensors)).max_by_key(|t| tensor_buffer_bytes(t));
         let Some(largest) = largest else { bail!("the model files hold no tensors") };
         gpu.check_fits(&format!("the model's largest weight ({})", largest.name), tensor_buffer_bytes(largest))?;
-        // the weight pool's blocks hold the largest tensor: the text weights fill the freed vision blocks (with 64 MiB
-        // blocks the text's 157.6 MiB token_embd needed a block of its own on top — 990 MiB for 790 MiB of need)
-        gpu.weight_block(tensor_buffer_bytes(largest));
         let tok = Tokenizer::from_gguf(text)?;
         gpu.alive()?;
         Ok(Self { gpu, weights, tok })

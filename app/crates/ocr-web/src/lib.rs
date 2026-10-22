@@ -417,8 +417,7 @@ async fn run_read(eng: &mut Engine, files: ReadFiles, image: ImageInput<'_>, pre
     );
     o.insert("idleBytes".into(), r.idle_bytes.into());
     // the memory pools' blocks: what the GPU holds for the engine from read to read (what iOS counts)
-    let (pw, pk) = eng.gpu.pool_bytes();
-    o.insert("poolBytes".into(), serde_json::json!({ "weights": pw, "work": pk }));
+    o.insert("poolBytes".into(), eng.gpu.pool_bytes().into());
     Ok(out.to_string())
 }
 

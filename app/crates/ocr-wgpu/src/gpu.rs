@@ -700,75 +700,100 @@ impl Free {
     }
 }
 
-/// a memory pool: GPU buffers ("blocks", STORAGE | COPY_SRC | COPY_DST) created once and handed out in slices, taken
+/// what a pool block holds while any of its slices lives: weights (bound read-only) or work (bound writable) — never
+/// both: WebGPU forbids one buffer read-only and writable in one dispatch
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Role {
+    Weights,
+    Work,
+}
+
+/// a pool block: its buffer, length, free ranges, the bytes taken and its role (None: all free — either role may take it)
+struct Block {
+    buf: wgpu::Buffer,
+    len: u64,
+    free: Free,
+    used: u64,
+    role: Option<Role>,
+}
+
+/// THE memory pool: GPU buffers ("blocks", STORAGE | COPY_SRC | COPY_DST) created once and handed out in slices, taken
 /// back and handed out again — never destroyed while the pool lives (a block is destroyed only with the pool). iOS kept
 /// counting destroyed GPU memory against the page (a second read on top of the first's freed buffers died at the
-/// iPhone's 2048 MB); a pool's memory is allocated once and stays what it is.
+/// iPhone's 2048 MB); a pool's memory is allocated once and stays what it is. One pool for weights and work: a block
+/// takes a role with its first slice and gives it up when its last slice comes back — the vision weights' blocks hold
+/// the text weights and the KV cache after the image encode, so the pool holds about the read's peak in use (two pools,
+/// one per kind, held the larger of each: 852 + 864 MiB for a 1356 MiB peak — the iPhone died in the prefill).
 struct Pool {
-    label: &'static str,
-    blocks: Vec<(wgpu::Buffer, u64, Free)>,
+    blocks: Vec<Block>,
     /// a new block's size (a larger request gets a block of its own size)
     block: u64,
     align: u64,
 }
 
 impl Pool {
-    fn new(label: &'static str, limits: &wgpu::Limits, block: u64) -> Self {
-        let block = block.min(limits.max_buffer_size).min(limits.max_storage_buffer_binding_size as u64);
-        Pool { label, blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4) }
+    fn new(limits: &wgpu::Limits) -> Self {
+        let block = POOL_BLOCK.min(limits.max_buffer_size).min(limits.max_storage_buffer_binding_size as u64);
+        Pool { blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4) }
     }
 
-    /// `size` bytes (a multiple of 4) → (the block's buffer, the slice's offset, the block's index)
-    fn take(&mut self, device: &wgpu::Device, size: u64) -> (wgpu::Buffer, u64, usize) {
-        for (i, (buf, _, free)) in self.blocks.iter_mut().enumerate() {
-            if let Some(off) = free.take(size, self.align) {
-                return (buf.clone(), off, i);
+    /// `size` bytes (a multiple of 4) for `role` → (the block's buffer, the slice's offset, the block's index): a block of
+    /// that role, else a free one (it takes the role), else a new one
+    fn take(&mut self, device: &wgpu::Device, role: Role, size: u64) -> (wgpu::Buffer, u64, usize) {
+        let align = self.align;
+        let order = self.blocks.iter().enumerate().filter(|(_, b)| b.role == Some(role)).map(|(i, _)| i)
+            .chain(self.blocks.iter().enumerate().filter(|(_, b)| b.role.is_none()).map(|(i, _)| i))
+            .collect::<Vec<_>>();
+        for i in order {
+            let b = &mut self.blocks[i];
+            if let Some(off) = b.free.take(size, align) {
+                b.used += size;
+                b.role = Some(role);
+                return (b.buf.clone(), off, i);
             }
         }
         let len = self.block.max(size);
-        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(self.label),
-            size: len,
-            usage: POOL_USAGE,
-            mapped_at_creation: false,
-        });
+        let buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("pool"), size: len, usage: POOL_USAGE, mapped_at_creation: false });
         let mut free = Free::new(len);
-        let off = free.take(size, self.align).expect("a new block holds its first request");
-        self.blocks.push((buf.clone(), len, free));
+        let off = free.take(size, align).expect("a new block holds its first request");
+        self.blocks.push(Block { buf: buf.clone(), len, free, used: size, role: Some(role) });
         (buf, off, self.blocks.len() - 1)
     }
 
     fn give(&mut self, block: usize, off: u64, size: u64) {
-        self.blocks[block].2.give(off, size);
+        let b = &mut self.blocks[block];
+        b.free.give(off, size);
+        b.used -= size;
+        if b.used == 0 {
+            b.role = None;
+        }
     }
 
     /// the bytes of all blocks (what the GPU holds for the pool)
     fn bytes(&self) -> u64 {
-        self.blocks.iter().map(|(_, len, _)| len).sum()
+        self.blocks.iter().map(|b| b.len).sum()
     }
 }
 
 impl Drop for Pool {
     fn drop(&mut self) {
-        for (buf, _, _) in &self.blocks {
-            buf.destroy();
+        for b in &self.blocks {
+            b.buf.destroy();
         }
     }
 }
+
+/// the pool's blocks: what every pooled Buf is a slice of
+const POOL_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC).union(wgpu::BufferUsages::COPY_DST);
+/// a pool block's size (at most the device's maxBufferSize / maxStorageBufferBindingSize); a larger request — the text
+/// model's token_embd 157.6 MiB, the vision FFN's f16 output ~80 MiB — gets a block of its own size (free again, it
+/// serves smaller slices of either role)
+const POOL_BLOCK: u64 = 64 << 20;
 
 /// the vision FFN's row block on the F16 path (Batch::ffn_f16): its gate / up buffers hold this many rows. A multiple of
 /// 128 (whole matmul tiles); the row views start at r0 · k · 2 bytes — aligned for any K of the model (1024)
 pub const FFN_ROWS: usize = 1024;
 
-/// the pools' blocks: what every pooled Buf is a slice of
-const POOL_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC).union(wgpu::BufferUsages::COPY_DST);
-/// a pool block's size (at most the device's maxBufferSize / maxStorageBufferBindingSize). Small enough that a pool
-/// wastes little beyond its need (256 MiB blocks held 1792 MiB for 1394 MiB of need); a larger request — the text
-/// model's token_embd, 157.6 MiB; the vision's 74 MiB activations — gets a block of its own size
-const POOL_BLOCK: u64 = 64 << 20;
-/// the work pool's block size: the vision FFN's f16 output (~80 MiB on a large page) fits one block (64 MiB blocks: 842
-/// MiB held for ~700 MiB of need; 128 MiB: 896 for ~751 on a large page, 96 MiB: 864)
-const POOL_BLOCK_WORK: u64 = 96 << 20;
 
 /// how the host hears of a fatal GPU event (set_fatal_hook): `kind` = "lost" (the device was lost — on a phone /
 /// tablet most likely the OS reclaiming memory) | "destroyed" (device.destroy() — the tests) | "outOfMemory" |
@@ -880,10 +905,9 @@ pub struct Gpu {
     /// flight keeps the values it was submitted with)
     params: Buf,
     param_align: u64,
-    /// the memory pools (Pool): the model's weights (the vision weights, then the text weights over them) and the work
-    /// (activations, scratch, the KV cache, uploads) — every Buf of these kinds is a slice of them
-    pool_weights: Arc<Mutex<Pool>>,
-    pool_work: Arc<Mutex<Pool>>,
+    /// the memory pool (Pool): the model's weights and the work (activations, scratch, the KV cache, uploads) — every
+    /// storage Buf is a slice of it
+    pool: Arc<Mutex<Pool>>,
     /// per-kernel GPU time (timestamp queries), natively when OCR_WGPU_PROFILE is set — a measuring tool, off otherwise
     prof: Option<RefCell<Profiler>>,
 }
@@ -1189,9 +1213,8 @@ impl Gpu {
                 stats: BTreeMap::new(),
             })
         });
-        let pool_weights = Arc::new(Mutex::new(Pool::new("pool: weights", &limits, POOL_BLOCK)));
-        let pool_work = Arc::new(Mutex::new(Pool::new("pool: work", &limits, POOL_BLOCK_WORK)));
-        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, pool_weights, pool_work, prof };
+        let pool = Arc::new(Mutex::new(Pool::new(&limits)));
+        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, pool, prof };
         gpu.warm_up().await?;
         Ok(gpu)
     }
@@ -1392,9 +1415,10 @@ impl Gpu {
             }
             return self.count(buf, kind);
         }
-        let pool = if kind == MemKind::Weights { &self.pool_weights } else { &self.pool_work };
+        let role = if kind == MemKind::Weights { Role::Weights } else { Role::Work };
         let taken = size.max(4).div_ceil(4) * 4;
-        let (buf, offset, block) = lock(pool).take(&self.device, taken);
+        let pool = &self.pool;
+        let (buf, offset, block) = lock(pool).take(&self.device, role, taken);
         if kind != MemKind::Weights {
             let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new slice") });
             enc.clear_buffer(&buf, offset, Some(taken));
@@ -1433,16 +1457,9 @@ impl Gpu {
         dst
     }
 
-    /// the weight pool's block size: at least `bytes` (the model's largest tensor) — before any weight is loaded
-    pub fn weight_block(&self, bytes: u64) {
-        let mut p = lock(&self.pool_weights);
-        p.block = p.block.max(bytes.div_ceil(p.align) * p.align).min(self.limits.max_buffer_size).min(self.limits.max_storage_buffer_binding_size);
-    }
-
-    /// the bytes the memory pools hold on the GPU (their blocks): what the device keeps for the engine, slices in use or
-    /// not — (weights, work)
-    pub fn pool_bytes(&self) -> (u64, u64) {
-        (lock(&self.pool_weights).bytes(), lock(&self.pool_work).bytes())
+    /// the bytes the memory pool holds on the GPU (its blocks): what the device keeps for the engine, slices in use or not
+    pub fn pool_bytes(&self) -> u64 {
+        lock(&self.pool).bytes()
     }
 
     pub fn upload_f32(&self, label: &str, v: &[f32]) -> Buf {

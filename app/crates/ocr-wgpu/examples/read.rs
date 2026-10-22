@@ -73,6 +73,7 @@ fn main() -> Result<()> {
     let mut repeat = 1usize;
     let mut cancel_after = None::<usize>;
     let mut tap_logits = false;
+    let mut then = None::<PathBuf>;
     let mut i = 2;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -91,6 +92,7 @@ fn main() -> Result<()> {
             "--out" => out = Some(PathBuf::from(val)),
             "--repeat" => repeat = val.parse::<usize>()?.max(1),
             "--cancel-after" => cancel_after = Some(val.parse()?),
+            "--then" => then = Some(PathBuf::from(val)),
             a => bail!("unknown argument {a}"),
         }
         i += 2;
@@ -231,8 +233,16 @@ fn main() -> Result<()> {
         mib(read.idle_bytes),
         phases.join(" | ")
     );
-    let (pw, pk) = engine.gpu.pool_bytes();
-    println!("memory pools MiB (held by the GPU for the engine, slices in use or not): weights {:.1} · work {:.1} · total {:.1}", mib(pw), mib(pk), mib(pw + pk));
+    println!("memory pool MiB (held by the GPU for the engine, slices in use or not): {:.1}", mib(engine.gpu.pool_bytes()));
+    // --then <image>: one more read on the same engine (the pool as the first left it) — a small page, then a large one
+    if let Some(next) = &then {
+        let img2 = ocr_core::imageops::load(next)?.to_rgb8();
+        let (img2, _) = ocr_core::imageops::bake(&img2, ocr_core::imageops::Bake::PIXTRAL);
+        let stem2 = next.file_stem().context("image name")?.to_string_lossy().into_owned();
+        let r2 = engine.read_inspect(&files, ImageInput::Pixels(&img2), &p, seed_for_stem(&stem2), |_| {}, |_| true, None)?;
+        let g = r2.stats.gpu_memory.as_ref().context("the wgpu read reported no GPU memory")?;
+        println!("then {stem2} {}x{}: {} image tokens · {} tokens · read peak {:.1} MiB in {} · memory pool MiB: {:.1}", img2.width(), img2.height(), r2.stats.image_tokens, r2.stats.out_tokens, mib(g.peak_bytes), g.peak_phase, mib(engine.gpu.pool_bytes()));
+    }
     if let Some(o) = &out {
         std::fs::write(o.with_extension("txt"), &text)?;
         if tap_logits {

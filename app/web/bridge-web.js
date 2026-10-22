@@ -429,8 +429,7 @@ function drawMemory() {
   const parts = [];
   if (engine) {
     if (lastRead) {
-      const pool = lastRead.poolBytes;
-      parts.push(`GPU memory held by the engine: ${mb(pool.weights + pool.work)} (weights ${mb(pool.weights)} · work ${mb(pool.work)} — memory pools, kept from read to read; each read loads its weights into them)`);
+      parts.push(`GPU memory held by the engine: ${mb(lastRead.poolBytes)} (its memory pool, kept from read to read; each read loads its weights into it)`);
     } else {
       parts.push(`GPU memory: ${mb(engine.idleBytes)} before the first read`);
     }
@@ -600,8 +599,7 @@ export async function memoryNote() {
   const w = await work("memory");
   const parts = [`wasm worker ${mb(w.wasmBytes)}`, `page ${mb(ocr.wasm_memory_bytes())}`];
   if (lastRead) {
-    const pool = lastRead.poolBytes;
-    parts.push(`GPU pools ${mb(pool.weights + pool.work)} (weights ${mb(pool.weights)} · work ${mb(pool.work)})`, `peak in use ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
+    parts.push(`GPU pool ${mb(lastRead.poolBytes)}`, `peak in use ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
   }
   return parts.join(" · ");
 }
