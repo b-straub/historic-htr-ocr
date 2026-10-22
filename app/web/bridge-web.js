@@ -541,6 +541,29 @@ async function busy(job) {
   }
 }
 
+/// the model check: both stored files' MD5 against the release (config.js MODEL.md5) → { ok, damaged: [names], text }
+export async function verifyModel() {
+  const got = await work("verifyModel");
+  const damaged = Object.keys(MODEL.md5).filter((name) => got[name] !== MODEL.md5[name]);
+  return damaged.length === 0
+    ? { ok: true, damaged, text: "The stored model is intact (both files match the release)." }
+    : { ok: false, damaged, text: `The stored model is damaged: ${damaged.join(", ")} differs from the release. Delete the model (Settings) and download it again.` };
+}
+$("modelVerify").onclick = async () => {
+  $("settingsErr").textContent = "";
+  $("modelVerify").disabled = true;
+  $("modelProgressText").textContent = "checking the stored model…";
+  try {
+    const r = await verifyModel();
+    $("modelProgressText").textContent = r.text;
+  } catch (e) {
+    $("settingsErr").textContent = String(e);
+    $("modelProgressText").textContent = "";
+  } finally {
+    $("modelVerify").disabled = false;
+  }
+};
+
 $("modelFiles").onchange = () => {
   if (!allows("upload")) {
     $("settingsErr").textContent = `uploading model files is switched off — download the model from ${MODEL_FROM}`;

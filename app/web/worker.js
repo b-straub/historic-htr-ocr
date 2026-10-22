@@ -243,7 +243,9 @@ async function openFiles(src) {
       for (const name of MODEL_FILES) {
         let fh;
         try { fh = await dir.getFileHandle(name); } catch { throw new Error(`${name} is not in this browser's storage — download the model first (Help → Run setup again, or Settings → Model)`); }
-        const h = await fh.createSyncAccessHandle();
+        // read-only: a read never writes, and iOS ending the app in the middle of one must not leave the file open
+        // for writing (the stored model came back damaged after such crashes); a browser without the option ignores it
+        const h = await fh.createSyncAccessHandle({ mode: "read-only" });
         handles.push(h);
         files.push({ name, size: h.getSize(), read: (off, view) => h.read(view, { at: off }) });
       }
@@ -407,6 +409,20 @@ const handlers = {
   async load({ source }) { return ensureEngine(source); },
   async memory() { return memory(); },
   async memoryTest({ bytes }) { return memoryTest(bytes); },
+  // the model check: each stored file's MD5 ({ name: hex }) — read like a read (read-only), nothing loaded
+  async verifyModel() {
+    const { files, close } = await openFiles({ kind: "opfs" });
+    try {
+      const out = {};
+      for (const f of files) {
+        status(`checking ${f.name} (${(f.size / 1e9).toFixed(2)} GB)…`);
+        out[f.name] = ocr.md5_file(f.name, f.size, f.read);
+      }
+      return out;
+    } finally {
+      close();
+    }
+  },
   // the lost-device selftest (selftest.html?lose=1): destroy the engine's GPU device, also during a read
   async debugLoseDevice() { ocr.debug_destroy_device(); },
   async read({ source, rgb, w, h, preset, seed }) {

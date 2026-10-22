@@ -979,6 +979,7 @@ dependencies = [
  "anyhow",
  "image",
  "js-sys",
+ "md-5",
  "ocr-core",
  "ocr-decode",
  "ocr-wgpu",

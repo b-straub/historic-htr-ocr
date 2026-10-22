@@ -226,6 +226,27 @@ impl TensorSource for JsSource {
     }
 }
 
+/// the MD5 of a model file read through JS (`read(offset, view)` as for a read) in 8 MiB chunks → hex — the model
+/// check: the stored file against the release's MD5SUMS
+#[wasm_bindgen]
+pub fn md5_file(name: &str, len: f64, read: Function) -> Result<String, JsError> {
+    use md5::{Digest, Md5};
+    (|| -> Result<String> {
+        let src = JsSource { name: name.to_string(), len: len as u64, read };
+        let mut h = Md5::new();
+        let mut buf = vec![0u8; 8 << 20];
+        let mut off = 0u64;
+        while off < src.len {
+            let n = ((src.len - off) as usize).min(buf.len());
+            src.read_at(off, &mut buf[..n])?;
+            h.update(&buf[..n]);
+            off += n as u64;
+        }
+        Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    })()
+    .map_err(js_err)
+}
+
 fn source(name: &str, len: f64, read: Function) -> Result<Gguf<JsSource>> {
     Gguf::from_source(JsSource { name: name.to_owned(), len: len as u64, read }).with_context(|| format!("{name} is not a readable GGUF"))
 }

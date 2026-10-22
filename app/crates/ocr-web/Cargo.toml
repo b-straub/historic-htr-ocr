@@ -14,6 +14,8 @@ crate-type = ["cdylib", "rlib"]
 anyhow = "1.0.104"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
 js-sys = "=0.3.106"
+# the model check (md5_file): the stored files against the release's MD5SUMS
+md-5 = "=0.10.6"
 ocr-core = { path = "../ocr-core", default-features = false }
 ocr-decode = { path = "../ocr-decode" }
 ocr-wgpu = { path = "../ocr-wgpu" }

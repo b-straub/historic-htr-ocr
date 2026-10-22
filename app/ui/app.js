@@ -120,18 +120,47 @@ try {
   sessionStorage.removeItem("ocrlite.crumbs");
 } catch {}
 window.addEventListener("pagehide", () => { try { sessionStorage.removeItem("ocrlite.alive"); } catch {} });
-// `crash`: the run before died in a GPU step (the crash marker) or lost the GPU (host.takeCrashNote) — one message box
-// instead of a hard-to-hit "Try anyway" in the status line; the next read simply tries again
-function showCrashNote(crash) {
-  if (crash) {
-    alert(crash);
+// after a crash: one dialog (not the status line) — what happened, the stored model checked by itself (iOS ending the
+// app in the middle of a read left it damaged; the result appears in the dialog), and "Copy the last actions" (the
+// breadcrumb trail, for a report)
+async function verifyAfterCrash() {
+  if (await host.setup.modelMissing()) {
+    return;
   }
-  if (!lastCrash) return;
-  const trail = [`OCR Lite — the page before ended without unloading (${navigator.userAgent})`, ...lastCrash].join("\n");
-  status(`The page was reloaded after it ended unexpectedly (a crash, or the system freed the tab); last action: ${lastCrash.at(-1) ?? "none"}`, "err", {
-    label: "Copy the last actions",
-    run: () => { navigator.clipboard.writeText(trail); return "The last actions are on the clipboard"; },
-  });
+  const line = $("crashCheck");
+  line.classList.remove("err");
+  line.textContent = "Checking the stored model…";
+  try {
+    const r = await host.verifyModel();
+    crumb(`model check: ${r.ok ? "intact" : `damaged (${r.damaged.join(", ")})`}`);
+    line.textContent = r.text;
+    line.classList.toggle("err", !r.ok);
+    if (!r.ok) {
+      status(r.text, "err");
+    }
+  } catch (e) {
+    line.textContent = `The model check failed: ${e instanceof Error ? e.message : e}`;
+    line.classList.add("err");
+  }
+}
+// `crash`: the run before died in a GPU step (the crash marker) or lost the GPU (host.takeCrashNote); lastCrash: the
+// page before ended without unloading (its breadcrumb trail)
+function showCrashNote(crash) {
+  if (!crash && !lastCrash) {
+    return;
+  }
+  $("crashWhat").textContent = crash ?? `The page before ended without unloading (a crash, or the system freed the app); last action: ${lastCrash.at(-1) ?? "none"}.`;
+  $("crashCheck").textContent = "";
+  $("crashCopy").hidden = !lastCrash;
+  $("crashCopy").textContent = "Copy the last actions";
+  $("crashCopy").onclick = () => {
+    const trail = [`OCR Lite — the page before ended without unloading (${navigator.userAgent})`, ...lastCrash].join("\n");
+    navigator.clipboard.writeText(trail).then(() => { $("crashCopy").textContent = "Copied"; });
+  };
+  $("crashDlg").showModal();
+  if (crash) {
+    verifyAfterCrash();
+  }
 }
 
 // ── image + prep chain ────────────────────────────────────────────────

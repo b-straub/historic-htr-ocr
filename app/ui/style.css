@@ -226,6 +226,8 @@ input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent)
 #presetTable tr.shipped td:first-child input { font-weight: 600; }
 .err { color: var(--warn); min-height: 1.2em; margin: 6px 0 0; }
 .dlgfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.prelines { white-space: pre-line; }
+#crashCheck.err { color: var(--warn); }
 
 /* auto-crop popover */
 .menu.pop { left: 0; right: auto; min-width: 340px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }

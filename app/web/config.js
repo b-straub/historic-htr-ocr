@@ -17,6 +17,9 @@ export const MODEL = {
   repo: "https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting",
   /// the repo's file names when they differ from MODEL_FILES ({ stored name: name in the repo }), else null
   remoteFiles: null,
+  /// the files' MD5 as released (the repo's MD5SUMS) — the model check (Settings → Verify model, and by itself after a
+  /// crash: iOS ending the app in the middle of a read left the stored model damaged)
+  md5: { "text-q8_0.gguf": "5b0d07481b0d65e5a0e2d317d78cc410", "mmproj-bf16.gguf": "01481f8c70a20012169830adcfbb75c9" },
 };
 
 /// the folder the model files are downloaded from
