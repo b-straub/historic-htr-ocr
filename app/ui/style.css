@@ -117,7 +117,26 @@ button:disabled { opacity: 0.35; }
 
 /* ── cards ─────────────────────────────────────────── */
 main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 0 12px; min-height: 0; }
-@media (max-width: 820px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } .titlebar { flex-wrap: wrap; height: auto; padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-bottom: 8px; } }
+/* a phone on its side (little height): one compact title bar row (the name only as the logo), slimmer card heads,
+   the status line without the engine details (Settings and About show them) */
+@media (orientation: landscape) and (max-height: 500px) {
+  .titlebar { gap: 6px; min-height: 44px; }
+  .brandname { display: none; }
+  .cardhead { min-height: 38px; padding: 4px 8px 4px 12px; gap: 6px; }
+  .statusbar { height: 26px; }
+  .statusbar #backendInfo { display: none; }
+  main { gap: 8px; }
+}
+/* a phone on its side: the notch / Dynamic Island sits left or right */
+main { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+/* one column only for a narrow screen held upright; a phone on its side (812 px with Display Zoom) keeps image and
+   text side by side, like the iPad in both orientations */
+@media (max-width: 820px) and (orientation: portrait) {
+  /* the status line may take two lines; the engine details are in Settings and About */
+  .statusbar { height: auto; min-height: 34px; }
+  .statusbar #backendInfo { display: none; }
+}
+@media (max-width: 820px) and (orientation: portrait) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } .titlebar { flex-wrap: wrap; height: auto; padding-top: max(8px, env(safe-area-inset-top, 0px)); padding-bottom: 8px; } }
 .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .cardhead { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .label { font-weight: 600; font-size: 13px; margin-right: 4px; }
@@ -145,6 +164,8 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1
 #editor { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
 #editor:empty::before { content: attr(data-placeholder); color: var(--faint); font-family: -apple-system, system-ui, sans-serif; font-size: 14px; }
 #editor[contenteditable="false"] { cursor: default; }
+/* Fit (app.js fitText): no wrapping — every line as written; the font size is set so the widest line fits */
+#editor.fit .l, #editor.fit table.t td { white-space: pre; overflow-wrap: normal; }
 #src { flex: 1; min-height: 0; resize: none; border: 0; outline: none; padding: 18px 22px; background: var(--card); color: var(--fg);
   font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 8; -webkit-user-select: text; user-select: text; }
 .fmt { font-family: "Iowan Old Style", Georgia, serif; font-size: 15px; min-width: 30px; }

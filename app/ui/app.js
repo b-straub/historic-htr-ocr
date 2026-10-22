@@ -595,6 +595,49 @@ document.addEventListener("selectionchange", () => {
   for (const b of $("fmtSeg").children) b.classList.toggle("on", on.has(b.dataset.tag));
 });
 
+// Fit: every line as written (no wrapping), the font scaled down so the widest line or table fits the panel — a view
+// setting (remembered in this browser), the text is not changed. Refitted whenever the text or the panel changes.
+const FIT_KEY = "ocrlite.fit";
+const FIT_MIN_PX = 8; // below this a line is unreadable: the panel scrolls instead
+let fitOn = false;
+try { fitOn = localStorage.getItem(FIT_KEY) === "1"; } catch {}
+let fitFrame = 0;
+function fitText() {
+  const ed = $("editor");
+  ed.classList.toggle("fit", fitOn);
+  ed.style.fontSize = "";
+  if (!fitOn || ed.hidden) {
+    return;
+  }
+  const cs = getComputedStyle(ed);
+  const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+  const avail = ed.clientWidth - pad;
+  const base = parseFloat(cs.fontSize);
+  let size = base;
+  // the width scales with the font size except borders and cell padding: two passes come close enough
+  for (let i = 0; i < 2; i++) {
+    const need = ed.scrollWidth - pad;
+    if (need <= avail + 0.5) {
+      break;
+    }
+    size = Math.max(FIT_MIN_PX, Math.min(base, (size * avail) / need));
+    ed.style.fontSize = `${size}px`;
+  }
+}
+function refit() {
+  cancelAnimationFrame(fitFrame);
+  fitFrame = requestAnimationFrame(fitText);
+}
+new ResizeObserver(refit).observe($("editor"));
+new MutationObserver(refit).observe($("editor"), { childList: true, subtree: true, characterData: true });
+$("fitBtn").classList.toggle("on", fitOn);
+$("fitBtn").onclick = () => {
+  fitOn = !fitOn;
+  $("fitBtn").classList.toggle("on", fitOn);
+  try { localStorage.setItem(FIT_KEY, fitOn ? "1" : "0"); } catch {}
+  refit();
+};
+
 let markupView = false;
 $("markupBtn").onclick = async () => {
   markupView = !markupView;
@@ -995,6 +1038,7 @@ function applyState() {
   enable($("undoBtn"), editing && !busy && S.editor.canUndo(), busy ? BUSY_WHY : "");
   enable($("redoBtn"), editing && !busy && S.editor.canRedo(), busy ? BUSY_WHY : "");
   enable($("markupBtn"), S.editor !== null && !busy, BUSY_WHY);
+  enable($("fitBtn"), S.editor !== null && !markupView, markupView ? "Fit applies to the rendered text" : "");
   enable($("copyBtn"), text && !busy, busy ? BUSY_WHY : "Nothing to copy yet");
   enable($("saveBtn"), (text || img) && !busy, busy ? BUSY_WHY : "Nothing to save yet — read an image");
   for (const b of $("saveMenu").querySelectorAll("button")) {

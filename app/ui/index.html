@@ -11,7 +11,7 @@
 <body>
   <div class="edgeband" aria-hidden="true"></div>
   <header class="titlebar">
-    <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span>OCR Lite</button>
+    <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
     <button class="btn" id="openBtn"><i data-icon="folder"></i>Open</button>
     <div class="seg" title="image steps — applied in order, each one undoable">
       <button class="ib" data-op="rotateLeft" title="Rotate left"><i data-icon="rotl"></i></button>
@@ -102,6 +102,7 @@
           <button class="ib" id="redoBtn" title="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
         </span>
         <span class="grow"></span>
+        <button class="btn small toggle" id="fitBtn" title="Fit: every line as written, the text scaled so the longest line fits the panel — off: lines wrap at the panel's edge">Fit</button>
         <button class="btn small toggle" id="markupBtn" title="Show the raw markup">Markup</button>
         <button class="ib ghost" id="copyBtn" title="Copy markup"><i data-icon="copy"></i></button>
         <div class="menuwrap">
