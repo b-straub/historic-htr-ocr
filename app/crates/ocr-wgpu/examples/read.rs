@@ -233,15 +233,17 @@ fn main() -> Result<()> {
         mib(read.idle_bytes),
         phases.join(" | ")
     );
-    println!("memory pool MiB (held by the GPU for the engine, slices in use or not): {:.1}", mib(engine.gpu.pool_bytes()));
-    // --then <image>: one more read on the same engine (the pool as the first left it) — a small page, then a large one
+    let (peak, small) = engine.gpu.pool_small_blocks();
+    println!("memory pool MiB: {:.1} (fixed) · small blocks in use at most {peak} of {small}", mib(engine.gpu.pool_bytes()));
+    // --then <image>: one more read on the same engine (the pool as the first left it)
     if let Some(next) = &then {
         let img2 = ocr_core::imageops::load(next)?.to_rgb8();
         let (img2, _) = ocr_core::imageops::bake(&img2, ocr_core::imageops::Bake::PIXTRAL);
         let stem2 = next.file_stem().context("image name")?.to_string_lossy().into_owned();
         let r2 = engine.read_inspect(&files, ImageInput::Pixels(&img2), &p, seed_for_stem(&stem2), |_| {}, |_| true, None)?;
         let g = r2.stats.gpu_memory.as_ref().context("the wgpu read reported no GPU memory")?;
-        println!("then {stem2} {}x{}: {} image tokens · {} tokens · read peak {:.1} MiB in {} · memory pool MiB: {:.1}", img2.width(), img2.height(), r2.stats.image_tokens, r2.stats.out_tokens, mib(g.peak_bytes), g.peak_phase, mib(engine.gpu.pool_bytes()));
+        let (peak, small) = engine.gpu.pool_small_blocks();
+        println!("then {stem2} {}x{}: {} image tokens · {} tokens · peak {:.1} MiB in {} · small blocks in use at most {peak} of {small}", img2.width(), img2.height(), r2.stats.image_tokens, r2.stats.out_tokens, mib(g.peak_bytes), g.peak_phase);
     }
     if let Some(o) = &out {
         std::fs::write(o.with_extension("txt"), &text)?;

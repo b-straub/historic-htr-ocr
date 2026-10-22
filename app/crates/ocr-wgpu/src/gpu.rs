@@ -47,6 +47,9 @@ use crate::gguf::{TensorInfo, TensorSource};
 /// release builds (see Gpu::create); the load line reports it
 pub const SHADER_CHECKS: bool = cfg!(any(test, debug_assertions));
 
+/// a staging piece's start in the staging buffer: buffer copies need offsets of 4 bytes; 256 keeps them aligned
+const COPY_ALIGN: u64 = 256;
+
 /// the default staging size of the weight upload
 pub const STAGING_BYTES: u64 = 32 << 20;
 
@@ -726,38 +729,83 @@ struct Block {
 /// one per kind, held the larger of each: 852 + 864 MiB for a 1356 MiB peak — the iPhone died in the prefill).
 struct Pool {
     blocks: Vec<Block>,
-    /// a new block's size (a larger request gets a block of its own size)
+    /// the small blocks' size; a larger request goes to a large block (Pool::fix: as large as the largest request)
     block: u64,
     align: u64,
+    /// fixed (Pool::fix, at the engine's start): no block is ever added again — a request that does not fit is an error
+    fixed: bool,
+    /// the most small blocks holding slices at once (the measure of POOL_SMALL_BLOCKS)
+    peak_small: usize,
 }
 
 impl Pool {
     fn new(limits: &wgpu::Limits) -> Self {
         let block = POOL_BLOCK.min(limits.max_buffer_size).min(limits.max_storage_buffer_binding_size as u64);
-        Pool { blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4) }
+        Pool { blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4), fixed: false, peak_small: 0 }
+    }
+
+    /// the pool at its full size, once: `small` small blocks and one large block of at least `large` bytes — from now on
+    /// it never grows
+    fn fix(&mut self, device: &wgpu::Device, small: usize, large: u64) -> Result<()> {
+        if self.fixed {
+            bail!("the memory pool is fixed already");
+        }
+        while self.blocks.iter().filter(|b| b.len == self.block).count() < small {
+            self.add(device, self.block);
+        }
+        let large = large.div_ceil(self.align) * self.align;
+        if !self.blocks.iter().any(|b| b.len > self.block && b.len >= large) {
+            self.add(device, large);
+        }
+        self.fixed = true;
+        Ok(())
+    }
+
+    fn add(&mut self, device: &wgpu::Device, len: u64) -> usize {
+        let buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("pool"), size: len, usage: POOL_USAGE, mapped_at_creation: false });
+        self.blocks.push(Block { buf, len, free: Free::new(len), used: 0, role: None });
+        self.blocks.len() - 1
     }
 
     /// `size` bytes (a multiple of 4) for `role` → (the block's buffer, the slice's offset, the block's index): a block of
     /// that role, else a free one (it takes the role), else a new one
-    fn take(&mut self, device: &wgpu::Device, role: Role, size: u64) -> (wgpu::Buffer, u64, usize) {
+    /// small requests (≤ block) only in small blocks, larger ones only in a large block — a large block is never cut up by
+    /// small slices. Fixed: a request that does not fit is an error, never a new block
+    fn take(&mut self, device: &wgpu::Device, role: Role, size: u64) -> Result<(wgpu::Buffer, u64, usize)> {
         let align = self.align;
-        let order = self.blocks.iter().enumerate().filter(|(_, b)| b.role == Some(role)).map(|(i, _)| i)
-            .chain(self.blocks.iter().enumerate().filter(|(_, b)| b.role.is_none()).map(|(i, _)| i))
+        let small = size <= self.block;
+        let block = self.block;
+        let fits = |b: &Block| (b.len == block) == small;
+        let order = self.blocks.iter().enumerate().filter(|(_, b)| fits(b) && b.role == Some(role)).map(|(i, _)| i)
+            .chain(self.blocks.iter().enumerate().filter(|(_, b)| fits(b) && b.role.is_none()).map(|(i, _)| i))
             .collect::<Vec<_>>();
+        let mut found = None;
         for i in order {
             let b = &mut self.blocks[i];
             if let Some(off) = b.free.take(size, align) {
-                b.used += size;
-                b.role = Some(role);
-                return (b.buf.clone(), off, i);
+                found = Some((i, off));
+                break;
             }
         }
-        let len = self.block.max(size);
-        let buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("pool"), size: len, usage: POOL_USAGE, mapped_at_creation: false });
-        let mut free = Free::new(len);
-        let off = free.take(size, align).expect("a new block holds its first request");
-        self.blocks.push(Block { buf: buf.clone(), len, free, used: size, role: Some(role) });
-        (buf, off, self.blocks.len() - 1)
+        let (i, off) = match found {
+            Some(f) => f,
+            None if self.fixed => {
+                let held: u64 = self.blocks.iter().map(|b| b.len).sum();
+                bail!("the memory pool ({:.0} MiB, fixed) has no room for {:.1} MiB more", held as f64 / 1048576.0, size as f64 / 1048576.0);
+            }
+            None => {
+                let i = self.add(device, if small { block } else { size });
+                let off = self.blocks[i].free.take(size, align).context("a new block holds its first request")?;
+                (i, off)
+            }
+        };
+        let b = &mut self.blocks[i];
+        b.used += size;
+        b.role = Some(role);
+        let buf = b.buf.clone();
+        let n = self.blocks.iter().filter(|b| b.len == block && b.role.is_some()).count();
+        self.peak_small = self.peak_small.max(n);
+        Ok((buf, off, i))
     }
 
     fn give(&mut self, block: usize, off: u64, size: u64) {
@@ -782,6 +830,12 @@ impl Drop for Pool {
         }
     }
 }
+
+/// the fixed pool's small blocks (Engine::open → Gpu::fix_pool): the most a read of the largest page (1540 × 1540, 3025
+/// image tokens) holds at once on the F16 path — 23, measured natively (OCR_WGPU_COMPUTE=f16; its peak in use 1533 MiB in
+/// the prefill; 44v then 20, a large page after it no more) — + 1 in reserve (a text longer than its image tokens grows
+/// the KV cache)
+pub const POOL_SMALL_BLOCKS: usize = 24;
 
 /// the pool's blocks: what every pooled Buf is a slice of
 const POOL_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC).union(wgpu::BufferUsages::COPY_DST);
@@ -905,6 +959,9 @@ pub struct Gpu {
     /// flight keeps the values it was submitted with)
     params: Buf,
     param_align: u64,
+    /// the weight upload's staging buffer (MAP_WRITE | COPY_SRC, STAGING_BYTES), created once and refilled for every
+    /// piece: queue.writeBuffer made a shared-memory copy per call in the page (WebKit) — 1.4 GB of them per read
+    staging: Buf,
     /// the memory pool (Pool): the model's weights and the work (activations, scratch, the KV cache, uploads) — every
     /// storage Buf is a slice of it
     pool: Arc<Mutex<Pool>>,
@@ -1214,7 +1271,12 @@ impl Gpu {
             })
         });
         let pool = Arc::new(Mutex::new(Pool::new(&limits)));
-        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, pool, prof };
+        let staging = counted(
+            &mem,
+            device.create_buffer(&wgpu::BufferDescriptor { label: Some("upload staging"), size: STAGING_BYTES, usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false }),
+            MemKind::Readback,
+        );
+        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, staging, pool, prof };
         gpu.warm_up().await?;
         Ok(gpu)
     }
@@ -1418,7 +1480,13 @@ impl Gpu {
         let role = if kind == MemKind::Weights { Role::Weights } else { Role::Work };
         let taken = size.max(4).div_ceil(4) * 4;
         let pool = &self.pool;
-        let (buf, offset, block) = lock(pool).take(&self.device, role, taken);
+        // the fixed pool is sized for the largest read (Engine checks the image against MAX_IMAGE_TOKENS before a read):
+        // no room is a sizing bug — a hard stop with the numbers, never a new block
+        let taken_slot = lock(pool).take(&self.device, role, taken);
+        let (buf, offset, block) = match taken_slot {
+            Ok(t) => t,
+            Err(e) => panic!("{label}: {e:#}"),
+        };
         if kind != MemKind::Weights {
             let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new slice") });
             enc.clear_buffer(&buf, offset, Some(taken));
@@ -1462,14 +1530,26 @@ impl Gpu {
         lock(&self.pool).bytes()
     }
 
+    /// the pool at its full size, once (Engine::open): POOL_SMALL_BLOCKS blocks of 64 MiB + one large block of `large`
+    /// bytes; from now on it never grows
+    pub fn fix_pool(&self, small: usize, large: u64) -> Result<()> {
+        lock(&self.pool).fix(&self.device, small, large)
+    }
+
+    /// (the most small pool blocks in use at once so far, the small blocks there are) — POOL_SMALL_BLOCKS' measure
+    pub fn pool_small_blocks(&self) -> (usize, usize) {
+        let p = lock(&self.pool);
+        (p.peak_small, p.blocks.iter().filter(|b| b.len == p.block).count())
+    }
+
     pub fn upload_f32(&self, label: &str, v: &[f32]) -> Buf {
         self.upload(label, bytemuck::cast_slice(v))
     }
 
     /// the reusable staging chunk of the weight upload (size rounded up to 4 bytes)
     pub fn uploader(&self, bytes: u64) -> Uploader {
-        let size = bytes.max(4).div_ceil(4) * 4;
-        Uploader { size, chunk: vec![0u8; size as usize], read_ms: 0.0, wait_ms: 0.0, pending: 0 }
+        let size = (bytes.max(4).div_ceil(4) * 4).min(self.staging.size());
+        Uploader { size, chunk: vec![0u8; size as usize], mapped: false, fill: 0, copies: Vec::new(), read_ms: 0.0, wait_ms: 0.0 }
     }
 
     /// stream a tensor's file range into a new GPU buffer through the staging chunk (the buffer is padded to 4 bytes,
@@ -1483,34 +1563,59 @@ impl Gpu {
         let dst = self.alloc(&t.name, padded, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST, MemKind::Weights);
         let mut pos = 0u64;
         while pos < padded {
-            let chunk = (padded - pos).min(up.size);
-            let real = (len.saturating_sub(pos)).min(chunk) as usize;
-            let buf = &mut up.chunk[..chunk as usize];
+            // the file range straight into the mapped staging buffer — several tensors per fill (~45 GPU round trips for
+            // 1.4 GB, not one per tensor); copied into the pool slices when it is full or the load ends
+            let piece = (padded - pos).min(up.size);
+            if up.fill + piece > up.size {
+                self.upload_submit(up);
+            }
+            if !up.mapped {
+                let t1 = Instant::now();
+                let (tx, rx) = oneshot::channel();
+                self.staging.buffer().slice(0..up.size).map_async(wgpu::MapMode::Write, move |r| {
+                    let _ = tx.send(r);
+                });
+                self.map_result(self.settle(rx).await?)?;
+                up.mapped = true;
+                up.fill = 0;
+                up.wait_ms += t1.elapsed().as_secs_f64() * 1e3;
+            }
+            let real = (len.saturating_sub(pos)).min(piece) as usize;
+            let at = up.fill;
+            let buf = &mut up.chunk[..piece as usize];
             let t0 = Instant::now();
             src.read_at(t.file_offset + pos, &mut buf[..real]).with_context(|| format!("tensor {}", t.name))?;
             up.read_ms += t0.elapsed().as_secs_f64() * 1e3;
             buf[real..].fill(0);
-            let t1 = Instant::now();
-            // write_buffer copies the chunk at once (WebGPU queue.writeBuffer; wgpu's staging natively): the chunk is free
-            // for the next read. A wait once a staging size has been written since the last bounds the copies held by the
-            // driver / browser — not one GPU round trip per tensor (≈ 530 tensors, most of them small; Chrome's copy of a
-            // load 2.2 / 1.8 → 1.6 / 1.1 s, natively no difference — README "GPU memory")
-            self.queue.write_buffer(dst.buffer(), dst.offset() + pos, buf);
-            up.pending += chunk;
-            if up.pending >= up.size {
-                self.upload_flush(up).await?;
-            }
-            up.wait_ms += t1.elapsed().as_secs_f64() * 1e3;
-            pos += chunk;
+            self.staging.buffer().slice(at..at + piece).get_mapped_range_mut().context("map the upload staging buffer")?.copy_from_slice(buf);
+            up.copies.push((at, dst.clone(), pos, piece));
+            up.fill = (at + piece).div_ceil(COPY_ALIGN) * COPY_ALIGN;
+            pos += piece;
         }
+        // the tensor's copies submitted now: what the caller records next (the bf16 → f16 conversion of this weight)
+        // comes after them in the queue — deferred to a full staging buffer, the conversion ran on the empty slice
+        self.upload_submit(up);
         Ok(dst)
     }
 
-    /// the writes of `up` so far submitted and taken by the GPU (the end of a load, and every staging size)
+    /// the staging buffer's contents to their pool slices: unmapped, the copies submitted (the next map waits for them)
+    fn upload_submit(&self, up: &mut Uploader) {
+        if !up.mapped {
+            return;
+        }
+        self.staging.buffer().unmap();
+        up.mapped = false;
+        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("weight upload") });
+        for (at, dst, pos, n) in up.copies.drain(..) {
+            enc.copy_buffer_to_buffer(self.staging.buffer(), at, dst.buffer(), dst.offset() + pos, n);
+        }
+        self.queue.submit([enc.finish()]);
+    }
+
+    /// the load's last copies submitted and taken by the GPU (the end of a load)
     pub async fn upload_flush(&self, up: &mut Uploader) -> Result<()> {
-        self.queue.submit([]);
+        self.upload_submit(up);
         self.wait().await?;
-        up.pending = 0;
         Ok(())
     }
 
@@ -1627,15 +1732,19 @@ impl Gpu {
     }
 }
 
+/// a weight load's progress through the staging buffer (Gpu::staging): mapped (for writing) or not, how far it is
+/// filled, and the copies its contents wait for — (staging offset, destination, destination offset, bytes)
 pub struct Uploader {
     size: u64,
+    /// the file range read here first (a mapped view is write-only), then copied into the staging buffer
     chunk: Vec<u8>,
+    mapped: bool,
+    fill: u64,
+    copies: Vec<(u64, Buf, u64, u64)>,
     /// the time spent reading the model files (TensorSource::read_at) — the load's I/O part
     pub read_ms: f64,
-    /// the time spent handing chunks to the GPU and waiting for it (write_buffer + the copy to the GPU)
+    /// the time spent waiting for the staging buffer (its map) and the GPU's copies
     pub wait_ms: f64,
-    /// bytes written since the last wait
-    pending: u64,
 }
 
 /// bind groups kept across batches: (kernel, bound ranges — buffer, offset, size) → bind group. It holds the buffers alive

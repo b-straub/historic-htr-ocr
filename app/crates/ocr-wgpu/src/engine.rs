@@ -38,7 +38,7 @@ use ocr_decode::prompt::{IMAGE_PAD, PREFIX, SUFFIX};
 use ocr_decode::sampling::{Emitter, Flow, Phase, ReadStats, Step, Token, generate};
 
 use crate::gguf::{Gguf, TensorInfo, TensorSource};
-use crate::gpu::{Buf, Gpu, STAGING_BYTES, Uploader, tensor_buffer_bytes};
+use crate::gpu::{Buf, Gpu, POOL_SMALL_BLOCKS, STAGING_BYTES, Uploader, tensor_buffer_bytes};
 use crate::text::{Choice, Input, Session, TextModel, gpu_choice_capable};
 use crate::tokenizer::Tokenizer;
 use crate::vision::Vision;
@@ -71,6 +71,12 @@ struct VisionStage {
 /// the run-ahead decode's defaults: choices recorded per submission × submissions in flight (natively
 /// OCR_WGPU_RUNAHEAD=<chunk>[,<depth>] overrides them — a measuring knob)
 pub const RUN_AHEAD_CHUNK: usize = 4;
+/// the fixed memory pool's budget: the most image tokens a read may have — the largest page of the training data
+/// (1540 × 1540 at 28 px per token); the pool (Gpu::fix_pool) is sized for it
+pub const MAX_IMAGE_TOKENS: usize = 3025;
+/// the largest single work buffer of a read at MAX_IMAGE_TOKENS (the vision FFN's f16 output) — with the largest
+/// weight, the pool's large block
+const LARGE_WORK_BYTES: u64 = 104 << 20;
 pub const RUN_AHEAD_DEPTH: usize = 2;
 
 /// where a read's next token is chosen — a capability decision per read (Engine::token_choice), reported in ReadStats
@@ -207,6 +213,9 @@ impl Engine {
         let largest = largest_tensor(&text.tensors).into_iter().chain(largest_tensor(&mmproj.tensors)).max_by_key(|t| tensor_buffer_bytes(t));
         let Some(largest) = largest else { bail!("the model files hold no tensors") };
         gpu.check_fits(&format!("the model's largest weight ({})", largest.name), tensor_buffer_bytes(largest))?;
+        // the memory pool at its full size, once: from now on nothing grows (a read that would not fit is refused before
+        // it starts — MAX_IMAGE_TOKENS)
+        gpu.fix_pool(POOL_SMALL_BLOCKS, tensor_buffer_bytes(largest).max(LARGE_WORK_BYTES))?;
         let tok = Tokenizer::from_gguf(text)?;
         gpu.alive()?;
         Ok(Self { gpu, weights, tok })
@@ -345,6 +354,11 @@ impl Engine {
         gpu.mem_begin_read();
         let (img_buf, n_img, encode_ms, vision_weights, resident) = match image {
             ImageInput::Pixels(img) => {
+                // the fixed pool's budget: the largest page of the training data (1540 × 1540)
+                let tokens = (img.width() as usize / 28) * (img.height() as usize / 28);
+                if tokens > MAX_IMAGE_TOKENS {
+                    bail!("the image is {}×{} — {tokens} image tokens, this engine's memory holds {MAX_IMAGE_TOKENS} (1540 × 1540): crop it or make it smaller", img.width(), img.height());
+                }
                 // the vision weights (and the encoder's work) go before the text loads
                 let v = self.stage_vision(mmproj, img, &mut up, base, &mut on_phase).await?;
                 load_ms += v.load_ms;
