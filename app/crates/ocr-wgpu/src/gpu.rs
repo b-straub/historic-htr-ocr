@@ -562,8 +562,14 @@ impl Ledger {
 /// submitted with it is done. A Buf must outlive the submission of every batch that binds it.
 /// A Buf is a range of a wgpu buffer — `offset`, `size` — bound, copied and read with that range (Buf::binding):
 /// a buffer of its own (offset 0), or a slice of a memory pool's block.
+/// A view (Buf::view) is a sub-range of a Buf: no memory of its own, it keeps its Buf alive.
 #[derive(Clone)]
-pub struct Buf(Arc<Counted>);
+pub struct Buf {
+    c: Arc<Counted>,
+    /// the range in the wgpu buffer (a view's lies inside its Buf's)
+    off: u64,
+    len: u64,
+}
 
 struct Counted {
     buf: wgpu::Buffer,
@@ -594,32 +600,42 @@ impl Drop for Counted {
 impl Buf {
     /// the wgpu buffer the range lies in
     pub fn buffer(&self) -> &wgpu::Buffer {
-        &self.0.buf
+        &self.c.buf
     }
 
     /// the range's start in buffer() (bytes)
     pub fn offset(&self) -> u64 {
-        self.0.offset
+        self.off
     }
 
     /// the range's length (bytes)
     pub fn size(&self) -> u64 {
-        self.0.size
+        self.len
     }
 
     /// what it holds (the ledger's column; weights are bound read-only)
     pub fn kind(&self) -> MemKind {
-        self.0.kind
+        self.c.kind
     }
 
     /// the range as a storage binding
     pub fn binding(&self) -> wgpu::BindingResource<'_> {
-        wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.0.buf, offset: self.0.offset, size: wgpu::BufferSize::new(self.0.size) })
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.c.buf, offset: self.off, size: wgpu::BufferSize::new(self.len) })
     }
 
     /// the range as a buffer slice (a copy's or a map's source)
     pub fn slice(&self) -> wgpu::BufferSlice<'_> {
-        self.0.buf.slice(self.0.offset..self.0.offset + self.0.size)
+        self.c.buf.slice(self.off..self.off + self.len)
+    }
+
+    /// bytes `start` … `start + len` of this range as a Buf of their own (no memory: the same buffer) — e.g. a block
+    /// of rows for a kernel; `start` must keep the device's storage offset alignment where it is bound (Batch::dispatch
+    /// checks)
+    pub fn view(&self, start: u64, len: u64) -> Result<Buf> {
+        if start + len > self.len || len == 0 {
+            bail!("a view of bytes {start}…{} of a {}-byte buffer", start + len, self.len);
+        }
+        Ok(Buf { c: self.c.clone(), off: self.off + start, len })
     }
 }
 
@@ -630,7 +646,7 @@ fn counted(ledger: &Arc<Mutex<Ledger>>, buf: wgpu::Buffer, kind: MemKind) -> Buf
     *kind.slot(&mut l.live) += size;
     l.note();
     drop(l);
-    Buf(Arc::new(Counted { buf, offset: 0, size, kind, ledger: ledger.clone(), home: None }))
+    Buf { c: Arc::new(Counted { buf, offset: 0, size, kind, ledger: ledger.clone(), home: None }), off: 0, len: size }
 }
 
 /// the free ranges of one pool block — (start, length), sorted, neighbours merged: the pool's bookkeeping (CPU only)
@@ -740,15 +756,19 @@ impl Drop for Pool {
     }
 }
 
+/// the vision FFN's row block on the F16 path (Batch::ffn_f16): its gate / up buffers hold this many rows. A multiple of
+/// 128 (whole matmul tiles); the row views start at r0 · k · 2 bytes — aligned for any K of the model (1024)
+pub const FFN_ROWS: usize = 1024;
+
 /// the pools' blocks: what every pooled Buf is a slice of
 const POOL_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC).union(wgpu::BufferUsages::COPY_DST);
 /// a pool block's size (at most the device's maxBufferSize / maxStorageBufferBindingSize). Small enough that a pool
 /// wastes little beyond its need (256 MiB blocks held 1792 MiB for 1394 MiB of need); a larger request — the text
 /// model's token_embd, 157.6 MiB; the vision's 74 MiB activations — gets a block of its own size
 const POOL_BLOCK: u64 = 64 << 20;
-/// the work pool's block size: the vision encoder's largest activations (74 MiB on a full page) fit one block with room
-/// beside them (64 MiB blocks: 842 MiB held for ~700 MiB of need)
-const POOL_BLOCK_WORK: u64 = 128 << 20;
+/// the work pool's block size: the vision FFN's f16 output (~80 MiB on a large page) fits one block (64 MiB blocks: 842
+/// MiB held for ~700 MiB of need; 128 MiB: 896 for ~751 on a large page, 96 MiB: 864)
+const POOL_BLOCK_WORK: u64 = 96 << 20;
 
 /// how the host hears of a fatal GPU event (set_fatal_hook): `kind` = "lost" (the device was lost — on a phone /
 /// tablet most likely the OS reclaiming memory) | "destroyed" (device.destroy() — the tests) | "outOfMemory" |
@@ -1384,7 +1404,7 @@ impl Gpu {
         *kind.slot(&mut l.live) += size;
         l.note();
         drop(l);
-        Buf(Arc::new(Counted { buf, offset, size, kind, ledger: self.mem.clone(), home: Some((pool.clone(), block, taken)) }))
+        Buf { c: Arc::new(Counted { buf, offset, size, kind, ledger: self.mem.clone(), home: Some((pool.clone(), block, taken)) }), off: offset, len: size }
     }
 
     /// `bytes` in a new work slice (padded to 4 bytes with zeros)
@@ -1637,6 +1657,12 @@ impl Batch<'_> {
         if bufs.len() != k.n_bufs {
             bail!("kernel {kernel}: {} buffers given, the shader binds {}", bufs.len(), k.n_bufs);
         }
+        let align = gpu.limits.min_storage_buffer_offset_alignment as u64;
+        for (i, b) in bufs.iter().enumerate() {
+            if b.offset() % align != 0 {
+                bail!("kernel {kernel}: binding {} starts at byte {} — the device binds storage at multiples of {align}", i + 1, b.offset());
+            }
+        }
         // weights only at the read-only (weight) bindings, nothing else there — the conversion at load writes weights
         for (i, b) in bufs.iter().enumerate() {
             let weight = b.kind() == MemKind::Weights;
@@ -1816,9 +1842,21 @@ impl Batch<'_> {
                 self.dispatch("ffn_coopd", &[m as u32, f as u32, k as u32, out_scale.to_bits()], &[x, &wg.buf, &wu.buf, g16], ((f / 32) as u32, (mp / 64) as u32, 1))
             }
             Compute::F16 => {
-                self.matmul_f16x(x, wg, gate, m, false)?;
-                self.matmul_f16x(x, wu, up, m, false)?;
-                self.dispatch("swiglu_h", &[(m * f) as u32, out_scale.to_bits()], &[up, gate, g16], (stride_groups((m * f) as u64), 1, 1))
+                // FFN_ROWS rows at a time: `gate` / `up` hold one block (f32) — for all rows at once they were ~300 MiB of
+                // the iPhone's 2048 (a full page's image encode 1453 MiB in use). The same products, in row blocks.
+                let block = FFN_ROWS.min(m);
+                if gate.size() < (block * f * 4) as u64 || up.size() < (block * f * 4) as u64 {
+                    bail!("ffn_f16: gate / up must hold {block} rows of {f}");
+                }
+                for r0 in (0..m).step_by(FFN_ROWS) {
+                    let rows = FFN_ROWS.min(m - r0);
+                    let xv = x.view((r0 * k * 2) as u64, (rows * k * 2) as u64)?;
+                    let gv = g16.view((r0 * f * 2) as u64, (rows * f * 2) as u64)?;
+                    self.matmul_f16x(&xv, wg, gate, rows, false)?;
+                    self.matmul_f16x(&xv, wu, up, rows, false)?;
+                    self.dispatch("swiglu_h", &[(rows * f) as u32, out_scale.to_bits()], &[up, gate, &gv], (stride_groups((rows * f) as u64), 1, 1))?;
+                }
+                Ok(())
             }
             Compute::F32 => bail!("ffn_f16 on the f32 path"),
         }

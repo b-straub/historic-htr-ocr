@@ -23,7 +23,7 @@ use image::RgbImage;
 use crate::gguf::{Gguf, TensorSource, TensorType};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::gpu::STAGING_BYTES;
-use crate::gpu::{Batch, Buf, Compute, Gpu, Precision, Uploader, Weight, WeightType, stride_groups};
+use crate::gpu::{Batch, Buf, Compute, FFN_ROWS, Gpu, Precision, Uploader, Weight, WeightType, stride_groups};
 
 /// clip.cpp sets rope_theta = 10000 for LIGHTONOCR in code (load_hparams); the GGUF carries no key for it
 const ROPE_THETA: f32 = 10000.0;
@@ -336,8 +336,8 @@ impl Vision {
         let h16 = gpu.scratch("h f16", mp * d / 2);
         let a16 = gpu.scratch("a f16", mp * d / 2);
         let g16 = gpu.scratch("g f16", mp * f / 2);
-        // F16 (no fused FFN kernel): the gate / up products in f32
-        let (g, u) = if gpu.compute == Compute::F16 { (gpu.scratch("gate", n * f), gpu.scratch("up", n * f)) } else { (gpu.scratch("-", 1), gpu.scratch("-", 1)) };
+        // F16 (no fused FFN kernel): the gate / up products in f32, one row block at a time (gpu.rs FFN_ROWS)
+        let (g, u) = if gpu.compute == Compute::F16 { (gpu.scratch("gate", FFN_ROWS * f), gpu.scratch("up", FFN_ROWS * f)) } else { (gpu.scratch("-", 1), gpu.scratch("-", 1)) };
         // K / V as f16 head-major, padded to whole key blocks (heads_f16.wgsl) for the attention
         let n_pad = n.div_ceil(32) * 32;
         let (kh, vh) = (gpu.scratch("k f16", c.n_head * n_pad * c.d_head / 2), gpu.scratch("v f16", c.n_head * n_pad * c.d_head / 2));
