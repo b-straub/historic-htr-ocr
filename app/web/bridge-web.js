@@ -132,6 +132,20 @@ function markUnsupported(u) {
     keep(CRASH_MARKER, null);
   }
 }
+/// the crash of the run before (the crash marker / a lost GPU) as one message for the page's message box, and the device
+/// cleared: the next read tries again (null: none)
+export function takeCrashNote() {
+  if (!unsupported) {
+    return null;
+  }
+  const u = unsupported;
+  markUnsupported(null);
+  const when = new Date(u.time).toLocaleString();
+  const what = u.cause === "killed"
+    ? `OCR Lite stopped during ${u.step} (${when}) — most likely this device ran out of memory.`
+    : `OCR Lite lost the GPU during ${u.step} (${when}): ${u.why}.`;
+  return `${what}\n\nReading in the browser with WebGPU is work in progress: on phones and tablets OCR Lite is not production-ready yet — a crash loses the text on the right, so copy or save what you edited. Real editing, with the work kept, is the next major step.\n\nThe next read tries again.`;
+}
 function tryAnyway() {
   markUnsupported(null);
   return "Device notice cleared — Read tries again";

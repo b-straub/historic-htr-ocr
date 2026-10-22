@@ -36,9 +36,10 @@ const E = {
   imgZoomed: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "zoomOut", "fit", "save", "savePng", "read"],
   crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "zoomIn", "save", "savePng"],
   cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
-  starting: [...ALWAYS, "zoomIn"],
-  reading: [...ALWAYS, "zoomIn", "read"],
-  stopping: [...ALWAYS, "zoomIn"],
+  // a read: About off (its re-layout during a read ended in crashes on the iPhone), Help stays
+  starting: ["help", "zoomIn"],
+  reading: ["help", "zoomIn", "read"],
+  stopping: ["help", "zoomIn"],
   text: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read", "undo", "copy", "saveTxt", "saveHtml"],
   markupText: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read", "copy", "saveTxt", "saveHtml"],
   markupEmpty: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read"],
@@ -125,6 +126,9 @@ let SMALL = null;
   }
 
   const page = await browser.newPage();
+  // message boxes (the edit warning of a session) are answered and kept for the checks
+  const dialogs = [];
+  page.on("dialog", async (d) => { dialogs.push(d.message()); await d.accept(); });
   await prep(page);
   await load(page);
   // an earlier run killed mid-read (its Chrome gone before localStorage was flushed) leaves the crash marker / device
@@ -304,6 +308,8 @@ let SMALL = null;
   await page.click("#editor");
   await page.keyboard.type("Hallo Welt");
   await sleep(200);
+  const warned = dialogs.filter((m) => /Tech preview/.test(m)).length;
+  ok(warned === 1, `the first edit of the session warns once that edits are not kept (${warned} message box${warned === 1 ? "" : "es"})`);
   await check(page, "image · text", E.text);
   await page.click("#markupBtn");
   await sleep(200);

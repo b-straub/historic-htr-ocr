@@ -120,7 +120,12 @@ try {
   sessionStorage.removeItem("ocrlite.crumbs");
 } catch {}
 window.addEventListener("pagehide", () => { try { sessionStorage.removeItem("ocrlite.alive"); } catch {} });
-function showCrashNote() {
+// `crash`: the run before died in a GPU step (the crash marker) or lost the GPU (host.takeCrashNote) — one message box
+// instead of a hard-to-hit "Try anyway" in the status line; the next read simply tries again
+function showCrashNote(crash) {
+  if (crash) {
+    alert(crash);
+  }
   if (!lastCrash) return;
   const trail = [`OCR Lite — the page before ended without unloading (${navigator.userAgent})`, ...lastCrash].join("\n");
   status(`The page was reloaded after it ended unexpectedly (a crash, or the system freed the tab); last action: ${lastCrash.at(-1) ?? "none"}`, "err", {
@@ -638,6 +643,20 @@ $("fitBtn").onclick = () => {
   refit();
 };
 
+// a tech preview: the first edit of a session says that edits are not kept (no saved work yet)
+const EDIT_WARNED = "ocrlite.editWarned";
+function warnEdit() {
+  try {
+    if (sessionStorage.getItem(EDIT_WARNED)) {
+      return;
+    }
+    sessionStorage.setItem(EDIT_WARNED, "1");
+  } catch {}
+  alert("Tech preview: OCR Lite does not keep your edits yet — a crash or a reload loses the text on the right. Copy or save what you change.\n\nReal editing, with the work kept, is the next major step.");
+}
+$("editor").addEventListener("input", warnEdit);
+$("src").addEventListener("input", warnEdit);
+
 let markupView = false;
 $("markupBtn").onclick = async () => {
   markupView = !markupView;
@@ -799,6 +818,11 @@ listen("ocr:done", async (e) => {
   await S.editor.load(S.streamed);
   if (markupView) $("src").value = S.streamed;
   setReading(false);
+  // the text gets the focus: keys and the wheel scroll it at once — with a mouse / trackpad only (a touch screen would
+  // open its keyboard; a finger scrolls the text without the focus)
+  if (matchMedia("(pointer: fine)").matches) {
+    $("editor").focus({ preventScroll: true });
+  }
   crumb(`memory ${await host.memoryNote()}`);
   const r = e.payload;
   const tps = r.decodeMs > 0 ? (r.outTokens / (r.decodeMs / 1000)).toFixed(0) : "–";
@@ -970,7 +994,8 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own title
 //                                  not finding · not busy
 //   preset select                  not busy                                       busy (the running read keeps its own)
-//   About, Help                    always
+//   Help                           always
+//   About, Fit                     not busy (their re-layout during a read ended in crashes on the iPhone)
 //   Settings                       not busy (the model store must not change      busy
 //                                  under a read)
 //   Read                           image · model ready · no crop mode / pending   no model: its why (e.g. "Set up the
@@ -1038,7 +1063,9 @@ function applyState() {
   enable($("undoBtn"), editing && !busy && S.editor.canUndo(), busy ? BUSY_WHY : "");
   enable($("redoBtn"), editing && !busy && S.editor.canRedo(), busy ? BUSY_WHY : "");
   enable($("markupBtn"), S.editor !== null && !busy, BUSY_WHY);
-  enable($("fitBtn"), S.editor !== null && !markupView, markupView ? "Fit applies to the rendered text" : "");
+  // Fit and About stay off while a read runs (their re-layout during a read ended in crashes on the iPhone)
+  enable($("fitBtn"), S.editor !== null && !markupView && !busy, busy ? BUSY_WHY : markupView ? "Fit applies to the rendered text" : "");
+  enable($("aboutBtn"), !busy, BUSY_WHY);
   enable($("copyBtn"), text && !busy, busy ? BUSY_WHY : "Nothing to copy yet");
   enable($("saveBtn"), (text || img) && !busy, busy ? BUSY_WHY : "Nothing to save yet — read an image");
   for (const b of $("saveMenu").querySelectorAll("button")) {
@@ -1124,9 +1151,11 @@ placeRead();
   fillPresetSel();
   applyState();
   // the host's word on a missing model (not in this browser's storage yet)
+  // the crash note first: it clears the device's flag, so the model note below is the current one
+  const crash = host.takeCrashNote();
   await showModelNote();
   await checkModel();
-  showCrashNote();
+  showCrashNote(crash);
   // the setup opens by itself while the model is not in this browser's storage or the browser has no WebGPU (its
   // device check says why)
   if (host.setup.noWebGpu || await host.setup.modelMissing()) {
