@@ -122,6 +122,8 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1
 @media (orientation: landscape) and (max-height: 500px) {
   .titlebar { gap: 6px; min-height: 44px; }
   .brandname { display: none; }
+  .select select { max-width: 150px; }
+  #bakeInfo { display: none; }
   .cardhead { min-height: 38px; padding: 4px 8px 4px 12px; gap: 6px; }
   .statusbar { height: 26px; }
   .statusbar #backendInfo { display: none; }

@@ -1096,6 +1096,20 @@ async function checkModel() {
   applyState();
 }
 
+// a phone on its side (style.css: landscape, ≤ 500 px high): Read moves from the title bar into the image card's head
+// beside the zoom, so the title bar keeps one row — the same button, only its place changes
+const COMPACT = matchMedia("(orientation: landscape) and (max-height: 500px)");
+const readHome = { parent: $("readBtn").parentNode, next: $("readBtn").nextSibling };
+function placeRead() {
+  if (COMPACT.matches) {
+    $("zoomSeg").after($("readBtn"));
+  } else {
+    readHome.parent.insertBefore($("readBtn"), readHome.next);
+  }
+}
+COMPACT.addEventListener("change", placeRead);
+placeRead();
+
 // ── start ─────────────────────────────────────────────────────────────
 (async () => {
   paintIcons();
