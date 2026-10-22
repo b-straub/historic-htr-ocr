@@ -1162,9 +1162,19 @@ impl Gpu {
         counted(&self.mem, buf, kind)
     }
 
-    /// an uninitialised buffer of `size` bytes, counted as `kind`
+    /// a buffer of `size` bytes, counted as `kind`. Zeroed on the GPU here (all but weights, which the upload writes
+    /// whole, their pad zeroed on the CPU), not trusted to the API: WebGPU promises zero-initialised buffers, but on iOS a fresh buffer
+    /// came back with an earlier read's leftovers (the same page read once right, then "000…" or random characters —
+    /// the vision kernels read the padding rows of their 64-row tiles, NaN there spreads through the attention). A
+    /// clear is a GPU memset, submitted before any batch that uses the buffer (the queue keeps the order).
     fn alloc(&self, label: &str, size: u64, usage: wgpu::BufferUsages, kind: MemKind) -> Buf {
-        self.count(self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false }), kind)
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
+        if kind != MemKind::Weights && usage.contains(wgpu::BufferUsages::COPY_DST) {
+            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new buffer") });
+            enc.clear_buffer(&buf, 0, None);
+            self.queue.submit([enc.finish()]);
+        }
+        self.count(buf, kind)
     }
 
     pub fn upload(&self, label: &str, bytes: &[u8]) -> Buf {
