@@ -35,10 +35,10 @@ use anyhow::{Result, bail};
 use image::RgbImage;
 use ocr_decode::presets::Preset;
 use ocr_decode::prompt::{IMAGE_PAD, PREFIX, SUFFIX};
-use ocr_decode::sampling::{Emitter, Flow, Phase, ReadStats, Step, Token, generate};
+use ocr_decode::sampling::{Emitter, Flow, Phase, ReadMemory, ReadStats, Step, Token, generate};
 
 use crate::gguf::{Gguf, TensorInfo, TensorSource};
-use crate::gpu::{Buf, Gpu, STAGING_BYTES, tensor_buffer_bytes};
+use crate::gpu::{Buf, Gpu, STAGING_BYTES, Uploader, tensor_buffer_bytes};
 use crate::text::{Choice, Input, Session, TextModel, gpu_choice_capable};
 use crate::tokenizer::Tokenizer;
 use crate::vision::Vision;
@@ -55,6 +55,33 @@ const IMAGE_END: &str = "<|im_end|>";
 pub enum ImageInput<'a> {
     Pixels(&'a RgbImage),
     Embeddings(&'a [f32]),
+    /// this engine's own encoding from an earlier half (Engine::encode_only, another worker): the read goes on with the
+    /// text weights only, its encode time carried along
+    Encoded { emb: &'a [f32], encode_ms: f64 },
+}
+
+/// the vision half of a staged read on its own (Engine::encode_only): the image's embeddings on the CPU
+pub struct Encoded {
+    /// [n_img][dim] f32
+    pub emb: Vec<f32>,
+    pub n_img: usize,
+    pub encode_ms: f64,
+    /// the vision weights' load (text_weights 0)
+    pub load: WeightLoad,
+    pub gpu_memory: ReadMemory,
+}
+
+/// the vision stage of a staged read: the image's embeddings on the GPU, the vision weights already freed
+struct VisionStage {
+    img_buf: Buf,
+    n_img: usize,
+    /// the embeddings' width (img_buf is padded: its size is no measure)
+    dim: usize,
+    encode_ms: f64,
+    vision_weights: u64,
+    resident: u64,
+    load_ms: f64,
+    load_peak: u64,
 }
 
 /// the run-ahead decode's defaults: choices recorded per submission × submissions in flight (natively
@@ -129,13 +156,7 @@ pub struct Engine {
     /// is gpu.compute_label()
     pub weights: String,
     tok: Tokenizer,
-    /// awaited between the staged load's halves — after the vision weights are freed and the GPU is idle, before the
-    /// text weights load (None: no pause; the browser's probe sets one: does iOS count freed GPU memory for a while?)
-    pub stage_pause: Option<StagePause>,
 }
-
-/// the pause between the staged load's halves (Engine::stage_pause)
-pub type StagePause = Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>>>>>;
 
 struct WgpuStep<'a> {
     gpu: &'a Gpu,
@@ -204,7 +225,7 @@ impl Engine {
         gpu.check_fits(&format!("the model's largest weight ({})", largest.name), tensor_buffer_bytes(largest))?;
         let tok = Tokenizer::from_gguf(text)?;
         gpu.alive()?;
-        Ok(Self { gpu, weights, tok, stage_pause: None })
+        Ok(Self { gpu, weights, tok })
     }
 
     /// the weights onto the GPU, streamed through one staging chunk; they live as long as the Model
@@ -287,6 +308,49 @@ impl Engine {
         pollster::block_on(self.load_and_read(&files.text, &files.mmproj, image, p, seed, on_phase, on_text, on_logits))
     }
 
+    /// the vision weights loaded, the image encoded, the vision weights (and the encoder's work) freed — the staged
+    /// read's first half; `base` = the weight bytes alive before
+    async fn stage_vision<M: TensorSource>(&self, mmproj: &Gguf<M>, img: &RgbImage, up: &mut Uploader, base: u64, on_phase: &mut impl FnMut(Phase)) -> Result<VisionStage> {
+        let gpu = &self.gpu;
+        let t0 = Instant::now();
+        gpu.mem_begin_load();
+        let vision = Vision::from_gguf(gpu, mmproj, up).await?;
+        let t1 = Instant::now();
+        gpu.upload_flush(up).await?;
+        up.wait_ms += t1.elapsed().as_secs_f64() * 1e3;
+        let load_ms = t0.elapsed().as_secs_f64() * 1e3;
+        let load_peak = gpu.mem_peak();
+        let vision_weights = gpu.mem_live().weights - base;
+        let resident = gpu.mem_live().total();
+        let t2 = Instant::now();
+        on_phase(Phase::EncodingImage);
+        gpu.phase("vision");
+        let (img_buf, n_img, dim) = vision.encode_gpu(gpu, img)?;
+        gpu.wait().await?;
+        let encode_ms = t2.elapsed().as_secs_f64() * 1e3;
+        drop(vision);
+        gpu.phase("-");
+        Ok(VisionStage { img_buf, n_img, dim, encode_ms, vision_weights, resident, load_ms, load_peak })
+    }
+
+    /// the staged read's first half on its own: the image's embeddings back on the CPU and every weight freed — the
+    /// browser ends this engine's worker after it and reads on in a new one (ImageInput::Encoded): what a dead worker
+    /// held cannot stay counted against the read's second half (iOS counted freed GPU memory: the iPhone's 2048 MB)
+    pub async fn encode_only<T: TensorSource, M: TensorSource>(&mut self, text: &Gguf<T>, mmproj: &Gguf<M>, img: &RgbImage, mut on_phase: impl FnMut(Phase)) -> Result<Encoded> {
+        self.check_files(text, mmproj)?;
+        let gpu = &self.gpu;
+        let base = gpu.mem_live().weights;
+        let mut up = gpu.uploader(STAGING_BYTES);
+        gpu.mem_begin_read();
+        let v = self.stage_vision(mmproj, img, &mut up, base, &mut on_phase).await?;
+        let emb = gpu.read_f32(&v.img_buf, v.n_img * v.dim).await?;
+        drop(v.img_buf);
+        let gpu_memory = gpu.mem_read(v.resident)?;
+        let memory = ModelMemory { vision_weights: v.vision_weights, text_weights: 0, resident: v.resident, load_peak: v.load_peak };
+        let load = WeightLoad { ms: v.load_ms, read_ms: up.read_ms, wait_ms: up.wait_ms, memory };
+        Ok(Encoded { emb, n_img: v.n_img, encode_ms: v.encode_ms, load, gpu_memory })
+    }
+
     /// THE read of the hosts: the weights loaded from the two GGUFs, the read, the weights freed — also when the read
     /// fails or is cancelled (the weights are locals: every way out of this call drops them). Pixels are read STAGED:
     /// the vision weights load, the image is encoded, the vision weights are freed, then the text weights load — the
@@ -315,33 +379,18 @@ impl Engine {
         gpu.mem_begin_read();
         let (img_buf, n_img, encode_ms, vision_weights, resident) = match image {
             ImageInput::Pixels(img) => {
-                let t0 = Instant::now();
-                gpu.mem_begin_load();
-                let vision = Vision::from_gguf(gpu, mmproj, &mut up).await?;
-                let t1 = Instant::now();
-                gpu.upload_flush(&mut up).await?;
-                up.wait_ms += t1.elapsed().as_secs_f64() * 1e3;
-                load_ms += t0.elapsed().as_secs_f64() * 1e3;
-                load_peak = load_peak.max(gpu.mem_peak());
-                let vision_weights = gpu.mem_live().weights - base;
-                let resident = gpu.mem_live().total();
-                let t2 = Instant::now();
-                on_phase(Phase::EncodingImage);
-                gpu.phase("vision");
-                let (img_buf, n_img) = vision.encode_gpu(gpu, img)?;
-                gpu.wait().await?;
-                let encode_ms = t2.elapsed().as_secs_f64() * 1e3;
-                // the vision weights (and the encoder's work, freed with encode_gpu's locals) go before the text loads
-                drop(vision);
-                gpu.phase("-");
-                on_phase(Phase::LoadingText { encode_ms });
-                if let Some(pause) = &self.stage_pause {
-                    gpu.wait().await?;
-                    pause().await?;
-                }
-                (Some(img_buf), n_img, Some(encode_ms), vision_weights, resident)
+                // the vision weights (and the encoder's work) go before the text loads
+                let v = self.stage_vision(mmproj, img, &mut up, base, &mut on_phase).await?;
+                load_ms += v.load_ms;
+                load_peak = load_peak.max(v.load_peak);
+                on_phase(Phase::LoadingText { encode_ms: v.encode_ms });
+                (Some(v.img_buf), v.n_img, Some(v.encode_ms), v.vision_weights, v.resident)
             }
             ImageInput::Embeddings(_) => (None, 0, None, 0, gpu.mem_live().total()),
+            ImageInput::Encoded { encode_ms, .. } => {
+                on_phase(Phase::LoadingText { encode_ms });
+                (None, 0, Some(encode_ms), 0, gpu.mem_live().total())
+            }
         };
         let t3 = Instant::now();
         gpu.mem_begin_load();
@@ -362,7 +411,7 @@ impl Engine {
         let dim = text_model.cfg.dim;
         let (img_buf, n_img) = match (img_buf, image) {
             (Some(b), _) => (b, n_img),
-            (None, ImageInput::Embeddings(e)) => {
+            (None, ImageInput::Embeddings(e) | ImageInput::Encoded { emb: e, .. }) => {
                 if e.is_empty() || e.len() % dim != 0 {
                     bail!("{} embedding values are no whole rows of {dim}", e.len());
                 }
@@ -400,8 +449,11 @@ impl Engine {
         on_phase(Phase::EncodingImage);
         self.gpu.phase("vision");
         let (img_buf, n_img) = match image {
-            ImageInput::Pixels(img) => model.vision.encode_gpu(&self.gpu, img)?,
-            ImageInput::Embeddings(e) => {
+            ImageInput::Pixels(img) => {
+                let (buf, n, _) = model.vision.encode_gpu(&self.gpu, img)?;
+                (buf, n)
+            }
+            ImageInput::Embeddings(e) | ImageInput::Encoded { emb: e, .. } => {
                 if e.is_empty() || e.len() % dim != 0 {
                     bail!("{} embedding values are no whole rows of {dim}", e.len());
                 }

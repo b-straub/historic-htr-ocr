@@ -161,16 +161,24 @@ function gpuFatal(m) {
 }
 
 // ── the engine worker ────────────────────────────────────────────────
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-// first message: the sources the worker may store / read the model from (before any command — messages keep their order)
-worker.postMessage({ cmd: "sources", sources: MODEL_SOURCES });
+// a worker is ended and a new one started in the middle of each read (commands.read): startWorker sets one up
+let worker = startWorker();
+function startWorker() {
+  const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  // first message: the sources the worker may store / read the model from (before any command — messages keep their
+  // order)
+  w.postMessage({ cmd: "sources", sources: MODEL_SOURCES });
+  w.onmessage = onWorkerMessage;
+  w.onerror = (e) => emit("ocr:error", `engine worker: ${e.message}`);
+  return w;
+}
 const listeners = new Map();
 const waiting = new Map();
 let nextId = 1;
 function emit(event, payload) {
   for (const cb of listeners.get(event) ?? []) cb({ payload });
 }
-worker.onmessage = (e) => {
+function onWorkerMessage(e) {
   const m = e.data;
   if (m.event === "text") { emit("ocr:text", m.text); return; }
   if (m.event === "status") { emit("ocr:status", m.text); return; }
@@ -187,8 +195,7 @@ worker.onmessage = (e) => {
   const w = waiting.get(m.id);
   waiting.delete(m.id);
   if (m.ok) w.resolve(m.result); else w.reject(m.error);
-};
-worker.onerror = (e) => emit("ocr:error", `engine worker: ${e.message}`);
+}
 // the update's reload (pwa.js reloadNow): the engine worker ends before the page goes — its wasm heap and its GPU
 // device (the weights are freed after each read anyway) are not left to be released behind the new page's start
 window.addEventListener("ocrlite:release", () => worker.terminate());
@@ -246,7 +253,27 @@ const commands = {
     if (!gatePassed) throw new Error("this read did not pass modelGate first");
     gatePassed = false;
     const b = ocr.bake(JSON.stringify(ops));
-    work("read", { source: modelSource(), rgb: b.rgb, w: b.w, h: b.h, preset: p, seed: b.seed }, [b.rgb.buffer]).then(
+    const source = modelSource();
+    stopAsked = false;
+    // the staged read over two workers: worker A loads the vision weights, encodes, hands the embeddings back and is
+    // ended; a new worker B loads the text weights and reads on — iOS kept counting freed GPU memory against the page
+    // (the iPhone died at its 2048 MB in the text load), a dead worker's memory has to go
+    work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer]).then(async (enc) => {
+      worker.terminate();
+      worker = startWorker();
+      if (stopAsked) {
+        return { ...enc.stats, imageTokens: enc.stats.nImg, promptTokens: 0, prefillMs: 0, decodeMs: 0, outTokens: 0, stoppedOnEog: false, cancelled: true, idleBytes: 0 };
+      }
+      const r = await work("readEncoded", { source, emb: enc.emb, encodeMs: enc.stats.encodeMs, preset: p, seed: b.seed }, [enc.emb.buffer]);
+      // one read's stats from both halves: the loads (+ the new worker's engine start) added, the peak the larger
+      const top = r.gpuMemory.peakBytes >= enc.stats.gpuMemory.peakBytes ? r.gpuMemory : { ...r.gpuMemory, peakBytes: enc.stats.gpuMemory.peakBytes, peakPhase: enc.stats.gpuMemory.peakPhase };
+      return {
+        ...r,
+        loadMs: enc.stats.loadMs + r.restartMs + r.loadMs,
+        load: { ...r.load, ms: enc.stats.load.ms + r.load.ms, visionWeightsBytes: enc.stats.load.visionWeightsBytes, weightsBytes: enc.stats.load.visionWeightsBytes + r.load.textWeightsBytes },
+        gpuMemory: { ...top, phases: [...enc.stats.gpuMemory.phases, ...r.gpuMemory.phases] },
+      };
+    }).then(
       (stats) => {
         clearMarker();
         lastRead = stats;
@@ -264,6 +291,7 @@ const commands = {
     return JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts)));
   },
   cancel() {
+    stopAsked = true; // a Stop during the encode: the second half does not start
     worker.postMessage({ cmd: "cancel" });
   },
   render({ text }) {
@@ -392,6 +420,7 @@ function engineLoaded(info) {
 }
 // the GPU memory the engine counted (ocr-wgpu's ledger): between reads (no weights — each read loads them and frees
 // them after it), the last read's weights and peak
+let stopAsked = false; // a Stop since the read started (commands.read: between its two workers)
 let lastRead = null; // the worker's stats of the last finished read (ReadStats + loadMs, load, idleBytes)
 function drawMemory() {
   const parts = [];

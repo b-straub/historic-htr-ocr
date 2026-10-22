@@ -283,6 +283,20 @@ async function ensureEngine(src) {
   }
 }
 
+/// `run(readFiles)` with the model files of `src` opened (and closed after it); `step` = the crash marker's step
+async function withFiles(src, step, run) {
+  const { files, close } = await openFiles(src);
+  try {
+    const total = files.reduce((a, f) => a + f.size, 0);
+    const state = { done: 0, shown: 0 };
+    post({ event: "step", step });
+    const [t, m] = files;
+    return await run(new ocr.ReadFiles(t.size, counted(t.read, t.name, total, state), m.size, counted(m.read, m.name, total, state)));
+  } finally {
+    close();
+  }
+}
+
 /// one read: the files opened, the weights loaded by the engine for this read and freed after it, the files closed
 async function readOnce(src, { rgb, w, h, preset, seed }) {
   const { files, close } = await openFiles(src);
@@ -353,6 +367,27 @@ const handlers = {
     const info = await ensureEngine(source);
     if (info) post({ event: "loaded", info });
     return readOnce(source, { rgb, w, h, preset, seed });
+  },
+  // the staged read split over two workers (bridge-web.js): this worker encodes and is ended after it; a new one
+  // reads on from the embeddings — what a dead worker held cannot stay counted against the second half
+  async encode({ source, rgb, w, h }) {
+    const info = await ensureEngine(source);
+    if (info) post({ event: "loaded", info });
+    return withFiles(source, "model load (vision)", async (rf) => {
+      const r = await ocr.encode(rf, rgb, w, h, (phase) => post({ event: "phase", phase: JSON.parse(phase) }));
+      return { emb: r.emb, stats: JSON.parse(r.stats) };
+    });
+  },
+  async readEncoded({ source, emb, encodeMs, preset, seed }) {
+    ocr.reset_cancel();
+    post({ event: "step", step: "engine restart" });
+    const t0 = performance.now();
+    const info = await ensureEngine(source);
+    if (info) post({ event: "loaded", info });
+    const restartMs = performance.now() - t0;
+    const stats = await withFiles(source, "model load (text)", async (rf) =>
+      JSON.parse(await ocr.read_encoded(rf, emb, encodeMs, JSON.stringify(preset), seed, (phase) => post({ event: "phase", phase: JSON.parse(phase) }), (piece) => post({ event: "text", text: piece }))));
+    return { ...stats, restartMs };
   },
 };
 

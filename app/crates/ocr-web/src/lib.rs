@@ -255,8 +255,6 @@ pub async fn open_engine(text_len: f64, text_read: Function, mmproj_len: f64, mm
             "idleBytes": eng.gpu.mem_live().total(),
         });
         DEVICE.with(|d| *d.borrow_mut() = Some(eng.gpu.device.clone()));
-        let mut eng = eng;
-        eng.stage_pause = Some(Box::new(|| Box::pin(sleep_ms(STAGE_PAUSE_MS))));
         ENGINE.with(|e| *e.borrow_mut() = Some(eng));
         Ok(info.to_string())
     }
@@ -267,26 +265,6 @@ pub async fn open_engine(text_len: f64, text_read: Function, mmproj_len: f64, mm
 #[wasm_bindgen]
 pub fn engine_open() -> bool {
     ENGINE.with(|e| e.borrow().is_some())
-}
-
-/// PROBE: the pause after the staged load's vision half (the vision weights freed, the GPU idle), before the text
-/// weights load — iOS killed the page at that load (iPhone: the first read); if the pause lets it through, iOS still
-/// counted the freed memory for a while
-const STAGE_PAUSE_MS: i32 = 3000;
-
-/// a timer of the worker (setTimeout) as a future
-async fn sleep_ms(ms: i32) -> Result<()> {
-    let set_timeout: Function = Reflect::get(&js_sys::global(), &JsValue::from_str("setTimeout"))
-        .map_err(from_js)?
-        .dyn_into()
-        .map_err(|_| anyhow!("setTimeout is no function"))?;
-    let p = js_sys::Promise::new(&mut |resolve, reject| {
-        if let Err(e) = set_timeout.call2(&JsValue::NULL, &resolve, &JsValue::from(ms)) {
-            let _ = reject.call1(&JsValue::NULL, &e);
-        }
-    });
-    wasm_bindgen_futures::JsFuture::from(p).await.map_err(from_js)?;
-    Ok(())
 }
 
 /// close the engine (its device and GPU buffers go with it)
@@ -350,14 +328,85 @@ pub async fn read(files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, preset_json: S
     let Some(mut eng) = ENGINE.with(|e| e.borrow_mut().take()) else {
         return Err(JsError::new("no engine open (or a read is already running)"));
     };
-    let r = run_read(&mut eng, files, rgb, w, h, &preset_json, seed, &on_phase, &on_text).await;
+    let r = match RgbImage::from_raw(w, h, rgb).with_context(|| format!("{w}×{h} RGB: wrong byte count")) {
+        Ok(img) => run_read(&mut eng, files, ImageInput::Pixels(&img), &preset_json, seed, &on_phase, &on_text).await,
+        Err(e) => Err(e),
+    };
+    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
+    r.map_err(js_err)
+}
+
+/// the staged read's first half in this worker: the vision weights loaded, the image encoded, every weight freed →
+/// { emb: Float32Array ([nImg][dim]), stats: JSON { nImg, encodeMs, loadMs, load { parseMs, ms, readMs, waitMs,
+/// visionWeightsBytes, residentBytes, loadPeakBytes }, gpuMemory } }. The page then ends this worker and reads on in a
+/// new one (read_encoded): the memory of a dead worker cannot stay counted against the second half (the iPhone).
+#[wasm_bindgen]
+pub async fn encode(files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, on_phase: Function) -> Result<JsValue, JsError> {
+    let Some(mut eng) = ENGINE.with(|e| e.borrow_mut().take()) else {
+        return Err(JsError::new("no engine open (or a read is already running)"));
+    };
+    let r = run_encode(&mut eng, files, rgb, w, h, &on_phase).await;
+    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
+    r.map_err(js_err)
+}
+
+async fn run_encode(eng: &mut Engine, files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, on_phase: &Function) -> Result<JsValue> {
+    let img = RgbImage::from_raw(w, h, rgb).with_context(|| format!("{w}×{h} RGB: wrong byte count"))?;
+    let t0 = web_time::Instant::now();
+    let text = source(ocr_wgpu::engine::TEXT_GGUF, files.text_len, files.text_read)?;
+    let mmproj = source(ocr_wgpu::engine::MMPROJ_GGUF, files.mmproj_len, files.mmproj_read)?;
+    let parse_ms = t0.elapsed().as_secs_f64() * 1e3;
+    let mut phase_err: Option<anyhow::Error> = None;
+    let mut load_ms: Option<f64> = None;
+    let enc = eng
+        .encode_only(&text, &mmproj, &img, |ph| {
+            let ms = *load_ms.get_or_insert_with(|| t0.elapsed().as_secs_f64() * 1e3);
+            let r = phase_json(&ph, ms).and_then(|j| on_phase.call1(&JsValue::NULL, &JsValue::from_str(&j)).map_err(from_js));
+            if let Err(e) = r {
+                phase_err.get_or_insert(e.context("the phase callback failed"));
+            }
+        })
+        .await?;
+    if let Some(e) = phase_err {
+        return Err(e);
+    }
+    let m = &enc.load.memory;
+    let stats = serde_json::json!({
+        "nImg": enc.n_img,
+        "encodeMs": enc.encode_ms,
+        "loadMs": parse_ms + enc.load.ms,
+        "load": {
+            "parseMs": parse_ms,
+            "ms": enc.load.ms,
+            "readMs": enc.load.read_ms,
+            "waitMs": enc.load.wait_ms,
+            "visionWeightsBytes": m.vision_weights,
+            "residentBytes": m.resident,
+            "loadPeakBytes": m.load_peak,
+        },
+        "gpuMemory": serde_json::to_value(&enc.gpu_memory)?,
+    });
+    let out = Object::new();
+    Reflect::set(&out, &JsValue::from_str("emb"), &js_sys::Float32Array::from(&enc.emb[..])).map_err(from_js)?;
+    Reflect::set(&out, &JsValue::from_str("stats"), &JsValue::from_str(&stats.to_string())).map_err(from_js)?;
+    Ok(out.into())
+}
+
+/// the staged read's second half in a new worker: the text weights loaded, the read from the embeddings of `encode`
+/// (another worker's) — the same JSON as `read`; `on_phase` hears loadingText (with encodeMs) → readingPrompt → decoding
+#[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
+pub async fn read_encoded(files: ReadFiles, emb: Vec<f32>, encode_ms: f64, preset_json: String, seed: f64, on_phase: Function, on_text: Function) -> Result<String, JsError> {
+    let Some(mut eng) = ENGINE.with(|e| e.borrow_mut().take()) else {
+        return Err(JsError::new("no engine open (or a read is already running)"));
+    };
+    let r = run_read(&mut eng, files, ImageInput::Encoded { emb: &emb, encode_ms }, &preset_json, seed, &on_phase, &on_text).await;
     ENGINE.with(|e| *e.borrow_mut() = Some(eng));
     r.map_err(js_err)
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn run_read(eng: &mut Engine, files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, preset_json: &str, seed: f64, on_phase: &Function, on_text: &Function) -> Result<String> {
-    let img = RgbImage::from_raw(w, h, rgb).with_context(|| format!("{w}×{h} RGB: wrong byte count"))?;
+async fn run_read(eng: &mut Engine, files: ReadFiles, image: ImageInput<'_>, preset_json: &str, seed: f64, on_phase: &Function, on_text: &Function) -> Result<String> {
     let p: Preset = serde_json::from_str(preset_json).context("preset")?;
     p.validate()?;
     let t0 = web_time::Instant::now();
@@ -373,7 +422,7 @@ async fn run_read(eng: &mut Engine, files: ReadFiles, rgb: Vec<u8>, w: u32, h: u
         .load_and_read(
             &text,
             &mmproj,
-            ImageInput::Pixels(&img),
+            image,
             &p,
             seed as u64,
             |ph| {

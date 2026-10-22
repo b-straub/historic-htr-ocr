@@ -254,10 +254,10 @@ impl Vision {
         Ok(Embeddings { n_tokens, dim, data: gpu.read_f32(&buf, n_tokens * dim).await? })
     }
 
-    /// the image's embeddings left on the GPU for the text decoder: (buffer [n_tokens][proj_dim] f32, n_tokens)
-    pub fn encode_gpu(&self, gpu: &Gpu, img: &RgbImage) -> Result<(Buf, usize)> {
-        let (buf, n_tokens, _) = self.run(gpu, img, None, Precision::F32)?;
-        Ok((buf, n_tokens))
+    /// the image's embeddings left on the GPU for the text decoder: (buffer [n_tokens][proj_dim] f32 — padded, so it
+    /// may be larger —, n_tokens, proj_dim)
+    pub fn encode_gpu(&self, gpu: &Gpu, img: &RgbImage) -> Result<(Buf, usize, usize)> {
+        self.run(gpu, img, None, Precision::F32)
     }
 
     /// the encoder's dispatches, submitted: (the buffer holding the result, rows, row width)
