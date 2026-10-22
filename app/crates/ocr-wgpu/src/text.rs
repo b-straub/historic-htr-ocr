@@ -317,7 +317,7 @@ impl Session {
             if old.is_empty() {
                 continue;
             }
-            self.binds.forget(&old.iter().map(|o| &**o).collect::<Vec<&wgpu::Buffer>>());
+            self.binds.forget(&old.iter().collect::<Vec<&Buf>>());
             b.submit();
             drop(old);
             gpu.wait().await?;
@@ -517,7 +517,7 @@ impl TextModel {
             bail!("token {token} is outside the vocabulary");
         }
         s.reserve(gpu, s.n_past + 1).await?;
-        gpu.queue.write_buffer(&s.tok, 0, bytemuck::bytes_of(&(token as u32)));
+        gpu.queue.write_buffer(s.tok.buffer(), s.tok.offset(), bytemuck::bytes_of(&(token as u32)));
         let mut b = gpu.batch_cached(&s.binds);
         self.record_step(&mut b, s, s.n_past)?;
         b.copy(&s.logits, 0, &s.readback, 0, c.n_vocab);
@@ -1025,7 +1025,7 @@ mod tests {
                         let m = l.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                         l[t as usize] = m + 0.05;
                     }
-                    gpu.queue.write_buffer(&lb, 0, bytemuck::cast_slice(&l));
+                    gpu.queue.write_buffer(lb.buffer(), lb.offset(), bytemuck::cast_slice(&l));
                     let mut b = gpu.batch();
                     ch.record(&mut b, &lb, &tb, i).unwrap();
                     b.submit();

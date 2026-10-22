@@ -32,7 +32,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::Poll;
@@ -558,14 +557,18 @@ impl Ledger {
     }
 }
 
-/// a GPU buffer of the engine: the wgpu::Buffer (Deref), counted in the ledger of the Gpu that made it for as long as
+/// a GPU buffer of the engine: a range of a wgpu::Buffer, counted in the ledger of the Gpu that made it for as long as
 /// any clone of it lives; the last clone destroys it (Counted::drop) — the GPU frees it once the work already
 /// submitted with it is done. A Buf must outlive the submission of every batch that binds it.
+/// A Buf is a range of a wgpu buffer — `offset`, `size` — bound, copied and read with that range (Buf::binding):
+/// a buffer of its own (offset 0), or a slice of a memory pool's block.
 #[derive(Clone)]
 pub struct Buf(Arc<Counted>);
 
 struct Counted {
     buf: wgpu::Buffer,
+    offset: u64,
+    size: u64,
     kind: MemKind,
     ledger: Arc<Mutex<Ledger>>,
 }
@@ -578,24 +581,45 @@ impl Drop for Counted {
     fn drop(&mut self) {
         self.buf.destroy();
         let mut l = lock(&self.ledger);
-        *self.kind.slot(&mut l.live) -= self.buf.size();
+        *self.kind.slot(&mut l.live) -= self.size;
     }
 }
 
-impl Deref for Buf {
-    type Target = wgpu::Buffer;
-
-    fn deref(&self) -> &wgpu::Buffer {
+impl Buf {
+    /// the wgpu buffer the range lies in
+    pub fn buffer(&self) -> &wgpu::Buffer {
         &self.0.buf
     }
+
+    /// the range's start in buffer() (bytes)
+    pub fn offset(&self) -> u64 {
+        self.0.offset
+    }
+
+    /// the range's length (bytes)
+    pub fn size(&self) -> u64 {
+        self.0.size
+    }
+
+    /// the range as a storage binding
+    pub fn binding(&self) -> wgpu::BindingResource<'_> {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.0.buf, offset: self.0.offset, size: wgpu::BufferSize::new(self.0.size) })
+    }
+
+    /// the range as a buffer slice (a copy's or a map's source)
+    pub fn slice(&self) -> wgpu::BufferSlice<'_> {
+        self.0.buf.slice(self.0.offset..self.0.offset + self.0.size)
+    }
 }
 
+/// a buffer of its own, counted as `kind` (offset 0, its whole size)
 fn counted(ledger: &Arc<Mutex<Ledger>>, buf: wgpu::Buffer, kind: MemKind) -> Buf {
+    let size = buf.size();
     let mut l = lock(ledger);
-    *kind.slot(&mut l.live) += buf.size();
+    *kind.slot(&mut l.live) += size;
     l.note();
     drop(l);
-    Buf(Arc::new(Counted { buf, kind, ledger: ledger.clone() }))
+    Buf(Arc::new(Counted { buf, offset: 0, size, kind, ledger: ledger.clone() }))
 }
 
 /// how the host hears of a fatal GPU event (set_fatal_hook): `kind` = "lost" (the device was lost — on a phone /
@@ -842,7 +866,7 @@ impl Gpu {
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("subgroup probe"),
             layout: &pipe.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: out.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: out.binding() }],
         });
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("subgroup probe") });
         {
@@ -997,7 +1021,7 @@ impl Gpu {
     async fn warm_up(&self) -> Result<()> {
         let n_bufs = self.kernels.values().map(|k| k.n_bufs).max().unwrap_or(0);
         let bufs: Vec<Buf> = (0..n_bufs).map(|_| self.scratch("warm-up", 1 << 18)).collect();
-        let refs: Vec<&wgpu::Buffer> = bufs.iter().map(|b| &**b).collect();
+        let refs: Vec<&Buf> = bufs.iter().collect();
         let mut names: Vec<&'static str> = self.kernels.keys().copied().collect();
         names.sort_unstable();
         self.phase("warm-up");
@@ -1223,7 +1247,7 @@ impl Gpu {
             // for the next read. A wait once a staging size has been written since the last bounds the copies held by the
             // driver / browser — not one GPU round trip per tensor (≈ 530 tensors, most of them small; Chrome's copy of a
             // load 2.2 / 1.8 → 1.6 / 1.1 s, natively no difference — README "GPU memory")
-            self.queue.write_buffer(&dst, pos, buf);
+            self.queue.write_buffer(dst.buffer(), dst.offset() + pos, buf);
             up.pending += chunk;
             if up.pending >= up.size {
                 self.upload_flush(up).await?;
@@ -1245,7 +1269,7 @@ impl Gpu {
     /// a bf16 weight converted to f16 in place, times `scale` (a power of two: exact) — the f16 paths,
     /// f16_from_bf16.wgsl; words holding values beyond f16's range are counted into `over` (one u32, checked by the
     /// caller once all weights are converted)
-    pub fn weight_to_f16(&self, w: &mut Weight, over: &wgpu::Buffer, scale: f32) -> Result<()> {
+    pub fn weight_to_f16(&self, w: &mut Weight, over: &Buf, scale: f32) -> Result<()> {
         if scale.to_bits() & 0x007f_ffff != 0 || scale <= 0.0 {
             bail!("weight_to_f16: scale {scale} is not a power of two");
         }
@@ -1271,21 +1295,21 @@ impl Gpu {
     }
 
     /// the first n f32 of a buffer back to the CPU (waits for all submitted work)
-    pub async fn read_f32(&self, buf: &wgpu::Buffer, n: usize) -> Result<Vec<f32>> {
+    pub async fn read_f32(&self, buf: &Buf, n: usize) -> Result<Vec<f32>> {
         let size = (n * 4) as u64;
         let staging = self.alloc("readback", size, wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, MemKind::Readback);
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("readback") });
-        enc.copy_buffer_to_buffer(buf, 0, &staging, 0, size);
+        enc.copy_buffer_to_buffer(buf.buffer(), buf.offset(), staging.buffer(), staging.offset(), size);
         self.queue.submit([enc.finish()]);
         let (tx, rx) = oneshot::channel();
-        staging.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+        staging.slice().map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
         self.map_result(self.settle(rx).await?)?;
-        let view = staging.slice(..).get_mapped_range().context("map readback")?;
+        let view = staging.slice().get_mapped_range().context("map readback")?;
         let out = bytemuck::cast_slice::<u8, f32>(&view).to_vec();
         drop(view);
-        staging.unmap();
+        staging.buffer().unmap();
         Ok(out)
     }
 
@@ -1297,8 +1321,8 @@ impl Gpu {
     /// the first n u32 of a readback buffer once submission `idx` (the one that copied them there) has finished —
     /// natively it polls for that submission only, so the work queued after it keeps the GPU busy meanwhile (the
     /// run-ahead decode); the map is requested here, so the buffer must not be in use by a later submission
-    pub async fn read_mapped_u32(&self, buf: &wgpu::Buffer, n: usize, idx: wgpu::SubmissionIndex) -> Result<Vec<u32>> {
-        let slice = buf.slice(..(n * 4) as u64);
+    pub async fn read_mapped_u32(&self, buf: &Buf, n: usize, idx: wgpu::SubmissionIndex) -> Result<Vec<u32>> {
+        let slice = buf.buffer().slice(buf.offset()..buf.offset() + (n * 4) as u64);
         let (tx, rx) = oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -1314,13 +1338,13 @@ impl Gpu {
         let view = slice.get_mapped_range().context("map readback")?;
         let out = bytemuck::cast_slice::<u8, u32>(&view).to_vec();
         drop(view);
-        buf.unmap();
+        buf.buffer().unmap();
         Ok(out)
     }
 
     /// the first n f32 of a readback buffer, once the GPU has written them (waits for all submitted work)
-    pub async fn read_mapped(&self, buf: &wgpu::Buffer, n: usize) -> Result<Vec<f32>> {
-        let slice = buf.slice(..(n * 4) as u64);
+    pub async fn read_mapped(&self, buf: &Buf, n: usize) -> Result<Vec<f32>> {
+        let slice = buf.buffer().slice(buf.offset()..buf.offset() + (n * 4) as u64);
         let (tx, rx) = oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -1329,7 +1353,7 @@ impl Gpu {
         let view = slice.get_mapped_range().context("map readback")?;
         let out = bytemuck::cast_slice::<u8, f32>(&view).to_vec();
         drop(view);
-        buf.unmap();
+        buf.buffer().unmap();
         Ok(out)
     }
 
@@ -1366,16 +1390,16 @@ pub struct Uploader {
     pending: u64,
 }
 
-/// bind groups kept across batches: (kernel, bound buffers) → bind group. It holds the buffers alive — owned by what
-/// owns those buffers (a decode session) and dropped with it.
+/// bind groups kept across batches: (kernel, bound ranges — buffer, offset, size) → bind group. It holds the buffers alive
+/// — owned by what owns those buffers (a decode session) and dropped with it.
 #[derive(Default)]
-pub struct BindCache(RefCell<HashMap<(&'static str, Vec<wgpu::Buffer>), wgpu::BindGroup>>);
+pub struct BindCache(RefCell<HashMap<(&'static str, Vec<(wgpu::Buffer, u64, u64)>), wgpu::BindGroup>>);
 
 impl BindCache {
     /// drops the bind groups that bind any of `bufs` (buffers being replaced — the KV cache grown): kept, they would
     /// hold the old buffers alive past their Buf (and the ledger)
-    pub fn forget(&self, bufs: &[&wgpu::Buffer]) {
-        self.0.borrow_mut().retain(|(_, bound), _| !bound.iter().any(|b| bufs.contains(&b)));
+    pub fn forget(&self, bufs: &[&Buf]) {
+        self.0.borrow_mut().retain(|(_, bound), _| !bound.iter().any(|(b, o, _)| bufs.iter().any(|x| x.buffer() == b && x.offset() == *o)));
     }
 }
 
@@ -1396,7 +1420,7 @@ pub struct Batch<'a> {
 
 impl Batch<'_> {
     /// one dispatch: params (u32 / f32 words, at most 8) at binding 0, `bufs` at bindings 1…
-    pub fn dispatch(&mut self, kernel: &str, params: &[u32], bufs: &[&wgpu::Buffer], groups: (u32, u32, u32)) -> Result<()> {
+    pub fn dispatch(&mut self, kernel: &str, params: &[u32], bufs: &[&Buf], groups: (u32, u32, u32)) -> Result<()> {
         let gpu = self.gpu;
         let (&name, k) = gpu.kernels.get_key_value(kernel).with_context(|| format!("no kernel {kernel}"))?;
         if bufs.len() != k.n_bufs {
@@ -1422,7 +1446,7 @@ impl Batch<'_> {
         let make = || -> Result<wgpu::BindGroup> {
             let mut entries = vec![wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &gpu.params, offset: 0, size: wgpu::BufferSize::new(PARAM_BYTES) }),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: gpu.params.buffer(), offset: gpu.params.offset(), size: wgpu::BufferSize::new(PARAM_BYTES) }),
             }];
             let max = gpu.limits.max_storage_buffer_binding_size;
             for (i, b) in bufs.iter().enumerate() {
@@ -1433,13 +1457,13 @@ impl Batch<'_> {
                         max >> 20
                     );
                 }
-                entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: b.as_entire_binding() });
+                entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: b.binding() });
             }
             Ok(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some(kernel), layout: &k.layout, entries: &entries }))
         };
         let bg = match self.cache {
             Some(c) => {
-                let key = (name, bufs.iter().map(|b| (*b).clone()).collect::<Vec<_>>());
+                let key = (name, bufs.iter().map(|b| (b.buffer().clone(), b.offset(), b.size())).collect::<Vec<_>>());
                 let mut map = c.0.borrow_mut();
                 match map.get(&key) {
                     Some(bg) => bg.clone(),
@@ -1482,11 +1506,11 @@ impl Batch<'_> {
     }
 
     /// Y[M,N] (+)= X[M,K] · W[N,K]ᵀ with W bf16 (packed) or f32
-    pub fn matmul(&mut self, x: &wgpu::Buffer, w: &Weight, y: &wgpu::Buffer, m: usize, accumulate: bool) -> Result<()> {
+    pub fn matmul(&mut self, x: &Buf, w: &Weight, y: &Buf, m: usize, accumulate: bool) -> Result<()> {
         self.matmul_p(x, w, y, m, accumulate, Precision::F32)
     }
 
-    pub fn matmul_p(&mut self, x: &wgpu::Buffer, w: &Weight, y: &wgpu::Buffer, m: usize, accumulate: bool, prec: Precision) -> Result<()> {
+    pub fn matmul_p(&mut self, x: &Buf, w: &Weight, y: &Buf, m: usize, accumulate: bool, prec: Precision) -> Result<()> {
         let xround = match (prec, w.ty) {
             (Precision::F32, _) => 0u32,
             (Precision::LlamaMetal, WeightType::Bf16) => 1,
@@ -1534,7 +1558,7 @@ impl Batch<'_> {
     /// Y[M,N] (+)= X[M,K] · W[N,K]ᵀ with X f16 (an f16-writing producer) and W f16 (converted at load): the vision
     /// encoder on the f16 paths. F16Coop: matmul_coopd (direct matrix-unit loads; X / Y hold whole 64-row tiles);
     /// F16: matmul128hx_f16 (f16 tiles, f32 fma)
-    pub fn matmul_f16x(&mut self, x: &wgpu::Buffer, w: &Weight, y: &wgpu::Buffer, m: usize, accumulate: bool) -> Result<()> {
+    pub fn matmul_f16x(&mut self, x: &Buf, w: &Weight, y: &Buf, m: usize, accumulate: bool) -> Result<()> {
         let (n, k) = (w.rows, w.cols);
         if w.ty != WeightType::F16 || k % 8 != 0 || n % 64 != 0 {
             bail!("matmul_f16x: {:?} [{n} × {k}] — f16 weights, K % 8 == 0, N % 64 == 0", w.ty);
@@ -1557,7 +1581,7 @@ impl Batch<'_> {
     /// (ffn_coopd, no f32 gate / up buffers: `gate` / `up` unused); F16: the two products into `gate` / `up` (f32) and
     /// swiglu_h
     #[allow(clippy::too_many_arguments)]
-    pub fn ffn_f16(&mut self, x: &wgpu::Buffer, wg: &Weight, wu: &Weight, g16: &wgpu::Buffer, m: usize, out_scale: f32, gate: &wgpu::Buffer, up: &wgpu::Buffer) -> Result<()> {
+    pub fn ffn_f16(&mut self, x: &Buf, wg: &Weight, wu: &Weight, g16: &Buf, m: usize, out_scale: f32, gate: &Buf, up: &Buf) -> Result<()> {
         let (f, k) = (wg.rows, wg.cols);
         if wu.rows != f || wu.cols != k {
             bail!("ffn_f16: gate [{f} × {k}] vs up [{} × {}]", wu.rows, wu.cols);
@@ -1583,12 +1607,12 @@ impl Batch<'_> {
     }
 
     /// rms_norm writing f16 (the f16 paths' vision matmul inputs)
-    pub fn rms_norm_h(&mut self, x: &wgpu::Buffer, w: &wgpu::Buffer, y: &wgpu::Buffer, rows: usize, dim: usize, eps: f32) -> Result<()> {
+    pub fn rms_norm_h(&mut self, x: &Buf, w: &Buf, y: &Buf, rows: usize, dim: usize, eps: f32) -> Result<()> {
         self.dispatch("rms_norm_h", &[rows as u32, dim as u32, eps.to_bits()], &[x, w, y], (rows as u32, 1, 1))
     }
 
     /// y[N] (+)= W[N,K] · x[K] — one token through a q8_0 matrix (the decode step)
-    pub fn matvec(&mut self, x: &wgpu::Buffer, w: &Weight, y: &wgpu::Buffer, accumulate: bool) -> Result<()> {
+    pub fn matvec(&mut self, x: &Buf, w: &Weight, y: &Buf, accumulate: bool) -> Result<()> {
         if w.ty != WeightType::Q8_0 || w.cols % 32 != 0 {
             bail!("matvec: {:?} [{} × {}] — the kernel is q8_0 with whole blocks only", w.ty, w.rows, w.cols);
         }
@@ -1596,9 +1620,9 @@ impl Batch<'_> {
     }
 
     /// copy n f32 from src[src0…] to dst[dst0…] (recorded in order with the dispatches)
-    pub fn copy(&mut self, src: &wgpu::Buffer, src0: usize, dst: &wgpu::Buffer, dst0: usize, n: usize) {
+    pub fn copy(&mut self, src: &Buf, src0: usize, dst: &Buf, dst0: usize, n: usize) {
         self.pass = None;
-        self.enc.copy_buffer_to_buffer(src, (src0 * 4) as u64, dst, (dst0 * 4) as u64, (n * 4) as u64);
+        self.enc.copy_buffer_to_buffer(src.buffer(), src.offset() + (src0 * 4) as u64, dst.buffer(), dst.offset() + (dst0 * 4) as u64, (n * 4) as u64);
     }
 
     /// the device's compute path (which kernels a recording picks)
@@ -1606,7 +1630,7 @@ impl Batch<'_> {
         self.gpu.compute
     }
 
-    pub fn rms_norm(&mut self, x: &wgpu::Buffer, w: &wgpu::Buffer, y: &wgpu::Buffer, rows: usize, dim: usize, eps: f32) -> Result<()> {
+    pub fn rms_norm(&mut self, x: &Buf, w: &Buf, y: &Buf, rows: usize, dim: usize, eps: f32) -> Result<()> {
         self.dispatch("rms_norm", &[rows as u32, dim as u32, eps.to_bits()], &[x, w, y], (rows as u32, 1, 1))
     }
 
@@ -1614,7 +1638,7 @@ impl Batch<'_> {
     pub fn submit(mut self) -> wgpu::SubmissionIndex {
         self.pass = None;
         if !self.words.is_empty() {
-            self.gpu.queue.write_buffer(&self.gpu.params, 0, bytemuck::cast_slice(&self.words));
+            self.gpu.queue.write_buffer(self.gpu.params.buffer(), self.gpu.params.offset(), bytemuck::cast_slice(&self.words));
         }
         let Some(p) = &self.gpu.prof else {
             return self.gpu.queue.submit([self.enc.finish()]);
@@ -1624,16 +1648,16 @@ impl Batch<'_> {
             return self.gpu.queue.submit([self.enc.finish()]);
         }
         let mut pr = p.borrow_mut();
-        self.enc.resolve_query_set(&pr.qs, 0..2 * n, &pr.resolve, 0);
-        self.enc.copy_buffer_to_buffer(&pr.resolve, 0, &pr.read, 0, 2 * n as u64 * 8);
+        self.enc.resolve_query_set(&pr.qs, 0..2 * n, pr.resolve.buffer(), 0);
+        self.enc.copy_buffer_to_buffer(pr.resolve.buffer(), 0, pr.read.buffer(), 0, 2 * n as u64 * 8);
         let idx = self.gpu.queue.submit([self.enc.finish()]);
         // natively only (the profiler is never on in the browser): wait for the timestamps right here
-        let slice = pr.read.slice(..2 * n as u64 * 8);
+        let slice = pr.read.buffer().slice(..2 * n as u64 * 8);
         slice.map_async(wgpu::MapMode::Read, |_| {});
         #[cfg(not(target_arch = "wasm32"))]
         let _ = self.gpu.device.poll(wgpu::PollType::wait_indefinitely());
         let ticks: Vec<u64> = match slice.get_mapped_range() { Ok(v) => bytemuck::cast_slice::<u8, u64>(&v).to_vec(), Err(e) => panic!("profiler readback: {e}") };
-        pr.read.unmap();
+        pr.read.buffer().unmap();
         let period = pr.period_ns;
         for (i, key) in self.prof.drain(..).enumerate() {
             let ns = ticks[2 * i + 1].saturating_sub(ticks[2 * i]) as f64 * period;
