@@ -125,6 +125,30 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   (not software) adapter, the limits the kernels need, and a short bandwidth benchmark → an estimated reading speed
   with hints (e.g. a laptop running the browser on its integrated GPU).
 
+### WebGPU pitfalls
+
+Browser bugs met by llama.cpp's WebGPU backend ([Llamas on the Web](https://reeselevine.github.io/llamas-on-the-web/))
+and where OCR Lite stands:
+
+- **Silent miscompile on Chrome / Metal** ([crbug 504928024](https://issues.chromium.org/issues/504928024)): with Dawn's
+  robustness and integer div / mod polyfills (Chrome's default) a valid shader wrote wrong values, no error. Trigger: a
+  private array indexed by a `/` `%` result, a 2-D private array passed by value to a helper (`noinline` in the
+  generated Metal hid it). Our kernels pass no array by value and index with shifts and masks. Wrong numbers show only
+  as wrong text: **after a shader change, and now and then after a Chrome / Safari / macOS update, run the real read
+  compared with the native read** (`pages` with `OCR_LITE_MODEL_DIR`) in Chrome and in Safari.
+- **iOS hang with command buffers in flight** ([WebKit 311598](https://bugs.webkit.org/show_bug.cgi?id=311598)): on
+  Safari / iOS 26 two or more submissions before a wait could leave the wait stuck — intermittent, no error, gone with
+  the Web Inspector attached; 26.4 "more stable". WebKit's advice: one command buffer per submit with milliseconds of
+  work, few compute passes (each pass costs). Ours: one pass per submit, but the greedy decode runs ahead with 2
+  submissions in flight (`ocr-wgpu` `RUN_AHEAD_DEPTH`). No stall watchdog: a hang would leave a read waiting. Seen
+  working on the iPad (current iPadOS); older iOS untested.
+- **Metal lowers the workgroup limit per shader** ([gpuweb 5315](https://github.com/gpuweb/gpuweb/issues/5315)): a
+  complex kernel can get fewer threads than WebGPU reports (704 instead of 1024 seen) and fail silently. Our largest
+  workgroup is 256.
+- **naga: no `vec2<f16>` ↔ `u32` bitcast** ([wgpu 8896](https://github.com/gfx-rs/wgpu/issues/8896), Firefox): we
+  unpack bf16 / q8_0 from `u32` with shifts, no such bitcast.
+- **Timestamp queries are heavy on WebKit** (a shared event per pass): the per-kernel profiler is native only.
+
 ## Licences
 
 The code: MIT ([LICENSE](../LICENSE)). The model is separate: a fine-tune of LightOnOCR-3-1B (Apache-2.0, LightOn),
