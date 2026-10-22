@@ -129,7 +129,13 @@ pub struct Engine {
     /// is gpu.compute_label()
     pub weights: String,
     tok: Tokenizer,
+    /// awaited between the staged load's halves — after the vision weights are freed and the GPU is idle, before the
+    /// text weights load (None: no pause; the browser's probe sets one: does iOS count freed GPU memory for a while?)
+    pub stage_pause: Option<StagePause>,
 }
+
+/// the pause between the staged load's halves (Engine::stage_pause)
+pub type StagePause = Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>>>>>;
 
 struct WgpuStep<'a> {
     gpu: &'a Gpu,
@@ -198,7 +204,7 @@ impl Engine {
         gpu.check_fits(&format!("the model's largest weight ({})", largest.name), tensor_buffer_bytes(largest))?;
         let tok = Tokenizer::from_gguf(text)?;
         gpu.alive()?;
-        Ok(Self { gpu, weights, tok })
+        Ok(Self { gpu, weights, tok, stage_pause: None })
     }
 
     /// the weights onto the GPU, streamed through one staging chunk; they live as long as the Model
@@ -329,6 +335,10 @@ impl Engine {
                 drop(vision);
                 gpu.phase("-");
                 on_phase(Phase::LoadingText { encode_ms });
+                if let Some(pause) = &self.stage_pause {
+                    gpu.wait().await?;
+                    pause().await?;
+                }
                 (Some(img_buf), n_img, Some(encode_ms), vision_weights, resident)
             }
             ImageInput::Embeddings(_) => (None, 0, None, 0, gpu.mem_live().total()),

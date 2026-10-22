@@ -255,6 +255,8 @@ pub async fn open_engine(text_len: f64, text_read: Function, mmproj_len: f64, mm
             "idleBytes": eng.gpu.mem_live().total(),
         });
         DEVICE.with(|d| *d.borrow_mut() = Some(eng.gpu.device.clone()));
+        let mut eng = eng;
+        eng.stage_pause = Some(Box::new(|| Box::pin(sleep_ms(STAGE_PAUSE_MS))));
         ENGINE.with(|e| *e.borrow_mut() = Some(eng));
         Ok(info.to_string())
     }
@@ -265,6 +267,26 @@ pub async fn open_engine(text_len: f64, text_read: Function, mmproj_len: f64, mm
 #[wasm_bindgen]
 pub fn engine_open() -> bool {
     ENGINE.with(|e| e.borrow().is_some())
+}
+
+/// PROBE: the pause after the staged load's vision half (the vision weights freed, the GPU idle), before the text
+/// weights load — iOS killed the page at that load (iPhone: the first read); if the pause lets it through, iOS still
+/// counted the freed memory for a while
+const STAGE_PAUSE_MS: i32 = 3000;
+
+/// a timer of the worker (setTimeout) as a future
+async fn sleep_ms(ms: i32) -> Result<()> {
+    let set_timeout: Function = Reflect::get(&js_sys::global(), &JsValue::from_str("setTimeout"))
+        .map_err(from_js)?
+        .dyn_into()
+        .map_err(|_| anyhow!("setTimeout is no function"))?;
+    let p = js_sys::Promise::new(&mut |resolve, reject| {
+        if let Err(e) = set_timeout.call2(&JsValue::NULL, &resolve, &JsValue::from(ms)) {
+            let _ = reject.call1(&JsValue::NULL, &e);
+        }
+    });
+    wasm_bindgen_futures::JsFuture::from(p).await.map_err(from_js)?;
+    Ok(())
 }
 
 /// close the engine (its device and GPU buffers go with it)
