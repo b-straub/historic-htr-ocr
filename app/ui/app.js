@@ -641,11 +641,25 @@ function showStream() {
     }
   }, 120);
 }
+// iOS freezes a page in the background: a read there stalls or comes back scrambled (pausing it
+// did not work) — it is stopped as with Stop, the text so far kept, and the status says why
+let stoppedHidden = false;
+function stopRead() {
+  S.stopping = true;
+  applyState();
+  invoke("cancel");
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "hidden" || !S.reading || S.stopping) {
+    return;
+  }
+  crumb("background: read stopped");
+  stoppedHidden = true;
+  stopRead();
+});
 $("readBtn").onclick = async () => {
   if (S.reading) {
-    S.stopping = true;
-    applyState();
-    invoke("cancel");
+    stopRead();
     return;
   }
   if (!S.prev) {
@@ -668,6 +682,7 @@ $("readBtn").onclick = async () => {
     return;
   }
   S.streamed = "";
+  stoppedHidden = false;
   await S.editor.show("");
   $("src").value = "";
   S.starting = false; // straight into reading: Read never shows enabled in between
@@ -744,7 +759,7 @@ listen("ocr:done", async (e) => {
   crumb(`memory ${await host.memoryNote()}`);
   const r = e.payload;
   const tps = r.decodeMs > 0 ? (r.outTokens / (r.decodeMs / 1000)).toFixed(0) : "–";
-  const end = r.cancelled ? " · stopped" : r.stoppedOnEog ? "" : " · hit the token limit (runaway?)";
+  const end = r.cancelled ? (stoppedHidden ? " · stopped: the app went to the background" : " · stopped") : r.stoppedOnEog ? "" : " · hit the token limit (runaway?)";
   const total = (r.loadMs ?? 0) + (r.encodeMs ?? 0) + r.prefillMs + r.decodeMs;
   // tokenChoice (the wgpu engine): "gpu" = greedy, chosen on the GPU and run ahead; "cpu" = sampled (llama.cpp: absent)
   const choice = r.tokenChoice ? [`token choice: ${r.tokenChoice}`] : [];

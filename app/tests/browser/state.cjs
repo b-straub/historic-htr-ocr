@@ -262,6 +262,31 @@ let SMALL = null;
   }
   const lab = Object.fromEntries(rec.map((r) => [r.read.state, r.read.label]));
   ok(lab.reading === "Stop" && lab.stopping === "Stopping…" && lab.starting === "Read" && lab.idle === "Read", `Read labels ${JSON.stringify(lab)}`);
+
+  // the app goes to the background while reading → the read stops as with Stop, the status says why. A real page
+  // (OCR_LITE_READ_IMAGE): the stand-in image ends at once (end of text), before a stop could count
+  if (!process.env.OCR_LITE_READ_IMAGE) {
+    R.skip("background → read stopped: needs a real page that yields text — set OCR_LITE_READ_IMAGE");
+  } else {
+  const before = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
+  const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
+  await chooser.accept([process.env.OCR_LITE_READ_IMAGE]);
+  await page.waitForFunction((b) => document.getElementById("bakeInfo").textContent !== b, { timeout: 30000 }, before);
+  await sleep(300);
+  await page.click("#readBtn");
+  await page.waitForFunction(() => document.getElementById("editor").textContent.length > 20, { timeout: 120000, polling: 100 });
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "idle", { timeout: 180000, polling: 100 });
+  await page.evaluate(() => {
+    delete document.visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenStatus = await page.evaluate(() => document.getElementById("status").textContent);
+  ok(/stopped: the app went to the background/.test(hiddenStatus), `background → read stopped: "${hiddenStatus}"`);
+  }
   }
 
   // ── text: typed into the editor, then the markup view ──
