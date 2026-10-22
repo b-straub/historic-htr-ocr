@@ -488,7 +488,7 @@ impl Engine {
         let n_prompt = prefix.len() + beg.len() + n_img + end.len() + suffix.len();
         // the session (KV cache) is the prefill's memory: the phase starts before it is made
         self.gpu.phase("prefill");
-        let mut s = text.session(&self.gpu, n_prompt + p.max_new_tokens)?;
+        let mut s = text.session_for(&self.gpu, n_prompt + p.max_new_tokens, n_img)?;
         let t1 = Instant::now();
         on_phase(Phase::ReadingPrompt { encode_ms });
         let last = text.prefill(

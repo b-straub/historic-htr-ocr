@@ -13,8 +13,11 @@
 // reference q8_0 matvec + three small attention kernels (18 dispatches per layer), on the f16 paths the fused step
 // (layers_fused: norms, SwiGLU, RoPE and the KV store folded into the projections, split attention — 7 per layer).
 // KV cache: f16, two per u32 — llama.cpp's default cache type — grown with the read (Session::reserve: the prompt +
-// KV_GROW rows, then KV_GROW more whenever a step would write past the end, at most prompt + max new tokens), so it
-// holds what the read uses, not its cap; freed with the session at the read's end.
+// kv_grow rows, then kv_grow more whenever a step would write past the end, at most prompt + max new tokens), so it
+// holds what the read uses, not its cap; freed with the session at the read's end. A read sizes kv_grow by its image
+// (session_for: the image tokens — a page's text is rarely longer): each growth allocates the whole larger cache and
+// frees the old one, and iOS keeps counting freed GPU memory against the page (the iPhone died at the end of a read
+// whose cache had grown three times by 512 rows) — so a read's cache is allocated once, a growth is the exception.
 // Positions run 0, 1, … over every row, image rows included (mtmd POS_TYPE_NORMAL: an image chunk's n_pos = its
 // token count; the attention is causal over the image too — mtmd_decode_use_non_causal is false for LIGHTONOCR).
 
@@ -374,6 +377,12 @@ impl TextModel {
     /// a session for n_ctx positions (prompt + the tokens to generate); its KV cache is allocated by the prefill
     pub fn session(&self, gpu: &Gpu, n_ctx: usize) -> Result<Session> {
         self.session_grown(gpu, n_ctx, KV_GROW)
+    }
+
+    /// `session` for a read of `expect` new tokens (its image tokens): the cache holds the prompt + `expect` rows from
+    /// the prefill on and grows by as much again only when the text runs longer (at least KV_GROW rows)
+    pub fn session_for(&self, gpu: &Gpu, n_ctx: usize, expect: usize) -> Result<Session> {
+        self.session_grown(gpu, n_ctx, expect.max(KV_GROW))
     }
 
     /// `session` with the KV cache growing by `kv_grow` rows
