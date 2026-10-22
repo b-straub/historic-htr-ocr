@@ -180,16 +180,11 @@ function gpuFatal(m) {
 // ── the engine worker ────────────────────────────────────────────────
 // a worker is ended and a new one started in the middle of each read (commands.read): startWorker sets one up
 let worker = startWorker();
-// the worker ended and a new one started: between a read's two halves and after the device check's memory test. NOT after
-// a read: a new GPU device per read while iOS still tore the last one down left the next image encode stuck (user) —
-// the next read's vision half runs in the text worker of the read before
+// the worker ended and a new one started: after the device check's memory test (its GPU memory goes with the worker,
+// before the engine opens in the new one)
 function freshWorker() {
   worker.terminate();
   worker = startWorker();
-}
-// EXPERIMENT (one worker): instead of a new worker, the worker destroys its GPU device and requests a new one
-async function freshDevice() {
-  await work("resetDevice");
 }
 function startWorker() {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
@@ -281,28 +276,9 @@ const commands = {
     if (!gatePassed) throw new Error("this read did not pass modelGate first");
     gatePassed = false;
     const b = ocr.bake(JSON.stringify(ops));
-    const source = modelSource();
-    stopAsked = false;
-    // the staged read over two workers: worker A loads the vision weights, encodes, hands the embeddings back and is
-    // ended; a new worker B loads the text weights and reads on — iOS kept counting freed GPU memory against the page
-    // (the iPhone died at its 2048 MB in the text load), a dead worker's memory has to go
-    // EXPERIMENT (one worker): a fresh device for the image encode too — the text half of the read before freed its
-    // memory on the old one (nothing to reset on the first read)
-    freshDevice().then(() => work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer])).then(async (enc) => {
-      await freshDevice();
-      if (stopAsked) {
-        return { ...enc.stats, imageTokens: enc.stats.nImg, promptTokens: 0, prefillMs: 0, decodeMs: 0, outTokens: 0, stoppedOnEog: false, cancelled: true, idleBytes: 0 };
-      }
-      const r = await work("readEncoded", { source, emb: enc.emb, encodeMs: enc.stats.encodeMs, preset: p, seed: b.seed }, [enc.emb.buffer]);
-      // one read's stats from both halves: the loads (+ the new worker's engine start) added, the peak the larger
-      const top = r.gpuMemory.peakBytes >= enc.stats.gpuMemory.peakBytes ? r.gpuMemory : { ...r.gpuMemory, peakBytes: enc.stats.gpuMemory.peakBytes, peakPhase: enc.stats.gpuMemory.peakPhase };
-      return {
-        ...r,
-        loadMs: enc.stats.loadMs + r.restartMs + r.loadMs,
-        load: { ...r.load, ms: enc.stats.load.ms + r.load.ms, visionWeightsBytes: enc.stats.load.visionWeightsBytes, weightsBytes: enc.stats.load.visionWeightsBytes + r.load.textWeightsBytes },
-        gpuMemory: { ...top, phases: [...enc.stats.gpuMemory.phases, ...r.gpuMemory.phases] },
-      };
-    }).then(
+    // one worker, one GPU device: the engine keeps its memory pools from read to read (ocr-wgpu gpu.rs Pool) — nothing
+    // freed and allocated anew between or inside reads (iOS kept counting freed GPU memory against the page)
+    work("read", { source: modelSource(), rgb: b.rgb, w: b.w, h: b.h, preset: p, seed: b.seed }, [b.rgb.buffer]).then(
       (stats) => {
         clearMarker();
         lastRead = stats;
@@ -320,7 +296,6 @@ const commands = {
     return JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts)));
   },
   cancel() {
-    stopAsked = true; // a Stop during the encode: the second half does not start
     worker.postMessage({ cmd: "cancel" });
   },
   render({ text }) {
@@ -449,13 +424,16 @@ function engineLoaded(info) {
 }
 // the GPU memory the engine counted (ocr-wgpu's ledger): between reads (no weights — each read loads them and frees
 // them after it), the last read's weights and peak
-let stopAsked = false; // a Stop since the read started (commands.read: between its two workers)
 let lastRead = null; // the worker's stats of the last finished read (ReadStats + loadMs, load, idleBytes)
 function drawMemory() {
   const parts = [];
   if (engine) {
-    const idle = lastRead ? lastRead.idleBytes : engine.idleBytes;
-    parts.push(`GPU memory between reads: ${mb(idle)} (each read loads the weights and frees them after it)`);
+    if (lastRead) {
+      const pool = lastRead.poolBytes;
+      parts.push(`GPU memory held by the engine: ${mb(pool.weights + pool.work)} (weights ${mb(pool.weights)} · work ${mb(pool.work)} — memory pools, kept from read to read; each read loads its weights into them)`);
+    } else {
+      parts.push(`GPU memory: ${mb(engine.idleBytes)} before the first read`);
+    }
     if (lastRead) {
       const g = lastRead.gpuMemory;
       parts.push(`last read: weights ${mb(lastRead.load.weightsBytes)} · peak ${mb(g.peakBytes)} (in its ${g.peakPhase}) · load ${(lastRead.loadMs / 1000).toFixed(1)} s`);
@@ -622,7 +600,8 @@ export async function memoryNote() {
   const w = await work("memory");
   const parts = [`wasm worker ${mb(w.wasmBytes)}`, `page ${mb(ocr.wasm_memory_bytes())}`];
   if (lastRead) {
-    parts.push(`GPU between reads ${mb(lastRead.idleBytes)}`, `peak ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
+    const pool = lastRead.poolBytes;
+    parts.push(`GPU pools ${mb(pool.weights + pool.work)} (weights ${mb(pool.weights)} · work ${mb(pool.work)})`, `peak in use ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
   }
   return parts.join(" · ");
 }

@@ -61,10 +61,6 @@ fn start() {
 /// a fatal GPU event → the global scope's `ocrGpuFatal(kind, message)` (web/worker.js posts it to the page); a scope
 /// without the hook gets the message on the console
 fn gpu_fatal(kind: &'static str, message: &str) {
-    // the device reset_device destroyed on purpose reports its loss ("destroyed") later: that one is no fatal event
-    if kind == "lost" && message.contains("destroyed") && RESET_PENDING.with(|r| r.replace(0)) > 0 {
-        return;
-    }
     let hook = Reflect::get(&js_sys::global(), &JsValue::from_str("ocrGpuFatal")).ok().and_then(|f| f.dyn_into::<Function>().ok());
     match hook {
         Some(f) => {
@@ -292,23 +288,6 @@ pub fn engine_open() -> bool {
     ENGINE.with(|e| e.borrow().is_some())
 }
 
-thread_local! {
-    /// devices reset_device destroyed whose "lost (destroyed)" has not come yet
-    static RESET_PENDING: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-}
-
-/// EXPERIMENT (one worker): the engine closed and its GPU device destroyed in this worker — instead of ending the
-/// worker between a read's halves; the next ensureEngine requests a new device here. Does iOS release a destroyed
-/// device's memory as it does a dead worker's?
-#[wasm_bindgen]
-pub fn reset_device() {
-    ENGINE.with(|e| e.borrow_mut().take());
-    if let Some(dev) = DEVICE.with(|d| d.borrow_mut().take()) {
-        RESET_PENDING.with(|r| r.set(r.get() + 1));
-        dev.destroy();
-    }
-}
-
 /// close the engine (its device and GPU buffers go with it)
 #[wasm_bindgen]
 pub fn close_engine() {
@@ -378,75 +357,6 @@ pub async fn read(files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, preset_json: S
     r.map_err(js_err)
 }
 
-/// the staged read's first half in this worker: the vision weights loaded, the image encoded, every weight freed →
-/// { emb: Float32Array ([nImg][dim]), stats: JSON { nImg, encodeMs, loadMs, load { parseMs, ms, readMs, waitMs,
-/// visionWeightsBytes, residentBytes, loadPeakBytes }, gpuMemory } }. The page then ends this worker and reads on in a
-/// new one (read_encoded): the memory of a dead worker cannot stay counted against the second half (the iPhone).
-#[wasm_bindgen]
-pub async fn encode(files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, on_phase: Function) -> Result<JsValue, JsError> {
-    let Some(mut eng) = ENGINE.with(|e| e.borrow_mut().take()) else {
-        return Err(JsError::new("no engine open (or a read is already running)"));
-    };
-    let r = run_encode(&mut eng, files, rgb, w, h, &on_phase).await;
-    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
-    r.map_err(js_err)
-}
-
-async fn run_encode(eng: &mut Engine, files: ReadFiles, rgb: Vec<u8>, w: u32, h: u32, on_phase: &Function) -> Result<JsValue> {
-    let img = RgbImage::from_raw(w, h, rgb).with_context(|| format!("{w}×{h} RGB: wrong byte count"))?;
-    let t0 = web_time::Instant::now();
-    let text = source(ocr_wgpu::engine::TEXT_GGUF, files.text_len, files.text_read)?;
-    let mmproj = source(ocr_wgpu::engine::MMPROJ_GGUF, files.mmproj_len, files.mmproj_read)?;
-    let parse_ms = t0.elapsed().as_secs_f64() * 1e3;
-    let mut phase_err: Option<anyhow::Error> = None;
-    let mut load_ms: Option<f64> = None;
-    let enc = eng
-        .encode_only(&text, &mmproj, &img, |ph| {
-            let ms = *load_ms.get_or_insert_with(|| t0.elapsed().as_secs_f64() * 1e3);
-            let r = phase_json(&ph, ms).and_then(|j| on_phase.call1(&JsValue::NULL, &JsValue::from_str(&j)).map_err(from_js));
-            if let Err(e) = r {
-                phase_err.get_or_insert(e.context("the phase callback failed"));
-            }
-        })
-        .await?;
-    if let Some(e) = phase_err {
-        return Err(e);
-    }
-    let m = &enc.load.memory;
-    let stats = serde_json::json!({
-        "nImg": enc.n_img,
-        "encodeMs": enc.encode_ms,
-        "loadMs": parse_ms + enc.load.ms,
-        "load": {
-            "parseMs": parse_ms,
-            "ms": enc.load.ms,
-            "readMs": enc.load.read_ms,
-            "waitMs": enc.load.wait_ms,
-            "visionWeightsBytes": m.vision_weights,
-            "residentBytes": m.resident,
-            "loadPeakBytes": m.load_peak,
-        },
-        "gpuMemory": serde_json::to_value(&enc.gpu_memory)?,
-    });
-    let out = Object::new();
-    Reflect::set(&out, &JsValue::from_str("emb"), &js_sys::Float32Array::from(&enc.emb[..])).map_err(from_js)?;
-    Reflect::set(&out, &JsValue::from_str("stats"), &JsValue::from_str(&stats.to_string())).map_err(from_js)?;
-    Ok(out.into())
-}
-
-/// the staged read's second half in a new worker: the text weights loaded, the read from the embeddings of `encode`
-/// (another worker's) — the same JSON as `read`; `on_phase` hears loadingText (with encodeMs) → readingPrompt → decoding
-#[wasm_bindgen]
-#[allow(clippy::too_many_arguments)]
-pub async fn read_encoded(files: ReadFiles, emb: Vec<f32>, encode_ms: f64, preset_json: String, seed: f64, on_phase: Function, on_text: Function) -> Result<String, JsError> {
-    let Some(mut eng) = ENGINE.with(|e| e.borrow_mut().take()) else {
-        return Err(JsError::new("no engine open (or a read is already running)"));
-    };
-    let r = run_read(&mut eng, files, ImageInput::Encoded { emb: &emb, encode_ms }, &preset_json, seed, &on_phase, &on_text).await;
-    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
-    r.map_err(js_err)
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn run_read(eng: &mut Engine, files: ReadFiles, image: ImageInput<'_>, preset_json: &str, seed: f64, on_phase: &Function, on_text: &Function) -> Result<String> {
     let p: Preset = serde_json::from_str(preset_json).context("preset")?;
@@ -506,6 +416,9 @@ async fn run_read(eng: &mut Engine, files: ReadFiles, image: ImageInput<'_>, pre
         }),
     );
     o.insert("idleBytes".into(), r.idle_bytes.into());
+    // the memory pools' blocks: what the GPU holds for the engine from read to read (what iOS counts)
+    let (pw, pk) = eng.gpu.pool_bytes();
+    o.insert("poolBytes".into(), serde_json::json!({ "weights": pw, "work": pk }));
     Ok(out.to_string())
 }
 
