@@ -189,6 +189,7 @@ document.querySelectorAll("[data-op]").forEach((b) => b.addEventListener("click"
 $("imgUndoBtn").onclick = () => { if (S.ops.length) { crumb("undo"); S.ops.pop(); refresh(); } };
 $("resetBtn").onclick = () => { if (S.ops.length) { crumb("reset"); S.ops = []; refresh(); } };
 async function pickImage() {
+  crumb("picker open"); // iOS puts the app in the background while the picker is up
   const p = await host.pickImage();
   if (p) openPath(p);
 }
@@ -728,6 +729,7 @@ function phaseTimes(r) {
 const PHASES = { encodingImage: "Encoding image…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
 const scan = scanOverlay($("stage"), $("img"));
 listen("ocr:phase", (e) => scan.phase(e.payload, S.prev ? S.prev.bake : null));
+listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the model load
 listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
 listen("ocr:text", (e) => {
   S.streamed += e.payload;
@@ -739,6 +741,7 @@ listen("ocr:done", async (e) => {
   await S.editor.load(S.streamed);
   if (markupView) $("src").value = S.streamed;
   setReading(false);
+  crumb(`memory ${await host.memoryNote()}`);
   const r = e.payload;
   const tps = r.decodeMs > 0 ? (r.outTokens / (r.decodeMs / 1000)).toFixed(0) : "–";
   const end = r.cancelled ? " · stopped" : r.stoppedOnEog ? "" : " · hit the token limit (runaway?)";

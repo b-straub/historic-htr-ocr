@@ -56,7 +56,10 @@ body {
   display: flex;
   flex-direction: column;
   -webkit-font-smoothing: antialiased;
+  /* iOS Safari needs the prefix (and no long-press menu): else a press on the image selects the page */
+  -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 i[data-icon] { display: inline-flex; width: 16px; height: 16px; }
 i[data-icon] svg { width: 100%; height: 100%; }
@@ -139,11 +142,11 @@ main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1
 .imgwrap.dragover { outline: 2px dashed var(--accent); outline-offset: -10px; }
 
 /* text */
-#editor { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px; outline: none; user-select: text; cursor: text; }
+#editor { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
 #editor:empty::before { content: attr(data-placeholder); color: var(--faint); font-family: -apple-system, system-ui, sans-serif; font-size: 14px; }
 #editor[contenteditable="false"] { cursor: default; }
 #src { flex: 1; min-height: 0; resize: none; border: 0; outline: none; padding: 18px 22px; background: var(--card); color: var(--fg);
-  font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 8; user-select: text; }
+  font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; tab-size: 8; -webkit-user-select: text; user-select: text; }
 .fmt { font-family: "Iowan Old Style", Georgia, serif; font-size: 15px; min-width: 30px; }
 .fmt del, .fmt ins, .fmt u { color: inherit; }
 .fmt ins { text-decoration: none; background: rgba(52, 199, 89, 0.22); border-radius: 2px; padding: 0 2px; }
@@ -177,7 +180,7 @@ dialog h2 { margin: 0; font-size: 17px; }
 .field.wide { display: flex; }
 .field.wide input { flex: 1; }
 input[type="text"], input[type="number"] {
-  height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; user-select: text;
+  height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; -webkit-user-select: text; user-select: text;
 }
 input[type="number"] { width: 96px; }
 input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
@@ -247,11 +250,11 @@ dialog.about { width: min(540px, 92vw); }
 dialog.about h2 { display: flex; align-items: center; gap: 10px; }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 12px; }
 .facts dt { color: var(--muted); }
-.facts dd { margin: 0; font-variant-numeric: tabular-nums; user-select: text; overflow-wrap: anywhere; }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; overflow-wrap: anywhere; }
 dialog.about { max-height: 90vh; }
 dialog.about form { max-height: 90vh; overflow-y: auto; }
 /* the licences scroll in their own box (the list of training sources is long); the facts above stay in view */
-.lic { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; user-select: text;
+.lic { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; -webkit-user-select: text; user-select: text;
   max-height: 46vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-right: 6px; }
 .lic ul.srcs { margin: 4px 0 6px; }
 .lic ul.srcs li { margin-bottom: 4px; }
@@ -267,7 +270,7 @@ dialog.about form { max-height: 90vh; overflow-y: auto; }
 
 /* help: one scrolling body like the About box */
 dialog.help { width: min(600px, 92vw); }
-.helpbody { border-top: 1px solid var(--line); padding-top: 4px; font-size: 13px; user-select: text; }
+.helpbody { border-top: 1px solid var(--line); padding-top: 4px; font-size: 13px; -webkit-user-select: text; user-select: text; }
 .helpbody h3 { margin: 12px 0 4px; font-size: 13px; }
 .helpbody p { margin: 0 0 6px; }
 .helpbody ol { margin: 0 0 6px; padding-left: 20px; }
@@ -287,7 +290,7 @@ dialog .sheet { padding: 18px 22px 20px; max-height: 90vh; overflow-y: auto; }
 .steps li.done::before { content: "✓ "; }
 .setup .dlgfoot { flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .setup .dlgfoot.start { justify-content: flex-start; margin: 4px 0 8px; }
-.setup input[type="password"] { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; user-select: text; min-width: 0; }
+.setup input[type="password"] { height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; -webkit-user-select: text; user-select: text; min-width: 0; }
 .setup a { color: var(--accent); }
 .suhint { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); margin: 6px 0; }
 .suhint p { margin: 2px 0 0; color: var(--muted); }

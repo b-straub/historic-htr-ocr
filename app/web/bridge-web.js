@@ -531,6 +531,17 @@ $("modelFromHub").textContent = `Download from ${MODEL_FROM}`;
 $("modelFromHub").onclick = () => downloadFrom(MODEL_BASE);
 
 /// version / commit / build time for the About box: stamped into index.html by web/dist.py; the dev server has none
+// the memory after a read, for the breadcrumb (an iPad PWA killed by iOS leaves only that log): the wasm heaps of the
+// worker and of this page (they only grow) + the engine's GPU ledger (between reads, and the last read's peak)
+export async function memoryNote() {
+  const w = await work("memory");
+  const parts = [`wasm worker ${mb(w.wasmBytes)}`, `page ${mb(ocr.wasm_memory_bytes())}`];
+  if (lastRead) {
+    parts.push(`GPU between reads ${mb(lastRead.idleBytes)}`, `peak ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
+  }
+  return parts.join(" · ");
+}
+
 export async function buildInfo() {
   const meta = document.querySelector('meta[name="ocrlite-build"]');
   return meta ? JSON.parse(meta.content) : { version: "dev", git: "working tree (web/serve.py)", built: null };
