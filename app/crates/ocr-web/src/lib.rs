@@ -61,6 +61,10 @@ fn start() {
 /// a fatal GPU event → the global scope's `ocrGpuFatal(kind, message)` (web/worker.js posts it to the page); a scope
 /// without the hook gets the message on the console
 fn gpu_fatal(kind: &'static str, message: &str) {
+    // the device reset_device destroyed on purpose reports its loss ("destroyed") later: that one is no fatal event
+    if kind == "lost" && message.contains("destroyed") && RESET_PENDING.with(|r| r.replace(0)) > 0 {
+        return;
+    }
     let hook = Reflect::get(&js_sys::global(), &JsValue::from_str("ocrGpuFatal")).ok().and_then(|f| f.dyn_into::<Function>().ok());
     match hook {
         Some(f) => {
@@ -286,6 +290,23 @@ pub async fn open_engine(text_len: f64, text_read: Function, mmproj_len: f64, mm
 #[wasm_bindgen]
 pub fn engine_open() -> bool {
     ENGINE.with(|e| e.borrow().is_some())
+}
+
+thread_local! {
+    /// devices reset_device destroyed whose "lost (destroyed)" has not come yet
+    static RESET_PENDING: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// EXPERIMENT (one worker): the engine closed and its GPU device destroyed in this worker — instead of ending the
+/// worker between a read's halves; the next ensureEngine requests a new device here. Does iOS release a destroyed
+/// device's memory as it does a dead worker's?
+#[wasm_bindgen]
+pub fn reset_device() {
+    ENGINE.with(|e| e.borrow_mut().take());
+    if let Some(dev) = DEVICE.with(|d| d.borrow_mut().take()) {
+        RESET_PENDING.with(|r| r.set(r.get() + 1));
+        dev.destroy();
+    }
 }
 
 /// close the engine (its device and GPU buffers go with it)

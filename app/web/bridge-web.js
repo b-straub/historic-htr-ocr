@@ -187,6 +187,10 @@ function freshWorker() {
   worker.terminate();
   worker = startWorker();
 }
+// EXPERIMENT (one worker): instead of a new worker, the worker destroys its GPU device and requests a new one
+async function freshDevice() {
+  await work("resetDevice");
+}
 function startWorker() {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   // first message: the sources the worker may store / read the model from (before any command — messages keep their
@@ -283,7 +287,7 @@ const commands = {
     // ended; a new worker B loads the text weights and reads on — iOS kept counting freed GPU memory against the page
     // (the iPhone died at its 2048 MB in the text load), a dead worker's memory has to go
     work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer]).then(async (enc) => {
-      freshWorker();
+      await freshDevice();
       if (stopAsked) {
         return { ...enc.stats, imageTokens: enc.stats.nImg, promptTokens: 0, prefillMs: 0, decodeMs: 0, outTokens: 0, stoppedOnEog: false, cancelled: true, idleBytes: 0 };
       }

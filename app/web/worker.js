@@ -409,6 +409,8 @@ const handlers = {
   async load({ source }) { return ensureEngine(source); },
   async memory() { return memory(); },
   async memoryTest({ bytes }) { return memoryTest(bytes); },
+  // EXPERIMENT (one worker): the engine's device destroyed; the next command opens the engine on a new one
+  async resetDevice() { ocr.reset_device(); opened = null; },
   // the model check: each stored file's MD5 ({ name: hex }) — read like a read (read-only), nothing loaded
   async verifyModel() {
     const { files, close } = await openFiles({ kind: "opfs" });
