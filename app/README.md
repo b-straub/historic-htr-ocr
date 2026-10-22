@@ -112,7 +112,7 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
 ## Browsers and devices
 
 Needs WebGPU in workers and OPFS sync access handles: Chrome / Edge 113+, Safari 26+. Run on Apple silicon Macs
-(Chrome, Safari) and an iPad Pro (Safari); other GPUs are untested. The engine picks its compute path per device:
+(Chrome, Safari), an iPad Pro (Safari) and an iPhone 16 Pro (Safari, 43 tokens/s); other GPUs are untested. The engine picks its compute path per device:
 **F16Coop** (native Metal: f16 inputs on the GPU's matrix units, f32 sums), **F16** (shader-f16, the browsers),
 **F32** (no shader-f16, or too little workgroup memory for the f16 kernels). Residual streams, norms, accumulators and
 the softmax stay f32 on every path.
@@ -126,6 +126,10 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   together: a full page peaks at about 1.2–1.4 GB (1.6 GB for a read that runs to its token cap; before the staging
   1.9–2.1 / 2.4 GB — iPadOS killed the page at the second read). After the read the weights are freed; between reads
   the GPU holds 0.3 MiB.
+- **Two workers per read**: iOS kept counting freed GPU memory against the page (an iPhone was killed at its
+  2048 MB limit in the text load, after the vision weights were freed). So a read runs over two engine workers: the
+  first loads the vision weights, encodes the image and is ended; a new one loads the text weights and reads on from
+  the embeddings (~10 MB). A terminated worker's memory goes; the new engine's start costs a few tenths of a second.
 - **Crash marker**: before each heavy step a marker goes to localStorage; still set at the next start means the tab
   or its GPU process was killed (out of memory) — the device is flagged until "Try anyway".
 - **Device check** (`web/gpu-check.js`, the setup's first step and Help → Check this device): WebGPU present, a real
