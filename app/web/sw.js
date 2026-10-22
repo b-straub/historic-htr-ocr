@@ -29,24 +29,7 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("message", (e) => {
   if (e.data === "skipWaiting") self.skipWaiting();
-  if (e.data === "refresh") e.waitUntil(refresh(e.ports[0]));
 });
-
-// "Refresh the app" (pwa.js): every cached copy of the app thrown away and this version's files loaded anew from the
-// server, past the browser's HTTP cache — a damaged cached file (iOS ended the app while the cache was written?) is
-// replaced; the model (OPFS) and the settings are not touched → { ok, files } | { ok: false, error } on the port
-async function refresh(port) {
-  try {
-    for (const k of await caches.keys()) {
-      if (k.startsWith("ocrlite-")) await caches.delete(k);
-    }
-    const c = await caches.open(CACHE);
-    await c.addAll(SHELL.map((p) => new Request(p, { cache: "reload" })));
-    port.postMessage({ ok: true, files: SHELL.length });
-  } catch (err) {
-    port.postMessage({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-}
 
 const scope = new URL(self.registration.scope);
 

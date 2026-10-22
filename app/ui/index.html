@@ -216,14 +216,6 @@
         <p class="hint">Shipped presets (presets.json) are read-only — duplicate one to make your own.</p>
         <div class="tablewrap"><table id="presetTable"></table></div>
       </section>
-      <section class="group" id="appGroup" hidden>
-        <h3>App</h3>
-        <p class="hint">The app's own files are kept in this browser for offline use. If reads go wrong for no visible reason (e.g. after a crash), load them fresh from the server — the model and the settings stay.</p>
-        <div class="field wide">
-          <button type="button" class="btn" id="appRefresh">Refresh the app</button>
-          <span class="meta" id="appRefreshText"></span>
-        </div>
-      </section>
       <p id="settingsErr" class="err"></p>
       <div class="dlgfoot">
         <button type="button" class="btn primary" id="settingsSave">Save</button>
@@ -313,7 +305,6 @@
       </section>
       <div class="dlgfoot">
         <button type="button" class="btn" id="crashCopy">Copy the last actions</button>
-        <button type="button" class="btn" id="crashRefresh" hidden>Refresh the app</button>
         <button type="submit" class="btn primary">OK</button>
       </div>
     </form>

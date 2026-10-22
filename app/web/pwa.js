@@ -40,32 +40,7 @@ function offer(reg) {
   document.body.append(bar);
 }
 
-// "Refresh the app" (Settings, the crash dialog): the service worker reloads every file of this version from the
-// server into a fresh cache (sw.js refresh), then the page reloads — shown only where a service worker is in charge
-async function refreshApp(say) {
-  if (reading()) { say("A read is running — refresh when it is done"); return; }
-  if ($("editor").textContent.trim() && !confirm("Refresh the app now? The text on the right is not saved.")) return;
-  const sw = navigator.serviceWorker.controller;
-  say("loading the app's files anew…");
-  const r = await new Promise((resolve) => {
-    const ch = new MessageChannel();
-    ch.port1.onmessage = (e) => resolve(e.data);
-    sw.postMessage("refresh", [ch.port2]);
-  });
-  if (!r.ok) {
-    say(`The refresh failed: ${r.error} — a newer version may be on the server (reload when the banner shows)`);
-    return;
-  }
-  reloadNow();
-}
-
 if ("serviceWorker" in navigator) {
-  if (navigator.serviceWorker.controller) {
-    $("appGroup").hidden = false;
-    $("crashRefresh").hidden = false;
-    $("appRefresh").onclick = () => refreshApp((t) => { $("appRefreshText").textContent = t; });
-    $("crashRefresh").onclick = () => refreshApp((t) => { $("crashCheck").textContent = t; });
-  }
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (wanted) reloadNow(); // only after the click (the first install also takes control: no reload then)
   });
