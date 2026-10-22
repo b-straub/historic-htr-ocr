@@ -112,7 +112,7 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
 ## Browsers and devices
 
 Needs WebGPU in workers and OPFS sync access handles: Chrome / Edge 113+, Safari 26+. Run on Apple silicon Macs
-(Chrome, Safari), an iPad Pro (Safari) and an iPhone 16 Pro (Safari, 43 tokens/s); other GPUs are untested. The engine picks its compute path per device:
+(Chrome, Safari), an iPad Pro M4 (Safari, 75 tokens/s) and an iPhone 16 Pro (Safari, 43 tokens/s); other GPUs are untested. The engine picks its compute path per device:
 **F16Coop** (native Metal: f16 inputs on the GPU's matrix units, f32 sums), **F16** (shader-f16, the browsers),
 **F32** (no shader-f16, or too little workgroup memory for the f16 kernels). Residual streams, norms, accumulators and
 the softmax stay f32 on every path.
