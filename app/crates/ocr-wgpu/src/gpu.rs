@@ -917,6 +917,10 @@ impl Gpu {
         let mut kernels = HashMap::new();
         let subgroups = compute == Compute::F16Coop;
         for (name, src) in sources(compute, subgroups) {
+            // every storage binding read_write: with the memory pool (one buffer holding many tensors) a dispatch may
+            // read one slice and write another of the same buffer — WebGPU forbids a buffer read-only and writable in
+            // one dispatch, but allows several writable non-overlapping ranges. The kernels' maths is unchanged.
+            let src = src.replace("var<storage, read>", "var<storage, read_write>");
             let storage = storage_bindings(name, &src)?;
             let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
             let mut entries = vec![wgpu::BindGroupLayoutEntry {
