@@ -180,6 +180,13 @@ function gpuFatal(m) {
 // ── the engine worker ────────────────────────────────────────────────
 // a worker is ended and a new one started in the middle of each read (commands.read): startWorker sets one up
 let worker = startWorker();
+// after every read (done, stopped or failed) the worker that read is ended too: what destroy() freed stayed counted
+// against it on iOS (the next read's vision half on top of it gave garbage on complex pages) — nothing of a read
+// outlives it; the next read's engine starts in a new worker (a few tenths of a second)
+function freshWorker() {
+  worker.terminate();
+  worker = startWorker();
+}
 function startWorker() {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
   // first message: the sources the worker may store / read the model from (before any command — messages keep their
@@ -276,8 +283,7 @@ const commands = {
     // ended; a new worker B loads the text weights and reads on — iOS kept counting freed GPU memory against the page
     // (the iPhone died at its 2048 MB in the text load), a dead worker's memory has to go
     work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer]).then(async (enc) => {
-      worker.terminate();
-      worker = startWorker();
+      freshWorker();
       if (stopAsked) {
         return { ...enc.stats, imageTokens: enc.stats.nImg, promptTokens: 0, prefillMs: 0, decodeMs: 0, outTokens: 0, stoppedOnEog: false, cancelled: true, idleBytes: 0 };
       }
@@ -293,12 +299,14 @@ const commands = {
     }).then(
       (stats) => {
         clearMarker();
+        freshWorker();
         lastRead = stats;
         drawMemory();
         emit("ocr:done", stats);
       },
       (err) => {
         clearMarker();
+        freshWorker();
         emit("ocr:error", gpuDead ? `${gpuDead} — reload the page to start again` : err);
       },
     );
@@ -703,8 +711,7 @@ export const setup = {
         r.notes.push(`Memory test failed: ${e instanceof Error ? e.message : e}`);
       } finally {
         clearMarker();
-        worker.terminate();
-        worker = startWorker();
+        freshWorker();
       }
     }
     try {

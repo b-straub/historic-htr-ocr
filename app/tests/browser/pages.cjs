@@ -123,6 +123,16 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     await page.click("#suDone");
     await page.waitForFunction(() => document.getElementById("status").textContent === "Ready", { timeout: 10000 });
     ok(true, "status Ready after the setup");
+    // Settings → Verify model: the stored files' MD5 against the release — "intact" for the real model, "damaged" for the
+    // stand-in (its bytes are not the release's)
+    await page.evaluate(() => document.getElementById("settingsBtn").click());
+    await page.waitForFunction(() => document.getElementById("settingsDlg").open, { timeout: 10000 });
+    const tv = Date.now();
+    await page.evaluate(() => document.getElementById("modelVerify").click());
+    await page.waitForFunction(() => /intact|damaged/.test(document.getElementById("modelProgressText").textContent) || document.getElementById("settingsErr").textContent !== "", { timeout: 180000, polling: 500 });
+    const verdict = await page.evaluate(() => document.getElementById("modelProgressText").textContent || document.getElementById("settingsErr").textContent);
+    ok(real ? /intact/.test(verdict) : /damaged/.test(verdict), `Verify model (${real ? "the real model" : "a stand-in"}, ${((Date.now() - tv) / 1000).toFixed(1)} s): ${verdict}`);
+    await page.evaluate(() => document.getElementById("settingsDlg").close());
 
     // a read with the real model: must equal the native read
     if (!real) {
