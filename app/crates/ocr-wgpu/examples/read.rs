@@ -231,6 +231,8 @@ fn main() -> Result<()> {
         mib(read.idle_bytes),
         phases.join(" | ")
     );
+    let (pw, pk) = engine.gpu.pool_bytes();
+    println!("memory pools MiB (held by the GPU for the engine, slices in use or not): weights {:.1} · work {:.1} · total {:.1}", mib(pw), mib(pk), mib(pw + pk));
     if let Some(o) = &out {
         std::fs::write(o.with_extension("txt"), &text)?;
         if tap_logits {

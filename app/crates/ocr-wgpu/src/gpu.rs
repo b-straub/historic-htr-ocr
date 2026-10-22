@@ -40,7 +40,6 @@ use anyhow::{Context, Result, anyhow, bail};
 use futures_channel::oneshot;
 use ocr_decode::sampling::{GpuBytes, PhaseMemory, ReadMemory};
 use web_time::Instant;
-use wgpu::util::DeviceExt;
 
 use crate::gguf::{TensorInfo, TensorSource};
 
@@ -295,6 +294,7 @@ fn sources_f32() -> Vec<(&'static str, String)> {
         ("matmul128_f16", matmul128(include_str!("shaders/load4_f16.wgsl"), false)),
         ("matvec_q8_0", include_str!("shaders/matvec_q8_0.wgsl").into()),
         ("embed_q8_0", include_str!("shaders/embed_q8_0.wgsl").into()),
+        ("copy_words", include_str!("shaders/copy_words.wgsl").into()),
         ("rope_neox", include_str!("shaders/rope_neox.wgsl").into()),
         ("kv_store", include_str!("shaders/kv_store.wgsl").into()),
         ("attention_causal", unroll(include_str!("shaders/attention_causal.wgsl"), 16)),
@@ -571,6 +571,9 @@ struct Counted {
     size: u64,
     kind: MemKind,
     ledger: Arc<Mutex<Ledger>>,
+    /// a pool's slice: (the pool, its block, the bytes taken there) — given back on drop, never destroyed; None: a
+    /// buffer of its own, destroyed on drop
+    home: Option<(Arc<Mutex<Pool>>, usize, u64)>,
 }
 
 impl Drop for Counted {
@@ -579,7 +582,10 @@ impl Drop for Counted {
     /// 3.0 GB after a read. destroy() frees it once the submitted work using it is done (WebGPU
     /// spec; natively wgpu-core waits the same way), so the ledger's "freed" is the GPU's.
     fn drop(&mut self) {
-        self.buf.destroy();
+        match &self.home {
+            Some((pool, block, taken)) => lock(pool).give(*block, self.offset, *taken),
+            None => self.buf.destroy(),
+        }
         let mut l = lock(&self.ledger);
         *self.kind.slot(&mut l.live) -= self.size;
     }
@@ -601,6 +607,11 @@ impl Buf {
         self.0.size
     }
 
+    /// what it holds (the ledger's column; weights are bound read-only)
+    pub fn kind(&self) -> MemKind {
+        self.0.kind
+    }
+
     /// the range as a storage binding
     pub fn binding(&self) -> wgpu::BindingResource<'_> {
         wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.0.buf, offset: self.0.offset, size: wgpu::BufferSize::new(self.0.size) })
@@ -619,8 +630,125 @@ fn counted(ledger: &Arc<Mutex<Ledger>>, buf: wgpu::Buffer, kind: MemKind) -> Buf
     *kind.slot(&mut l.live) += size;
     l.note();
     drop(l);
-    Buf(Arc::new(Counted { buf, offset: 0, size, kind, ledger: ledger.clone() }))
+    Buf(Arc::new(Counted { buf, offset: 0, size, kind, ledger: ledger.clone(), home: None }))
 }
+
+/// the free ranges of one pool block — (start, length), sorted, neighbours merged: the pool's bookkeeping (CPU only)
+#[derive(Debug, PartialEq)]
+struct Free(Vec<(u64, u64)>);
+
+impl Free {
+    fn new(len: u64) -> Self {
+        Free(vec![(0, len)])
+    }
+
+    /// the first free range holding `size` bytes from an `align`-ed start → that start (the range split around it)
+    fn take(&mut self, size: u64, align: u64) -> Option<u64> {
+        for i in 0..self.0.len() {
+            let (s, l) = self.0[i];
+            let a = s.div_ceil(align) * align;
+            if a + size > s + l {
+                continue;
+            }
+            let mut parts = Vec::with_capacity(2);
+            if a > s {
+                parts.push((s, a - s));
+            }
+            if a + size < s + l {
+                parts.push((a + size, s + l - a - size));
+            }
+            self.0.splice(i..=i, parts);
+            return Some(a);
+        }
+        None
+    }
+
+    /// a range back (merged with its free neighbours)
+    fn give(&mut self, start: u64, size: u64) {
+        let i = self.0.partition_point(|&(s, _)| s < start);
+        if let Some(&(ps, pl)) = i.checked_sub(1).and_then(|j| self.0.get(j)) {
+            assert!(ps + pl <= start, "pool: range {start}+{size} given back overlaps the free {ps}+{pl}");
+        }
+        if let Some(&(ns, _)) = self.0.get(i) {
+            assert!(start + size <= ns, "pool: range {start}+{size} given back overlaps the free range at {ns}");
+        }
+        self.0.insert(i, (start, size));
+        if i + 1 < self.0.len() && self.0[i].0 + self.0[i].1 == self.0[i + 1].0 {
+            self.0[i].1 += self.0[i + 1].1;
+            self.0.remove(i + 1);
+        }
+        if i > 0 && self.0[i - 1].0 + self.0[i - 1].1 == self.0[i].0 {
+            self.0[i - 1].1 += self.0[i].1;
+            self.0.remove(i);
+        }
+    }
+}
+
+/// a memory pool: GPU buffers ("blocks", STORAGE | COPY_SRC | COPY_DST) created once and handed out in slices, taken
+/// back and handed out again — never destroyed while the pool lives (a block is destroyed only with the pool). iOS kept
+/// counting destroyed GPU memory against the page (a second read on top of the first's freed buffers died at the
+/// iPhone's 2048 MB); a pool's memory is allocated once and stays what it is.
+struct Pool {
+    label: &'static str,
+    blocks: Vec<(wgpu::Buffer, u64, Free)>,
+    /// a new block's size (a larger request gets a block of its own size)
+    block: u64,
+    align: u64,
+}
+
+impl Pool {
+    fn new(label: &'static str, limits: &wgpu::Limits, block: u64) -> Self {
+        let block = block.min(limits.max_buffer_size).min(limits.max_storage_buffer_binding_size as u64);
+        Pool { label, blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4) }
+    }
+
+    /// `size` bytes (a multiple of 4) → (the block's buffer, the slice's offset, the block's index)
+    fn take(&mut self, device: &wgpu::Device, size: u64) -> (wgpu::Buffer, u64, usize) {
+        for (i, (buf, _, free)) in self.blocks.iter_mut().enumerate() {
+            if let Some(off) = free.take(size, self.align) {
+                return (buf.clone(), off, i);
+            }
+        }
+        let len = self.block.max(size);
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(self.label),
+            size: len,
+            usage: POOL_USAGE,
+            mapped_at_creation: false,
+        });
+        let mut free = Free::new(len);
+        let off = free.take(size, self.align).expect("a new block holds its first request");
+        self.blocks.push((buf.clone(), len, free));
+        (buf, off, self.blocks.len() - 1)
+    }
+
+    fn give(&mut self, block: usize, off: u64, size: u64) {
+        self.blocks[block].2.give(off, size);
+    }
+
+    /// the bytes of all blocks (what the GPU holds for the pool)
+    fn bytes(&self) -> u64 {
+        self.blocks.iter().map(|(_, len, _)| len).sum()
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        for (buf, _, _) in &self.blocks {
+            buf.destroy();
+        }
+    }
+}
+
+/// the pools' blocks: what every pooled Buf is a slice of
+const POOL_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_SRC).union(wgpu::BufferUsages::COPY_DST);
+/// a pool block's size (at most the device's maxBufferSize / maxStorageBufferBindingSize). Small enough that a pool
+/// wastes little beyond its need (256 MiB blocks held 1792 MiB for 1394 MiB of need); a larger request — the text
+/// model's token_embd, 157.6 MiB; the vision's 74 MiB activations — gets a block of its own size
+const POOL_BLOCK: u64 = 64 << 20;
+/// the work pool's block size: the vision encoder's largest activations (74 MiB on a full page) fit one block with room
+/// beside them (64 MiB blocks: 842 MiB held for ~700 MiB of need)
+const POOL_BLOCK_WORK: u64 = 128 << 20;
 
 /// how the host hears of a fatal GPU event (set_fatal_hook): `kind` = "lost" (the device was lost — on a phone /
 /// tablet most likely the OS reclaiming memory) | "destroyed" (device.destroy() — the tests) | "outOfMemory" |
@@ -732,6 +860,10 @@ pub struct Gpu {
     /// flight keeps the values it was submitted with)
     params: Buf,
     param_align: u64,
+    /// the memory pools (Pool): the model's weights (the vision weights, then the text weights over them) and the work
+    /// (activations, scratch, the KV cache, uploads) — every Buf of these kinds is a slice of them
+    pool_weights: Arc<Mutex<Pool>>,
+    pool_work: Arc<Mutex<Pool>>,
     /// per-kernel GPU time (timestamp queries), natively when OCR_WGPU_PROFILE is set — a measuring tool, off otherwise
     prof: Option<RefCell<Profiler>>,
 }
@@ -764,6 +896,8 @@ struct Kernel {
     pipe: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
     n_bufs: usize,
+    /// binding i (1…) read-only: a weight binding (weights_read_only) — dispatch binds weights there and nothing else
+    read_only: Vec<bool>,
 }
 
 impl Gpu {
@@ -778,6 +912,29 @@ impl Gpu {
             (Compute::F32, None) => "f32".to_string(),
         }
     }
+}
+
+/// the names of the storage bindings that receive weights (the weight pool's slices) — the only read-only ones
+const WEIGHT_BINDINGS: &[&str] = &["W", "Wq", "Wk", "Wv", "Wg", "Wu", "NW", "w", "QN", "KN"];
+
+/// a kernel's WGSL with every `var<storage, read>` binding read_write except those named in WEIGHT_BINDINGS
+fn weights_read_only(src: &str) -> String {
+    let mut out = String::with_capacity(src.len() + 1024);
+    for line in src.split_inclusive('\n') {
+        match line.find("var<storage, read> ") {
+            Some(i) => {
+                let rest = &line[i + "var<storage, read> ".len()..];
+                let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                if WEIGHT_BINDINGS.contains(&name.as_str()) {
+                    out.push_str(line);
+                } else {
+                    out.push_str(&line.replacen("var<storage, read> ", "var<storage, read_write> ", 1));
+                }
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
 }
 
 /// the storage bindings of a kernel's WGSL: binding i (1…) → read-only? (`var<storage, read>` vs `read_write`)
@@ -941,10 +1098,13 @@ impl Gpu {
         let mut kernels = HashMap::new();
         let subgroups = compute == Compute::F16Coop;
         for (name, src) in sources(compute, subgroups) {
-            // every storage binding read_write: with the memory pool (one buffer holding many tensors) a dispatch may
-            // read one slice and write another of the same buffer — WebGPU forbids a buffer read-only and writable in
-            // one dispatch, but allows several writable non-overlapping ranges. The kernels' maths is unchanged.
-            let src = src.replace("var<storage, read>", "var<storage, read_write>");
+            // the memory pools hold many tensors per buffer: a dispatch may read one slice and write another of the same
+            // buffer — WebGPU forbids a buffer read-only and writable in one dispatch, but allows writable
+            // non-overlapping ranges. So every storage binding is read_write, except the weights' (WEIGHT_BINDINGS):
+            // they are only ever read, live in their own pool, and read-only bindings of one buffer never wait on each
+            // other (bound writable, every dispatch "wrote" the weights' blocks: a barrier before each, natively 76 →
+            // 33 tok/s). Dispatch checks each Buf against its binding. The kernels' maths is unchanged.
+            let src = weights_read_only(&src);
             let storage = storage_bindings(name, &src)?;
             let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
             let mut entries = vec![wgpu::BindGroupLayoutEntry {
@@ -988,7 +1148,7 @@ impl Gpu {
             if let Some(e) = scope.pop().await {
                 bail!("kernel {name}: {e}");
             }
-            kernels.insert(name, Kernel { pipe, layout, n_bufs: storage.len() });
+            kernels.insert(name, Kernel { pipe, layout, n_bufs: storage.len(), read_only: storage.clone() });
         }
         let param_align = (limits.min_uniform_buffer_offset_alignment as u64).max(PARAM_BYTES);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1009,7 +1169,9 @@ impl Gpu {
                 stats: BTreeMap::new(),
             })
         });
-        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, prof };
+        let pool_weights = Arc::new(Mutex::new(Pool::new("pool: weights", &limits, POOL_BLOCK)));
+        let pool_work = Arc::new(Mutex::new(Pool::new("pool: work", &limits, POOL_BLOCK_WORK)));
+        let gpu = Self { _closing: closing, health, mem, device, queue, info, limits, compute, subgroups, f32_why, kernels, params, param_align, pool_weights, pool_work, prof };
         gpu.warm_up().await?;
         Ok(gpu)
     }
@@ -1019,16 +1181,19 @@ impl Gpu {
     /// ~10 s slower than the second). All params 0 (every kernel's loops and writes are bounded by them: no work),
     /// one group, each binding its own zeroed 1 MB buffer (no read-only / writable aliasing).
     async fn warm_up(&self) -> Result<()> {
+        // its own 1 MB slice per binding: work slices at the writable bindings, weight slices (zeros) at the read-only
+        // weight bindings (dispatch checks the kinds)
         let n_bufs = self.kernels.values().map(|k| k.n_bufs).max().unwrap_or(0);
-        let bufs: Vec<Buf> = (0..n_bufs).map(|_| self.scratch("warm-up", 1 << 18)).collect();
-        let refs: Vec<&Buf> = bufs.iter().collect();
+        let work: Vec<Buf> = (0..n_bufs).map(|_| self.scratch("warm-up", 1 << 18)).collect();
+        let weights: Vec<Buf> = (0..n_bufs).map(|_| self.upload_weight("warm-up", &vec![0u8; 1 << 20])).collect();
         let mut names: Vec<&'static str> = self.kernels.keys().copied().collect();
         names.sort_unstable();
         self.phase("warm-up");
         let mut b = self.batch();
         for name in names {
-            let n = self.kernels[name].n_bufs;
-            b.dispatch(name, &[0; 8], &refs[..n], (1, 1, 1))?;
+            let k = &self.kernels[name];
+            let refs: Vec<&Buf> = (0..k.n_bufs).map(|i| if k.read_only[i] { &weights[i] } else { &work[i] }).collect();
+            b.dispatch(name, &[0; 8], &refs, (1, 1, 1))?;
         }
         b.submit();
         self.wait().await?;
@@ -1195,23 +1360,69 @@ impl Gpu {
     /// came back with an earlier read's leftovers (the same page read once right, then "000…" or random characters —
     /// the vision kernels read the padding rows of their 64-row tiles, NaN there spreads through the attention). A
     /// clear is a GPU memset, submitted before any batch that uses the buffer (the queue keeps the order).
+    /// Storage buffers (STORAGE | COPY_SRC | COPY_DST) are slices of a pool (Pool: weights, or work for the rest); other
+    /// usages (readback, the uniform params) get a buffer of their own.
     fn alloc(&self, label: &str, size: u64, usage: wgpu::BufferUsages, kind: MemKind) -> Buf {
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
-        if kind != MemKind::Weights && usage.contains(wgpu::BufferUsages::COPY_DST) {
-            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new buffer") });
-            enc.clear_buffer(&buf, 0, None);
+        if usage != POOL_USAGE {
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
+            if kind != MemKind::Weights && usage.contains(wgpu::BufferUsages::COPY_DST) {
+                let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new buffer") });
+                enc.clear_buffer(&buf, 0, None);
+                self.queue.submit([enc.finish()]);
+            }
+            return self.count(buf, kind);
+        }
+        let pool = if kind == MemKind::Weights { &self.pool_weights } else { &self.pool_work };
+        let taken = size.max(4).div_ceil(4) * 4;
+        let (buf, offset, block) = lock(pool).take(&self.device, taken);
+        if kind != MemKind::Weights {
+            let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("zero a new slice") });
+            enc.clear_buffer(&buf, offset, Some(taken));
             self.queue.submit([enc.finish()]);
         }
-        self.count(buf, kind)
+        let mut l = lock(&self.mem);
+        *kind.slot(&mut l.live) += size;
+        l.note();
+        drop(l);
+        Buf(Arc::new(Counted { buf, offset, size, kind, ledger: self.mem.clone(), home: Some((pool.clone(), block, taken)) }))
     }
 
+    /// `bytes` in a new work slice (padded to 4 bytes with zeros)
     pub fn upload(&self, label: &str, bytes: &[u8]) -> Buf {
-        let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytes,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        });
-        self.count(buf, MemKind::Work)
+        self.upload_as(label, bytes, MemKind::Work)
+    }
+
+    /// `bytes` as a weight (the weight pool; bound read-only) — the tests' weights (a model's come by upload_tensor)
+    pub fn upload_weight(&self, label: &str, bytes: &[u8]) -> Buf {
+        self.upload_as(label, bytes, MemKind::Weights)
+    }
+
+    pub fn upload_weight_f32(&self, label: &str, v: &[f32]) -> Buf {
+        self.upload_weight(label, bytemuck::cast_slice(v))
+    }
+
+    fn upload_as(&self, label: &str, bytes: &[u8], kind: MemKind) -> Buf {
+        let dst = self.alloc(label, bytes.len() as u64, POOL_USAGE, kind);
+        if bytes.len() % 4 == 0 {
+            self.queue.write_buffer(dst.buffer(), dst.offset(), bytes);
+        } else {
+            let mut padded = bytes.to_vec();
+            padded.resize(bytes.len().div_ceil(4) * 4, 0);
+            self.queue.write_buffer(dst.buffer(), dst.offset(), &padded);
+        }
+        dst
+    }
+
+    /// the weight pool's block size: at least `bytes` (the model's largest tensor) — before any weight is loaded
+    pub fn weight_block(&self, bytes: u64) {
+        let mut p = lock(&self.pool_weights);
+        p.block = p.block.max(bytes.div_ceil(p.align) * p.align).min(self.limits.max_buffer_size).min(self.limits.max_storage_buffer_binding_size);
+    }
+
+    /// the bytes the memory pools hold on the GPU (their blocks): what the device keeps for the engine, slices in use or
+    /// not — (weights, work)
+    pub fn pool_bytes(&self) -> (u64, u64) {
+        (lock(&self.pool_weights).bytes(), lock(&self.pool_work).bytes())
     }
 
     pub fn upload_f32(&self, label: &str, v: &[f32]) -> Buf {
@@ -1426,6 +1637,13 @@ impl Batch<'_> {
         if bufs.len() != k.n_bufs {
             bail!("kernel {kernel}: {} buffers given, the shader binds {}", bufs.len(), k.n_bufs);
         }
+        // weights only at the read-only (weight) bindings, nothing else there — the conversion at load writes weights
+        for (i, b) in bufs.iter().enumerate() {
+            let weight = b.kind() == MemKind::Weights;
+            if weight != k.read_only[i] && kernel != "f16_from_bf16" {
+                bail!("kernel {kernel}: binding {} ({}) gets {} — weights belong at the read-only weight bindings (WEIGHT_BINDINGS), nothing else", i + 1, if k.read_only[i] { "read-only" } else { "writable" }, if weight { "a weight" } else { "no weight" });
+            }
+        }
         if params.len() as u64 * 4 > PARAM_BYTES {
             bail!("kernel {kernel}: {} param words, a slot holds {}", params.len(), PARAM_BYTES / 4);
         }
@@ -1619,10 +1837,15 @@ impl Batch<'_> {
         self.dispatch("matvec_q8_0", &[w.rows as u32, w.cols as u32, accumulate as u32], &[x, &w.buf, y], ((w.rows as u32).div_ceil(8), 1, 1))
     }
 
-    /// copy n f32 from src[src0…] to dst[dst0…] (recorded in order with the dispatches)
-    pub fn copy(&mut self, src: &Buf, src0: usize, dst: &Buf, dst0: usize, n: usize) {
+    /// copy n f32 from src[src0…] to dst[dst0…] (recorded in order with the dispatches). Two slices of one pool block:
+    /// a kernel (copy_words) — WebGPU's buffer copy refuses one buffer as source and destination
+    pub fn copy(&mut self, src: &Buf, src0: usize, dst: &Buf, dst0: usize, n: usize) -> Result<()> {
+        if src.buffer() == dst.buffer() {
+            return self.dispatch("copy_words", &[n as u32, src0 as u32, dst0 as u32], &[src, dst], (stride_groups(n as u64), 1, 1));
+        }
         self.pass = None;
         self.enc.copy_buffer_to_buffer(src.buffer(), src.offset() + (src0 * 4) as u64, dst.buffer(), dst.offset() + (dst0 * 4) as u64, (n * 4) as u64);
+        Ok(())
     }
 
     /// the device's compute path (which kernels a recording picks)
@@ -1706,6 +1929,31 @@ pub struct Weight {
 
 #[cfg(test)]
 mod tests {
+    /// the pool's bookkeeping: aligned first fit, splits, merges back to one free range, overlap refused
+    #[test]
+    fn free_ranges_take_give_merge() {
+        let mut f = super::Free::new(1024);
+        assert_eq!(f.take(100, 32), Some(0));
+        assert_eq!(f.take(100, 32), Some(128)); // 100 → aligned to 128
+        assert_eq!(f.take(1000, 32), None);
+        assert_eq!(f.0, vec![(100, 28), (228, 796)]);
+        f.give(0, 100);
+        assert_eq!(f.0, vec![(0, 128), (228, 796)]);
+        f.give(128, 100);
+        assert_eq!(f.0, vec![(0, 1024)]);
+        // a range taken from the middle, given back: whole again
+        assert_eq!(f.take(64, 256), Some(0));
+        assert_eq!(f.take(64, 256), Some(256));
+        f.give(0, 64);
+        f.give(256, 64);
+        assert_eq!(f.0, vec![(0, 1024)]);
+        let r = std::panic::catch_unwind(move || {
+            let mut g = super::Free::new(64);
+            g.give(0, 32);
+        });
+        assert!(r.is_err(), "a range given back twice is refused");
+    }
+
     use super::*;
 
     /// the path choice from an adapter's features / limits (no GPU): shader-f16 with less workgroup memory than the f16
@@ -1787,7 +2035,7 @@ mod tests {
             (WeightType::Bf16, wb.iter().map(|v| v.to_f32()).collect(), wb.iter().flat_map(|v| v.to_le_bytes()).collect()),
         ] {
             for accumulate in [false, true] {
-                let w = Weight { buf: gpu.upload("w", &bytes), ty, rows: n, cols: k };
+                let w = Weight { buf: gpu.upload_weight("w", &bytes), ty, rows: n, cols: k };
                 let xb = gpu.upload_f32("x", &x);
                 let yb = gpu.upload_f32("y", &base);
                 let mut b = gpu.batch();
@@ -1821,7 +2069,7 @@ mod tests {
         let base: Vec<f32> = (0..m * n).map(|_| lcg(&mut s)).collect();
         for (ty, bytes) in [("f32", bytemuck::cast_slice::<f32, u8>(&wf).to_vec()), ("bf16", wb)] {
             for acc in [0u32, 1] {
-                let w = gpu.upload("w", &bytes);
+                let w = gpu.upload_weight("w", &bytes);
                 let xb = gpu.upload_f32("x", &x);
                 let (y64, y128) = (gpu.upload_f32("y64", &base), gpu.upload_f32("y128", &base));
                 let params = [m as u32, n as u32, k as u32, acc, 0];
@@ -1924,7 +2172,7 @@ mod tests {
         let mut s = 3u64;
         let x: Vec<f32> = (0..rows * dim).map(|_| lcg(&mut s) * 3.0).collect();
         let w: Vec<f32> = (0..dim).map(|_| lcg(&mut s)).collect();
-        let (xb, wb, yb) = (gpu.upload_f32("x", &x), gpu.upload_f32("w", &w), gpu.scratch("y", rows * dim));
+        let (xb, wb, yb) = (gpu.upload_f32("x", &x), gpu.upload_weight_f32("w", &w), gpu.scratch("y", rows * dim));
         let mut b = gpu.batch();
         b.rms_norm(&xb, &wb, &yb, rows, dim, eps).unwrap();
         b.submit();

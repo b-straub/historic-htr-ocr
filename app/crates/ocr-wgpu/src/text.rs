@@ -309,7 +309,7 @@ impl Session {
                         continue;
                     }
                     if copied > 0 {
-                        b.copy(&cache[li], 0, &new, 0, copied);
+                        b.copy(&cache[li], 0, &new, 0, copied)?;
                     }
                     old.push(std::mem::replace(&mut cache[li], new));
                 }
@@ -473,7 +473,7 @@ impl TextModel {
             match inp {
                 Input::Tokens(t) => row += t.len(),
                 Input::Embeddings { buf, n } => {
-                    b.copy(buf, 0, &x, row * d, n * d);
+                    b.copy(buf, 0, &x, row * d, n * d)?;
                     row += n;
                 }
             }
@@ -503,7 +503,7 @@ impl TextModel {
             b.dispatch("swiglu", &[(l * f) as u32], &[&u, &g], (stride_groups((l * f) as u64), 1, 1))?;
             b.matmul(&g, &ly.down, &x, l, true)?;
         }
-        b.copy(&x, (l - 1) * d, &s.x, 0, d);
+        b.copy(&x, (l - 1) * d, &s.x, 0, d)?;
         self.head(&mut b, s)?;
         b.submit();
         s.n_past += l;
@@ -520,7 +520,7 @@ impl TextModel {
         gpu.queue.write_buffer(s.tok.buffer(), s.tok.offset(), bytemuck::bytes_of(&(token as u32)));
         let mut b = gpu.batch_cached(&s.binds);
         self.record_step(&mut b, s, s.n_past)?;
-        b.copy(&s.logits, 0, &s.readback, 0, c.n_vocab);
+        b.copy(&s.logits, 0, &s.readback, 0, c.n_vocab)?;
         b.submit();
         s.n_past += 1;
         gpu.read_mapped(&s.readback, c.n_vocab).await
@@ -597,7 +597,7 @@ impl TextModel {
                     }
                     ch.record(&mut b, &s.logits, &s.tok, i)?;
                 }
-                b.copy(&ch.hist, ch.seed_len + next, &ch.slots[slot], 0, n);
+                b.copy(&ch.hist, ch.seed_len + next, &ch.slots[slot], 0, n)?;
                 let idx = b.submit();
                 s.n_past = pos;
                 queue.push_back((slot, n, idx));
@@ -700,7 +700,7 @@ mod tests {
         let mut s = 11u64;
         let wf: Vec<f32> = (0..n * k).map(|_| lcg(&mut s) * 0.3).collect();
         let (bytes, wd) = q8_0(&wf);
-        let w = Weight { buf: gpu.upload("w", &padded(bytes)), ty: WeightType::Q8_0, rows: n, cols: k };
+        let w = Weight { buf: gpu.upload_weight("w", &padded(bytes)), ty: WeightType::Q8_0, rows: n, cols: k };
         let x: Vec<f32> = (0..m * k).map(|_| lcg(&mut s)).collect();
         let base: Vec<f32> = (0..m * n).map(|_| lcg(&mut s)).collect();
         let want = |r: usize, c: usize| -> f32 { (0..k).map(|i| x[r * k + i] * wd[c * k + i]).sum() };
@@ -738,7 +738,7 @@ mod tests {
         let mut s = 5u64;
         let table: Vec<f32> = (0..vocab * dim).map(|_| lcg(&mut s)).collect();
         let (bytes, deq) = q8_0(&table);
-        let w = gpu.upload("embd", &padded(bytes));
+        let w = gpu.upload_weight("embd", &padded(bytes));
         let ids = [3u32, SKIP, 8, 0, 3];
         let tok = gpu.upload("tok", bytemuck::cast_slice(&ids));
         let x = gpu.upload_f32("x", &vec![7.0; ids.len() * dim]);
@@ -867,11 +867,11 @@ mod tests {
             let mat = |s: &mut u64, n: usize| {
                 let wf: Vec<f32> = (0..n * k).map(|_| lcg(s) * 0.3).collect();
                 let (bytes, deq) = q8_0(&wf);
-                (gpu.upload("w", &padded(bytes)), deq)
+                (gpu.upload_weight("w", &padded(bytes)), deq)
             };
             let dotrow = |w: &[f32], r: usize, v: &[f32]| -> f32 { (0..k).map(|i| w[r * k + i] * v[i]).sum() };
             let close = |got: f32, want: f32, what: &str| assert!((got - want).abs() < 1e-3 * (1.0 + want.abs()), "{compute:?} {what}: {got} vs {want}");
-            let (xb, nwb) = (gpu.upload_f32("x", &x), gpu.upload_f32("nw", &nw));
+            let (xb, nwb) = (gpu.upload_f32("x", &x), gpu.upload_weight_f32("nw", &nw));
 
             // dmv (+ acc) and dmv_norm: 37 rows
             let n = 37usize;
@@ -922,7 +922,7 @@ mod tests {
             let raw: Vec<f32> = (0..(n_head + 2 * n_kv) * d).map(|_| lcg(&mut s) * 3.0).collect();
             let (qn, kn): (Vec<f32>, Vec<f32>) = ((0..d).map(|_| lcg(&mut s)).collect(), (0..d).map(|_| lcg(&mut s)).collect());
             let cs: Vec<f32> = rope_table(1e6, d, n_ctx).into_iter().flatten().collect();
-            let (rawb, csb, qnb, knb) = (gpu.upload_f32("qkv", &raw), gpu.upload_f32("cs", &cs), gpu.upload_f32("qn", &qn), gpu.upload_f32("kn", &kn));
+            let (rawb, csb, qnb, knb) = (gpu.upload_f32("qkv", &raw), gpu.upload_f32("cs", &cs), gpu.upload_weight_f32("qn", &qn), gpu.upload_weight_f32("kn", &kn));
             let (kc, vc) = (gpu.scratch("k", n_ctx * n_kv * d / 2), gpu.scratch("v", n_ctx * n_kv * d / 2));
             let mut b = gpu.batch();
             b.dispatch("qkv_post", &[n_head as u32, n_kv as u32, pos as u32, eps.to_bits()], &[&csb, &rawb, &qnb, &knb, &kc, &vc], ((n_head + 2 * n_kv) as u32, 1, 1)).unwrap();
@@ -1121,7 +1121,7 @@ mod tests {
             let mut vals: Vec<f32> = (0..4000).map(|_| lcg(&mut s) * 3.0).collect();
             vals.extend([1e-6, -3e-7, 6e-8, 65280.0, -65280.0, 1.0009765625, 70000.0, -1e6]); // 65280: the largest bf16 within f16
             let bytes: Vec<u8> = vals.iter().flat_map(|&v| half::bf16::from_f32(v).to_le_bytes()).collect();
-            let mut w = Weight { buf: gpu.upload("w", &bytes), ty: WeightType::Bf16, rows: 1, cols: vals.len() };
+            let mut w = Weight { buf: gpu.upload_weight("w", &bytes), ty: WeightType::Bf16, rows: 1, cols: vals.len() };
             let over = gpu.scratch("over", 1);
             gpu.weight_to_f16(&mut w, &over, 1.0).unwrap();
             // the two out-of-range values share one word: counted once (a word count)
@@ -1139,14 +1139,14 @@ mod tests {
             let wf = |s: &mut u64, n: usize| -> (Weight, Vec<f32>) {
                 let v: Vec<f32> = (0..n * d).map(|_| lcg(s) * 0.2).collect();
                 let bytes: Vec<u8> = v.iter().flat_map(|&a| half::bf16::from_f32(a).to_le_bytes()).collect();
-                let mut w = Weight { buf: gpu.upload("w", &bytes), ty: WeightType::Bf16, rows: n, cols: d };
+                let mut w = Weight { buf: gpu.upload_weight("w", &bytes), ty: WeightType::Bf16, rows: n, cols: d };
                 gpu.weight_to_f16(&mut w, &over, 4.0).unwrap();
                 (w, v.iter().map(|&a| half::f16::from_f32(half::bf16::from_f32(a).to_f32() * 4.0).to_f32()).collect())
             };
             let (wq, wqv) = wf(&mut s, d);
             let (wg, wgv) = wf(&mut s, f);
             let (wu, wuv) = wf(&mut s, f);
-            let (xb, nb) = (gpu.upload_f32("x", &x), gpu.upload_f32("norm", &nw));
+            let (xb, nb) = (gpu.upload_f32("x", &x), gpu.upload_weight_f32("norm", &nw));
             let (h16, g16) = (gpu.scratch("h16", mp * d / 2), gpu.scratch("g16", mp * f / 2));
             let yb = gpu.upload_f32("y", &x); // accumulate onto the residual
             let (gs, us) = (gpu.scratch("gate", mp * f), gpu.scratch("up", mp * f));
@@ -1202,7 +1202,7 @@ mod tests {
             let wbv: Vec<f32> = wf.iter().map(|&v| half::bf16::from_f32(v).to_f32()).collect();
             let (wq, wqv) = q8_0(&wf);
             for (ty, bytes, wv) in [(WeightType::Bf16, wb, wbv), (WeightType::Q8_0, padded(wq), wqv)] {
-                let w = Weight { buf: gpu.upload("w", &bytes), ty, rows: n, cols: k };
+                let w = Weight { buf: gpu.upload_weight("w", &bytes), ty, rows: n, cols: k };
                 let (xb, yb) = (gpu.upload_f32("x", &x), gpu.upload_f32("y", &base));
                 let mut b = gpu.batch();
                 b.matmul(&xb, &w, &yb, m, true).unwrap();
@@ -1289,9 +1289,9 @@ mod tests {
         let mut s = 31u64;
         let mut w = |rows: usize, cols: usize, scale: f32| {
             let v: Vec<f32> = (0..rows * cols).map(|_| lcg(&mut s) * scale).collect();
-            Weight { buf: gpu.upload("w", &padded(q8_0(&v).0)), ty: WeightType::Q8_0, rows, cols }
+            Weight { buf: gpu.upload_weight("w", &padded(q8_0(&v).0)), ty: WeightType::Q8_0, rows, cols }
         };
-        let norm = |n: usize, k: usize| gpu.upload_f32("norm", &(0..n).map(|i| 1.0 + 0.01 * ((i * 7 + k) % 13) as f32).collect::<Vec<f32>>());
+        let norm = |n: usize, k: usize| gpu.upload_weight_f32("norm", &(0..n).map(|i| 1.0 + 0.01 * ((i * 7 + k) % 13) as f32).collect::<Vec<f32>>());
         let (qd, kvd) = (n_head * d_head, n_kv * d_head);
         let layers = (0..n_layer)
             .map(|i| Layer {
