@@ -102,6 +102,10 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
   reusable workflow); the build job `needs` it and takes the very `_site` the CI built and tested; the deploy job
   `needs` the build. A tag whose tests fail never deploys; the manual run (workflow_dispatch) goes through the same gate.
   Pages source: Settings → Pages → Source "GitHub Actions".
+- **Hosting elsewhere**: the dist is a plain static site; it needs HTTPS (WebGPU, OPFS, the service worker). For an
+  Apache host it carries `.htaccess` (from `web/htaccess`, needs `AllowOverride FileInfo`): `.wasm` as
+  `application/wasm`, `no-cache` for `index.html` / `sw.js` / the manifest, a year `immutable` for the hashed files,
+  `nosniff`, `frame-ancestors 'none'`, compression. GitHub Pages ignores it. No COOP / COEP needed.
 - **The version is the tag.** The About box shows the tag the build was made from (`v1.0.0`), the commit and the
   build time; a build without a tag on its commit says "untagged". No version number to keep in step elsewhere.
 

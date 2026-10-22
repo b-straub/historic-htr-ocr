@@ -8,7 +8,8 @@
 #   * JS / CSS / WASM / icons get content-hashed names (name.<12 hex>.ext) and every reference to them is rewritten —
 #     each reference must be found exactly once, or the build stops (a missed one would load a stale or missing file)
 #   * index.html / sw.js / manifest.webmanifest keep their names
-#   * GitHub Pages sends no custom headers: the Content-Security-Policy goes into index.html as a <meta>
+#   * GitHub Pages sends no custom headers: the Content-Security-Policy goes into index.html as a <meta>; web/htaccess
+#     goes out as .htaccess (the headers for an Apache host — Pages ignores it)
 #   * every built JS / CSS file carries the licence line (the sources' header; a /*! … */ banner where a file has none,
 #     e.g. wasm-bindgen's glue) — checked at the end, like `node --check` on every JS file
 #   web/dist.py [--out DIR]
@@ -202,6 +203,7 @@ def build(out):
     sw = replace_once(sw, '"__VERSION__"', json.dumps(f"{version}-{digest.hexdigest()[:12]}"), "web/sw.js")
     sw = replace_once(sw, "__SHELL__", json.dumps(shell), "web/sw.js")
     s.put("sw.js", with_licence(sw))
+    s.put(".htaccess", read(os.path.join(WEB, "htaccess")))
 
     # no source name may be left referenced where a hashed one belongs
     refs = ["index.html", s.hashed["app.js"], s.hashed["bridge-web.js"], s.hashed["worker.js"], s.hashed["ocr_web.js"]]
