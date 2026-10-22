@@ -104,7 +104,8 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
   Pages source: Settings → Pages → Source "GitHub Actions".
 - **The model card follows the tag** (`pages.yml`, job `huggingface`, after the deploy, tags only): `hf/` — the card,
   the scripts, `assets/` — is uploaded to the model repo on Hugging Face (add / replace only: the model files there are
-  never touched), then downloaded again and compared file by file. Needs the repository secret `HF_TOKEN` (a
+  never touched), then downloaded again and compared file by file, and the Hub gets the release's tag (the card of a
+  release at `…/tree/<tag>`). Needs the repository secret `HF_TOKEN` (a
   fine-grained token with write access to that one model repo); without it the job fails. Edits made on the Hub's
   website are overwritten by the next tag: GitHub is the card's source.
 - **Hosting elsewhere**: the dist is a plain static site; it needs HTTPS (WebGPU, OPFS, the service worker). For an

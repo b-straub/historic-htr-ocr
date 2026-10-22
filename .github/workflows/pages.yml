@@ -9,7 +9,8 @@
 # After the deploy, on a tag only: the model card and its files (hf/ — README.md, the scripts, assets/) go to the model
 # repo on Hugging Face, so the card matches the release; the model files there are never touched (an upload only adds
 # or replaces the files of hf/, it deletes nothing). Needs the repository secret HF_TOKEN: a fine-grained Hugging Face
-# token with write access to that one model repo — without it the job fails (no silent skip).
+# token with write access to that one model repo — without it the job fails (no silent skip). The Hub gets the
+# release's tag too (…/tree/v1.2.3).
 name: Deploy Pages
 
 on:
@@ -96,3 +97,9 @@ jobs:
             cmp "hf/$f" "hub-check/$f" || { echo "::error title=Hub differs::$f on the Hub is not the one of ${GITHUB_REF_NAME}"; exit 1; }
           done
           echo "the Hub holds hf/ of ${GITHUB_REF_NAME}: $(echo "$files" | wc -l) files"
+
+      # the same version as a tag on the Hub: the card of a release at …/tree/<tag> (a tag already there — a re-run of a
+      # finished release — fails here with the Hub's message)
+      - name: Tag the release on the Hub
+        run: |
+          hf repos tag create "$HF_REPO" "$GITHUB_REF_NAME" --repo-type model -m "OCR Lite ${GITHUB_REF_NAME}: the card and scripts of this release"
