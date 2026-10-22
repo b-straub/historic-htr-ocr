@@ -286,7 +286,9 @@ const commands = {
     // the staged read over two workers: worker A loads the vision weights, encodes, hands the embeddings back and is
     // ended; a new worker B loads the text weights and reads on — iOS kept counting freed GPU memory against the page
     // (the iPhone died at its 2048 MB in the text load), a dead worker's memory has to go
-    work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer]).then(async (enc) => {
+    // EXPERIMENT (one worker): a fresh device for the image encode too — the text half of the read before freed its
+    // memory on the old one (nothing to reset on the first read)
+    freshDevice().then(() => work("encode", { source, rgb: b.rgb, w: b.w, h: b.h }, [b.rgb.buffer])).then(async (enc) => {
       await freshDevice();
       if (stopAsked) {
         return { ...enc.stats, imageTokens: enc.stats.nImg, promptTokens: 0, prefillMs: 0, decodeMs: 0, outTokens: 0, stoppedOnEog: false, cancelled: true, idleBytes: 0 };
