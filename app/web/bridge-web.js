@@ -180,9 +180,9 @@ function gpuFatal(m) {
 // ── the engine worker ────────────────────────────────────────────────
 // a worker is ended and a new one started in the middle of each read (commands.read): startWorker sets one up
 let worker = startWorker();
-// after every read (done, stopped or failed) the worker that read is ended too: what destroy() freed stayed counted
-// against it on iOS (the next read's vision half on top of it gave garbage on complex pages) — nothing of a read
-// outlives it; the next read's engine starts in a new worker (a few tenths of a second)
+// the worker ended and a new one started: between a read's two halves and after the device check's memory test. NOT after
+// a read: a new GPU device per read while iOS still tore the last one down left the next image encode stuck (user) —
+// the next read's vision half runs in the text worker of the read before
 function freshWorker() {
   worker.terminate();
   worker = startWorker();
@@ -299,14 +299,12 @@ const commands = {
     }).then(
       (stats) => {
         clearMarker();
-        freshWorker();
         lastRead = stats;
         drawMemory();
         emit("ocr:done", stats);
       },
       (err) => {
         clearMarker();
-        freshWorker();
         emit("ocr:error", gpuDead ? `${gpuDead} — reload the page to start again` : err);
       },
     );
