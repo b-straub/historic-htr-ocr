@@ -314,6 +314,52 @@ async function readOnce(src, { rgb, w, h, preset, seed }) {
   }
 }
 
+/// the device check's memory test (iPhone / iPad): `bytes` of GPU memory allocated in blocks and written (a shader
+/// writes every word — untouched memory may not count), held until the GPU is done → { bytes, blocks, ms }. Run in this
+/// worker, which the page ends after it: iOS keeps counting freed GPU memory against its process; a device
+/// short of memory is killed here, before the model's download (the page's crash marker says so at the next start)
+async function memoryTest(bytes) {
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  if (adapter === null) {
+    throw new Error("memory test: no GPU adapter");
+  }
+  const device = await adapter.requestDevice({
+    requiredLimits: { maxBufferSize: adapter.limits.maxBufferSize, maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize },
+  });
+  const t0 = performance.now();
+  const block = Math.min(256 << 20, adapter.limits.maxBufferSize, adapter.limits.maxStorageBufferBindingSize);
+  const module = device.createShaderModule({
+    code: `@group(0) @binding(0) var<storage, read_write> b: array<u32>;
+@compute @workgroup_size(256) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let n = arrayLength(&b);
+  for (var i = id.x; i < n; i += 65535u * 256u) { b[i] = i | 1u; }
+}`,
+  });
+  const pipeline = device.createComputePipeline({ layout: "auto", compute: { module, entryPoint: "main" } });
+  const bufs = [];
+  try {
+    for (let done = 0; done < bytes; done += block) {
+      const size = Math.min(block, bytes - done);
+      const buf = device.createBuffer({ size, usage: GPUBufferUsage.STORAGE });
+      bufs.push(buf);
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: buf } }] }));
+      pass.dispatchWorkgroups(65535);
+      pass.end();
+      device.queue.submit([enc.finish()]);
+      await device.queue.onSubmittedWorkDone();
+    }
+    return { bytes, blocks: bufs.length, ms: performance.now() - t0 };
+  } finally {
+    for (const b of bufs) {
+      b.destroy();
+    }
+    device.destroy();
+  }
+}
+
 async function memory() {
   const m = { wasmBytes: ocr.wasm_memory_bytes() };
   if (performance.memory) m.jsHeapUsed = performance.memory.usedJSHeapSize;
@@ -360,6 +406,7 @@ const handlers = {
   async source() { return effectiveSource(); },
   async load({ source }) { return ensureEngine(source); },
   async memory() { return memory(); },
+  async memoryTest({ bytes }) { return memoryTest(bytes); },
   // the lost-device selftest (selftest.html?lose=1): destroy the engine's GPU device, also during a read
   async debugLoseDevice() { ocr.debug_destroy_device(); },
   async read({ source, rgb, w, h, preset, seed }) {

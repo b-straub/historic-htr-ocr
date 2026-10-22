@@ -326,7 +326,7 @@ export function judge(facts, env, ref = REF) {
   const os = osOf(env.ua, env.maxTouchPoints);
   const r = { verdict: "reject", headline: "", detected: [], problems: [], notes: [], hints: [] };
   if (os === "iphone") {
-    r.notes.push("iPhone: a read needs about 2 GB of GPU memory — more than iOS gives a browser tab on most iPhones; the read may stop without a message. An iPad or a Mac with Apple silicon is fine.");
+    r.notes.push("iPhone: experimental — tested on an iPhone 16 Pro (43 tokens/s). The memory test checks this iPhone; older iPhones may not have enough memory. An iPad or a Mac with Apple silicon is fine.");
   }
   if (!facts.gpu) {
     r.headline = "This browser has no WebGPU — OCR Lite cannot run here.";

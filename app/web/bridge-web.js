@@ -16,7 +16,7 @@
 //   setup     the first-run setup's host side (ui/setup.js): the device check (gpu-check.js), the model's presence,
 //             the download with progress and cancel
 import init, * as ocr from "./pkg/ocr_web.js";
-import { runGpuCheck } from "./gpu-check.js";
+import { osOf, runGpuCheck } from "./gpu-check.js";
 import { LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -141,6 +141,9 @@ export function takeCrashNote() {
   const u = unsupported;
   markUnsupported(null);
   const when = new Date(u.time).toLocaleString();
+  if (u.cause === "killed" && u.step === MEMORY_TEST_STEP) {
+    return `This device does not have enough memory for OCR Lite: the device check's memory test (${when}) needed ${(MEMORY_TEST_BYTES / 2 ** 30).toFixed(1)} GB of GPU memory and the system ended the app.\n\nOCR Lite runs on Macs and iPads with Apple silicon and on recent iPhones (experimental). You can still try — the next read tries again.`;
+  }
   const what = u.cause === "killed"
     ? `OCR Lite stopped during ${u.step} (${when}) — most likely this device ran out of memory.`
     : `OCR Lite lost the GPU during ${u.step} (${when}): ${u.why}.`;
@@ -632,6 +635,10 @@ async function modelMissing() {
 // ── the first-run setup's host side (ui/setup.js) ─────────────────────
 // No state is kept for it: the setup is due exactly while the model is missing from this browser's storage.
 const MODEL_ROOM = 1.5e9; // the two files (1.4 GB) + headroom: less free storage for this site → the setup says so
+// the device check's memory test (iPhone / iPad): the larger half of a read — the image encode measured on the iPad's F16
+// path at 1408 MiB — plus about a tenth; the crash marker's step while it runs
+const MEMORY_TEST_BYTES = 1536 * 2 ** 20;
+const MEMORY_TEST_STEP = "device check: memory test";
 // the last device check's result — a per-viewer convenience (shown while the next check runs), never a gate: the check
 // runs again whenever the setup opens
 const GPU_CHECK = "ocrlite.gpuCheck";
@@ -648,6 +655,22 @@ export const setup = {
       flagged: unsupported ? unsupportedNote(unsupported).text : null,
     };
     const r = await runGpuCheck(navigator.gpu, env, onStep);
+    // iPhone / iPad: the memory of the larger half of a read, held once — in the engine worker, ended after it (its
+    // memory goes with it); iOS killing the page here is caught by the crash marker before the model's download
+    const os = osOf(env.ua, env.maxTouchPoints);
+    if ((os === "iphone" || os === "ipad") && r.verdict !== "reject") {
+      setMarker(MEMORY_TEST_STEP);
+      try {
+        const m = await work("memoryTest", { bytes: MEMORY_TEST_BYTES });
+        r.notes.push(`Memory test passed: ${(m.bytes / 2 ** 30).toFixed(1)} GB of GPU memory held (the larger half of a read, with room to spare) in ${(m.ms / 1000).toFixed(1)} s.`);
+      } catch (e) {
+        r.notes.push(`Memory test failed: ${e instanceof Error ? e.message : e}`);
+      } finally {
+        clearMarker();
+        worker.terminate();
+        worker = startWorker();
+      }
+    }
     try {
       localStorage.setItem(GPU_CHECK, JSON.stringify({ time: Date.now(), verdict: r.verdict, cls: r.cls ?? null, headline: r.headline }));
     } catch (e) {
