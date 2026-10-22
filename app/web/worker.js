@@ -13,7 +13,7 @@
 // (a failed or cancelled read too), the files are closed — between reads no weights are on the GPU and no OPFS handle
 // is open.
 // Messages in: { id, cmd, … } — reply { id, ok, result | error }; events out: { event: "status" | "phase" | "text" |
-// "progress" | "step" | "gpuFatal", … } (phase: ocr-decode's Phase — { phase: "encodingImage" | "readingPrompt" |
+// "progress" | "step" | "gpuFatal", … } (phase: ocr-decode's Phase — { phase: "encodingImage" | "loadingText" | "readingPrompt" |
 // "decoding", loadMs, encodeMs?, prefillMs? }; step: { step: "model load" } as each read's weight upload starts — the
 // page's crash marker, bridge-web.js; gpuFatal: { kind, message } — the GPU device was lost or a GPU error went
 // uncaught: the engine is dead, every further read fails with that message).

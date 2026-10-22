@@ -171,12 +171,15 @@ pub struct ReadMemory {
 }
 
 /// where a read is (the engines report each phase as it starts — the UI's live status line); the times of the phases
-/// already done ride along. JSON: { "phase": "encodingImage" | "readingPrompt" | "decoding", "encodeMs"?, "prefillMs"? }
+/// already done ride along. JSON: { "phase": "encodingImage" | "loadingText" | "readingPrompt" | "decoding", "encodeMs"?,
+/// "prefillMs"? }
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
 #[serde(tag = "phase", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Phase {
     /// the vision encoder runs (the wgpu engine; llama.cpp's encode is part of ReadingPrompt)
     EncodingImage,
+    /// the wgpu engine's staged load: the image encoded, the vision weights freed, the text weights load
+    LoadingText { encode_ms: f64 },
     /// the prompt's prefill (encode_ms: the encoder's time when it ran separately)
     ReadingPrompt { encode_ms: Option<f64> },
     /// the first token is being chosen; text streams from here on
@@ -305,6 +308,7 @@ mod tests {
     fn phase_json_shape() {
         let j = |p: Phase| serde_json::to_string(&p).unwrap();
         assert_eq!(j(Phase::EncodingImage), r#"{"phase":"encodingImage"}"#);
+        assert_eq!(j(Phase::LoadingText { encode_ms: 1.5 }), r#"{"phase":"loadingText","encodeMs":1.5}"#);
         assert_eq!(j(Phase::ReadingPrompt { encode_ms: None }), r#"{"phase":"readingPrompt","encodeMs":null}"#);
         assert_eq!(j(Phase::Decoding { encode_ms: Some(1.5), prefill_ms: 2.0 }), r#"{"phase":"decoding","encodeMs":1.5,"prefillMs":2.0}"#);
     }

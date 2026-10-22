@@ -6,7 +6,7 @@
 //   encodingImage                 a glowing line sweeps top → bottom, again and again; behind it the model's real patch
 //                                 grid (the bake plan: scaled image + white pad, `grid` px tiles in the model's input)
 //                                 lights up tile by tile as the line passes and settles to a faint grid
-//   readingPrompt                 the grid fades, the page outline pulses gently — unless the engine encodes the image
+//   loadingText, readingPrompt    the grid fades, the page outline pulses gently — unless the engine encodes the image
 //                                 inside its prefill (llama.cpp: encodeMs null), then the line keeps sweeping
 //   decoding / done / error       the overlay goes away
 // prefers-reduced-motion → a thin static progress bar under the image instead (one step per phase).
@@ -131,14 +131,15 @@ export function scanOverlay(stage, img) {
     const inPrefill = p.phase === "readingPrompt" && p.encodeMs === null; // llama.cpp: the image is encoded in here
     if (reduce.matches) {
       if (p.phase === "encodingImage" || inPrefill) bar(20);
-      else if (p.phase === "readingPrompt") bar(55);
+      else if (p.phase === "loadingText" || p.phase === "readingPrompt") bar(55);
       else if (p.phase === "decoding") bar(85);
       else stop();
       return;
     }
     if (p.phase === "encodingImage" || inPrefill) {
       sweep(bake);
-    } else if (p.phase === "readingPrompt") {
+    } else if (p.phase === "loadingText" || p.phase === "readingPrompt") {
+      if (root.classList.contains("prompt")) return; // loadingText → readingPrompt: the fade already runs
       root.classList.add("prompt");                // CSS: grid + line fade out, outline pulses
       fadeTimer = setTimeout(stopLoop, 900);       // the canvas is invisible by then
     } else {

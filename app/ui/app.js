@@ -726,10 +726,10 @@ function phaseTimes(r) {
   if (r.prefillMs != null) t.push(`prefill ${secs(r.prefillMs)}${r.encodeMs == null ? " (with the image)" : ""}`);
   return t;
 }
-const PHASES = { encodingImage: "Encoding image…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
+const PHASES = { encodingImage: "Encoding image…", loadingText: "Loading the text model…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
 const scan = scanOverlay($("stage"), $("img"));
 listen("ocr:phase", (e) => scan.phase(e.payload, S.prev ? S.prev.bake : null));
-listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the model load
+listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the vision weights' load
 listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
 listen("ocr:text", (e) => {
   S.streamed += e.payload;

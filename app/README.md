@@ -121,8 +121,11 @@ Measured on an Apple M3 (10-core GPU), a full 980 × 1540 page (1925 image token
 prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.6 s · 86 tokens/s.
 
 - **GPU memory**: no browser tells a page how much GPU memory is free, so the engine counts every buffer it creates
-  (`ocr-wgpu` `Buf`, Settings shows it). A full page peaks at about 1.9–2.1 GB (2.4 GB for a read that runs to its
-  token cap). Each read loads the weights and frees them after it; between reads the GPU holds 0.3 MiB.
+  (`ocr-wgpu` `Buf`, Settings shows it). Each read loads the weights in two stages — the vision weights (790 MiB),
+  the image encode, the vision weights freed, then the text weights (604 MiB) — so the two sets are never on the GPU
+  together: a full page peaks at about 1.2–1.4 GB (1.6 GB for a read that runs to its token cap; before the staging
+  1.9–2.1 / 2.4 GB — iPadOS killed the page at the second read). After the read the weights are freed; between reads
+  the GPU holds 0.3 MiB.
 - **Crash marker**: before each heavy step a marker goes to localStorage; still set at the next start means the tab
   or its GPU process was killed (out of memory) — the device is flagged until "Try anyway".
 - **Device check** (`web/gpu-check.js`, the setup's first step and Help → Check this device): WebGPU present, a real

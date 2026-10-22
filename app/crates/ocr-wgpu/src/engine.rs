@@ -13,8 +13,8 @@
 // (pollster).
 // Weights per read (Safari bills a page's WebGPU memory to it — 3.0 GB after a read; reloading the weights is cheap):
 // the Engine between reads is the device with its compiled kernels (Gpu), the tokenizer and the model's
-// format — NO weights. `load_and_read` loads them (Model: files → GPU, bf16 → f16 on the f16 paths), reads and frees
-// them, a failed or cancelled read too (the Model is a local of that call: every way out drops it, and a dropped Buf
+// format — NO weights. `load_and_read` loads them STAGED (vision → encode → vision freed → text: never both sets
+// at once; files → GPU, bf16 → f16 on the f16 paths), reads and frees them, a failed or cancelled read too (the Model is a local of that call: every way out drops it, and a dropped Buf
 // is destroyed). What stays costs little memory and would cost time to rebuild: the device + pipelines (created and
 // warmed up once, gpu.rs Gpu::create), the kernels' parameter ring (0.3 MiB), the tokenizer (CPU).
 // Token choice (TokenChoice, decided per read): a greedy preset chooses on the GPU — the penalties + argmax in kernels
@@ -38,7 +38,7 @@ use ocr_decode::prompt::{IMAGE_PAD, PREFIX, SUFFIX};
 use ocr_decode::sampling::{Emitter, Flow, Phase, ReadStats, Step, Token, generate};
 
 use crate::gguf::{Gguf, TensorInfo, TensorSource};
-use crate::gpu::{Gpu, STAGING_BYTES, tensor_buffer_bytes};
+use crate::gpu::{Buf, Gpu, STAGING_BYTES, tensor_buffer_bytes};
 use crate::text::{Choice, Input, Session, TextModel, gpu_choice_capable};
 use crate::tokenizer::Tokenizer;
 use crate::vision::Vision;
@@ -203,11 +203,7 @@ impl Engine {
 
     /// the weights onto the GPU, streamed through one staging chunk; they live as long as the Model
     pub async fn load_weights<T: TensorSource, M: TensorSource>(&self, text: &Gguf<T>, mmproj: &Gguf<M>) -> Result<Model> {
-        self.gpu.alive()?;
-        let label = crate::gguf::weights_label(text, mmproj)?;
-        if label != self.weights {
-            bail!("the model files changed since the engine was opened: {label}, was {}", self.weights);
-        }
+        self.check_files(text, mmproj)?;
         let gpu = &self.gpu;
         let t0 = Instant::now();
         gpu.mem_begin_load();
@@ -227,6 +223,16 @@ impl Engine {
         let memory = ModelMemory { vision_weights, text_weights: live.weights - base - vision_weights, resident: live.total(), load_peak: gpu.mem_peak() };
         let load = WeightLoad { ms: t0.elapsed().as_secs_f64() * 1e3, read_ms: up.read_ms, wait_ms: up.wait_ms, memory };
         Ok(Model { vision, text, load })
+    }
+
+    /// the files are the model the engine was opened with (its weight formats), the device alive
+    fn check_files<T: TensorSource, M: TensorSource>(&self, text: &Gguf<T>, mmproj: &Gguf<M>) -> Result<()> {
+        self.gpu.alive()?;
+        let label = crate::gguf::weights_label(text, mmproj)?;
+        if label != self.weights {
+            bail!("the model files changed since the engine was opened: {label}, was {}", self.weights);
+        }
+        Ok(())
     }
 
     pub fn tokenizer(&self) -> &Tokenizer {
@@ -276,7 +282,11 @@ impl Engine {
     }
 
     /// THE read of the hosts: the weights loaded from the two GGUFs, the read, the weights freed — also when the read
-    /// fails or is cancelled (the Model is a local: every way out of this call drops it)
+    /// fails or is cancelled (the weights are locals: every way out of this call drops them). Pixels are read STAGED:
+    /// the vision weights load, the image is encoded, the vision weights are freed, then the text weights load — the
+    /// two weight sets are never on the GPU together (the peak: the larger of vision weights + encoder work and text
+    /// weights + KV cache, not their sum; iPadOS killed the page at the second read's load). Given embeddings need no
+    /// vision: the text weights only.
     #[allow(clippy::too_many_arguments)]
     pub async fn load_and_read<T: TensorSource, M: TensorSource>(
         &mut self,
@@ -285,14 +295,73 @@ impl Engine {
         image: ImageInput<'_>,
         p: &Preset,
         seed: u64,
-        on_phase: impl FnMut(Phase),
+        mut on_phase: impl FnMut(Phase),
         on_text: impl FnMut(&str) -> bool,
         on_logits: Option<LogitsTap<'_>>,
     ) -> Result<LoadedRead> {
-        let model = self.load_weights(text, mmproj).await?;
-        let read = self.read_inspect_async(&model, image, p, seed, on_phase, on_text, on_logits).await;
-        let load = model.load;
-        drop(model);
+        self.check_files(text, mmproj)?;
+        let choice = self.token_choice(p, on_logits.is_some())?;
+        let gpu = &self.gpu;
+        let base = gpu.mem_live().weights;
+        let mut up = gpu.uploader(STAGING_BYTES);
+        let mut load_ms = 0.0;
+        let mut load_peak = 0;
+        gpu.mem_begin_read();
+        let (img_buf, n_img, encode_ms, vision_weights, resident) = match image {
+            ImageInput::Pixels(img) => {
+                let t0 = Instant::now();
+                gpu.mem_begin_load();
+                let vision = Vision::from_gguf(gpu, mmproj, &mut up).await?;
+                let t1 = Instant::now();
+                gpu.upload_flush(&mut up).await?;
+                up.wait_ms += t1.elapsed().as_secs_f64() * 1e3;
+                load_ms += t0.elapsed().as_secs_f64() * 1e3;
+                load_peak = load_peak.max(gpu.mem_peak());
+                let vision_weights = gpu.mem_live().weights - base;
+                let resident = gpu.mem_live().total();
+                let t2 = Instant::now();
+                on_phase(Phase::EncodingImage);
+                gpu.phase("vision");
+                let (img_buf, n_img) = vision.encode_gpu(gpu, img)?;
+                gpu.wait().await?;
+                let encode_ms = t2.elapsed().as_secs_f64() * 1e3;
+                // the vision weights (and the encoder's work, freed with encode_gpu's locals) go before the text loads
+                drop(vision);
+                gpu.phase("-");
+                on_phase(Phase::LoadingText { encode_ms });
+                (Some(img_buf), n_img, Some(encode_ms), vision_weights, resident)
+            }
+            ImageInput::Embeddings(_) => (None, 0, None, 0, gpu.mem_live().total()),
+        };
+        let t3 = Instant::now();
+        gpu.mem_begin_load();
+        let text_model = TextModel::load(gpu, text, &mut up).await?;
+        let t4 = Instant::now();
+        gpu.upload_flush(&mut up).await?;
+        up.wait_ms += t4.elapsed().as_secs_f64() * 1e3;
+        load_ms += t3.elapsed().as_secs_f64() * 1e3;
+        load_peak = load_peak.max(gpu.mem_peak());
+        if self.tok.n_vocab() != text_model.cfg.n_vocab {
+            bail!("{} tokens in the vocabulary, {} rows in token_embd", self.tok.n_vocab(), text_model.cfg.n_vocab);
+        }
+        gpu.alive()?;
+        let live = gpu.mem_live();
+        let text_weights = live.weights - base;
+        let memory = ModelMemory { vision_weights, text_weights, resident: resident.max(live.total()), load_peak };
+        let load = WeightLoad { ms: load_ms, read_ms: up.read_ms, wait_ms: up.wait_ms, memory };
+        let dim = text_model.cfg.dim;
+        let (img_buf, n_img) = match (img_buf, image) {
+            (Some(b), _) => (b, n_img),
+            (None, ImageInput::Embeddings(e)) => {
+                if e.is_empty() || e.len() % dim != 0 {
+                    bail!("{} embedding values are no whole rows of {dim}", e.len());
+                }
+                (gpu.upload_f32("image embeddings", e), e.len() / dim)
+            }
+            (None, ImageInput::Pixels(_)) => bail!("pixels read without their encoding"),
+        };
+        let read = self.read_text(&text_model, img_buf, n_img, encode_ms, choice, resident, p, seed, on_phase, on_text, on_logits).await;
+        drop(text_model);
         let stats = read?;
         Ok(LoadedRead { load, stats, idle_bytes: self.gpu.mem_live().total() })
     }
@@ -309,7 +378,7 @@ impl Engine {
         seed: u64,
         mut on_phase: impl FnMut(Phase),
         on_text: impl FnMut(&str) -> bool,
-        mut on_logits: Option<LogitsTap<'_>>,
+        on_logits: Option<LogitsTap<'_>>,
     ) -> Result<ReadStats> {
         let choice = self.token_choice(p, on_logits.is_some())?;
         // a dead device (lost, or an uncaptured GPU error) fails here with its reason, never hangs
@@ -331,16 +400,36 @@ impl Engine {
         };
         self.gpu.wait().await?;
         let encode_ms = t0.elapsed().as_secs_f64() * 1e3;
+        self.read_text(&model.text, img_buf, n_img, Some(encode_ms), choice, resident, p, seed, on_phase, on_text, on_logits).await
+    }
+
+    /// the text part of a read: the prompt around the image's embeddings (img_buf, n_img rows), the prefill, the
+    /// decode; `resident` = the bytes alive at the read's start (ReadStats.gpu_memory)
+    #[allow(clippy::too_many_arguments)]
+    async fn read_text(
+        &mut self,
+        text: &TextModel,
+        img_buf: Buf,
+        n_img: usize,
+        encode_ms: Option<f64>,
+        choice: TokenChoice,
+        resident: u64,
+        p: &Preset,
+        seed: u64,
+        mut on_phase: impl FnMut(Phase),
+        on_text: impl FnMut(&str) -> bool,
+        mut on_logits: Option<LogitsTap<'_>>,
+    ) -> Result<ReadStats> {
         let prefix = self.tok.encode(PREFIX)?;
         let (beg, end) = (self.tok.encode(IMAGE_BEGIN)?, self.tok.encode(IMAGE_END)?);
         let suffix = self.tok.encode(SUFFIX)?;
         let n_prompt = prefix.len() + beg.len() + n_img + end.len() + suffix.len();
         // the session (KV cache) is the prefill's memory: the phase starts before it is made
         self.gpu.phase("prefill");
-        let mut s = model.text.session(&self.gpu, n_prompt + p.max_new_tokens)?;
+        let mut s = text.session(&self.gpu, n_prompt + p.max_new_tokens)?;
         let t1 = Instant::now();
-        on_phase(Phase::ReadingPrompt { encode_ms: Some(encode_ms) });
-        let last = model.text.prefill(
+        on_phase(Phase::ReadingPrompt { encode_ms });
+        let last = text.prefill(
             &self.gpu,
             &mut s,
             &[Input::Tokens(&prefix), Input::Tokens(&beg), Input::Embeddings { buf: &img_buf, n: n_img }, Input::Tokens(&end), Input::Tokens(&suffix)],
@@ -348,7 +437,7 @@ impl Engine {
             .await?;
         drop(img_buf);
         let prefill_ms = t1.elapsed().as_secs_f64() * 1e3;
-        on_phase(Phase::Decoding { encode_ms: Some(encode_ms), prefill_ms });
+        on_phase(Phase::Decoding { encode_ms, prefill_ms });
 
         let pad = self.tok.id(IMAGE_PAD)?;
         let history: Vec<Token> = std::iter::repeat_n(pad, n_img).chain(suffix.iter().copied()).collect();
@@ -356,7 +445,7 @@ impl Engine {
         self.gpu.phase("decode");
         let o = match choice {
             TokenChoice::Cpu => {
-                let mut step = WgpuStep { gpu: &self.gpu, text: &model.text, tok: &self.tok, s, last };
+                let mut step = WgpuStep { gpu: &self.gpu, text, tok: &self.tok, s, last };
                 let tap = |i: usize, l: &[f32]| {
                     if let Some(f) = on_logits.as_mut() {
                         f(i, l)
@@ -367,12 +456,11 @@ impl Engine {
             TokenChoice::Gpu => {
                 drop(last); // the first token is chosen from the prompt's logits still on the GPU (s.logits)
                 let (chunk, depth) = run_ahead()?;
-                let ch = Choice::new(&self.gpu, p, &history, model.text.cfg.n_vocab, chunk, depth)?;
+                let ch = Choice::new(&self.gpu, p, &history, text.cfg.n_vocab, chunk, depth)?;
                 let mut em = Emitter::new(on_text);
                 let mut flow = Flow::Go;
                 let tok = &self.tok;
-                model
-                    .text
+                text
                     .decode_gpu(&self.gpu, &mut s, &ch, p.max_new_tokens, |t| {
                         flow = em.push(tok.is_eog(t), |b| tok.piece(t, b))?;
                         Ok(flow == Flow::Go)
@@ -386,7 +474,7 @@ impl Engine {
         Ok(ReadStats {
             image_tokens: n_img,
             prompt_tokens: n_prompt,
-            encode_ms: Some(encode_ms),
+            encode_ms,
             prefill_ms,
             decode_ms: t2.elapsed().as_secs_f64() * 1e3,
             out_tokens: o.out_tokens,
