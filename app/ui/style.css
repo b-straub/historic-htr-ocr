@@ -166,6 +166,8 @@ main { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: m
 #editor { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px; outline: none; -webkit-user-select: text; user-select: text; cursor: text; }
 #editor:empty::before { content: attr(data-placeholder); color: var(--faint); font-family: -apple-system, system-ui, sans-serif; font-size: 14px; }
 #editor[contenteditable="false"] { cursor: default; }
+/* a finger's swipe scrolls the text straight away, and stops at its ends instead of pulling the page */
+#editor, #src { touch-action: pan-x pan-y; overscroll-behavior: contain; }
 /* Fit (app.js fitText): no wrapping — every line as written; the font size is set so the widest line fits */
 #editor.fit .l, #editor.fit table.t td { white-space: pre; overflow-wrap: normal; }
 #src { flex: 1; min-height: 0; resize: none; border: 0; outline: none; padding: 18px 22px; background: var(--card); color: var(--fg);

@@ -1123,6 +1123,24 @@ async function checkModel() {
   applyState();
 }
 
+// iOS: maximum-scale=1 (index.html) stops the zoom into a field with a font under 16 px when it gets the focus (the
+// markup view, the preset list, the text under Fit); the keyboard scrolls the page to the caret and leaves it there —
+// the app is one screen: back to its place once the keyboard is gone (the visible height whole again)
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", () => {
+    if (visualViewport.height >= window.innerHeight - 1 && (window.scrollX !== 0 || window.scrollY !== 0)) {
+      window.scrollTo(0, 0);
+    }
+  });
+}
+document.addEventListener("focusout", () => {
+  setTimeout(() => {
+    if (window.scrollX !== 0 || window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
+  }, 300);
+});
+
 // a phone on its side (style.css: landscape, ≤ 500 px high): Read moves from the title bar into the image card's head
 // beside the zoom, so the title bar keeps one row — the same button, only its place changes
 const COMPACT = matchMedia("(orientation: landscape) and (max-height: 500px)");
