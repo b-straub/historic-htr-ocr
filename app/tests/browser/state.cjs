@@ -104,11 +104,17 @@ let SMALL = null;
       await page.click("#suClose");
     }
   };
+  // opened = the new image's first preview shown (a new src): the size text alone is no signal when the same image is
+  // opened again, and the open runs in the image worker (asynchronous — on a slow CI machine the check came too early)
   const open = async (page, img) => {
+    const before = await page.evaluate(() => document.getElementById("img").getAttribute("src"));
     const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await chooser.accept([img]);
     const w = path.basename(img) === path.basename(BIG) ? "3000" : "700";
-    await page.waitForFunction((w) => !document.getElementById("stage").hidden && document.getElementById("bakeInfo").textContent.startsWith(`${w} ×`), {}, w);
+    await page.waitForFunction((w, before) => {
+      const i = document.getElementById("img");
+      return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").textContent.startsWith(`${w} ×`);
+    }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
   const hintShown = (page) => page.evaluate(() => !document.getElementById("cropHint").hidden);
