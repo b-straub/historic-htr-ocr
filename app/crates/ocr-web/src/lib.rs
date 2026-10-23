@@ -129,6 +129,24 @@ pub fn open_image(bytes: &[u8], name: &str) -> Result<String, JsError> {
     Ok(out)
 }
 
+/// open an image the browser decoded (a format the image crate cannot read — HEIC / HEIF, which Safari decodes): its
+/// RGBA pixels, already oriented and in sRGB (image-worker.js: createImageBitmap → OffscreenCanvas) → { stem, w, h }
+#[wasm_bindgen]
+pub fn open_rgba(rgba: &[u8], w: u32, h: u32, name: &str) -> Result<String, JsError> {
+    (|| -> Result<String> {
+        if rgba.len() as u64 != w as u64 * h as u64 * 4 || w == 0 || h == 0 {
+            bail!("{name}: {} bytes of RGBA for {w} × {h}", rgba.len());
+        }
+        let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+        let img = RgbImage::from_raw(w, h, rgb).with_context(|| format!("{name}: {w} × {h}"))?;
+        let stem = Path::new(name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let out = serde_json::json!({ "stem": stem, "w": w, "h": h }).to_string();
+        IMAGE.with(|i| *i.borrow_mut() = Some((DynamicImage::ImageRgb8(img), stem)));
+        Ok(out)
+    })()
+    .map_err(js_err)
+}
+
 /// the preview (`sharp` = the zoomed-in size): { jpeg: Uint8Array, w, h, bake } — the bridge turns the JPEG into a Blob URL
 #[wasm_bindgen]
 pub fn preview(ops_json: &str, sharp: bool) -> Result<Object, JsError> {

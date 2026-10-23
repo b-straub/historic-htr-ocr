@@ -12,10 +12,36 @@ import init, * as ocr from "./pkg/ocr_web.js";
 
 const ready = init();
 
-/// cmd → (args) → [result, transfer list]
+/// a file the wasm decoder cannot read (HEIC / HEIF: the image crate has no decoder for it) decoded by the browser —
+/// Safari reads HEIC; createImageBitmap applies the photo's orientation, the 2D canvas gives sRGB pixels → open_rgba.
+/// null when the browser cannot decode it either
+async function browserDecode(bytes, name) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([bytes]));
+  } catch {
+    return null;
+  }
+  const { width: w, height: h } = bitmap;
+  const ctx = new OffscreenCanvas(w, h).getContext("2d");
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const rgba = ctx.getImageData(0, 0, w, h).data;
+  return JSON.parse(ocr.open_rgba(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength), w, h, name));
+}
+
+/// cmd → (args) → [result, transfer list] (or a Promise of it)
 const commands = {
-  open({ bytes, name }) {
-    return [JSON.parse(ocr.open_image(new Uint8Array(bytes), name)), []];
+  async open({ bytes, name }) {
+    try {
+      return [JSON.parse(ocr.open_image(new Uint8Array(bytes), name)), []];
+    } catch (e) {
+      const viaBrowser = await browserDecode(bytes, name);
+      if (viaBrowser === null) {
+        throw e;
+      }
+      return [viaBrowser, []];
+    }
   },
   preview({ ops, sharp }) {
     const p = ocr.preview(JSON.stringify(ops), sharp);
@@ -42,7 +68,7 @@ self.onmessage = async (e) => {
     if (!f) {
       throw new Error(`image worker: no command ${cmd}`);
     }
-    const [result, transfer] = f(args);
+    const [result, transfer] = await f(args);
     self.postMessage({ id, ok: true, result }, transfer);
   } catch (err) {
     self.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
