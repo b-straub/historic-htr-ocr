@@ -380,10 +380,13 @@ export async function listen(event, cb) {
 }
 
 // ── files ─────────────────────────────────────────────────────────────
-// HEIC / HEIF listed (unlisted, the file dialog greys them out): the wasm decoder cannot read them, the browser decodes
-// them where it can (Safari; image-worker.js browserDecode) — with them listed an iPhone's Photos may hand over the
-// original HEIC instead of a JPEG copy, which takes the same way
-const picker = Object.assign(document.createElement("input"), { type: "file", accept: "image/png,image/jpeg,image/tiff,image/jxl,image/heic,image/heif,.tif,.tiff,.jxl,.heic,.heif" });
+// HEIC / HEIF, WebP, AVIF listed (unlisted, the file dialog greys them out): the wasm decoder cannot read them, the
+// browser decodes them where it can (HEIC: Safari; WebP / AVIF: Safari and Chrome — image-worker.js browserDecode) —
+// with HEIC listed an iPhone's Photos may hand over the original HEIC instead of a JPEG copy, which takes the same way
+const picker = Object.assign(document.createElement("input"), {
+  type: "file",
+  accept: "image/png,image/jpeg,image/tiff,image/jxl,image/heic,image/heif,image/webp,image/avif,.tif,.tiff,.jxl,.heic,.heif,.webp,.avif",
+});
 
 export function pickImage() {
   return new Promise((resolve) => {
