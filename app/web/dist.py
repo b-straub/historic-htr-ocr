@@ -137,6 +137,8 @@ def build(out, model_base=None):
     glue = s.put_hashed("ocr_web.js", glue)
     worker = replace_once(read(os.path.join(WEB, "worker.js")), '"./pkg/ocr_web.js"', f'"./{glue}"', "web/worker.js")
     worker = s.put_hashed("worker.js", worker)
+    imager = replace_once(read(os.path.join(WEB, "image-worker.js")), '"./pkg/ocr_web.js"', f'"./{glue}"', "web/image-worker.js")
+    imager = s.put_hashed("image-worker.js", imager)
     gpucheck = s.put_hashed("gpu-check.js", read(os.path.join(WEB, "gpu-check.js")))
     config = read(os.path.join(WEB, "config.js"))
     if model_base is not None:
@@ -149,6 +151,7 @@ def build(out, model_base=None):
     bridge = replace_once(bridge, '"./config.js"', f'"./{config}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./pkg/ocr_web.js"', f'"./{glue}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./worker.js"', f'"./{worker}"', "web/bridge-web.js")
+    bridge = replace_once(bridge, '"./image-worker.js"', f'"./{imager}"', "web/bridge-web.js")
     bridge = s.put_hashed("bridge-web.js", bridge)
     scan = s.put_hashed("scan.js", read(os.path.join(UI, "scan.js")))
     setup = s.put_hashed("setup.js", read(os.path.join(UI, "setup.js")))

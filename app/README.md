@@ -17,7 +17,7 @@ Live: <https://b-straub.github.io/historic-htr-ocr/app/> · the output format: [
 | `crates/ocr-wgpu` | the engine: vision encoder + text decoder as hand-written WGSL kernels (f32, f16, f16 matrix units), GPU token choice, GPU memory ledger; examples `read` (a native read), `gguf_info`, `adapter`, `cut` |
 | `crates/ocr-web` | the browser build: ocr-core + ocr-wgpu behind wasm-bindgen (wasm32 only) |
 | `ui/` | the page: `index.html`, `app.js` (the prep chain, the state table of every control), `editor.js` (WYSIWYG markup editing), `setup.js` (first-run setup), `scan.js` (the read's scan overlay), CSS |
-| `web/` | the host side: `bridge-web.js` (commands, events, model storage, crash marker), `worker.js` (the engine worker: OPFS / HTTP range reads into the engine's staging buffer), `gpu-check.js` (the device check), `config.js` (**the model**), `sw.js` + `pwa.js` (service worker, "new version" banner), `model.htaccess` (a test build's model folder), `icons/`, `build.sh`, `dist.py` / `dist.sh`, `serve.py`, `selftest.html` |
+| `web/` | the host side: `bridge-web.js` (commands, events, model storage, crash marker), `worker.js` (the engine worker: OPFS / HTTP range reads into the engine's staging buffer), `image-worker.js` (the opened image and every step on it), `gpu-check.js` (the device check), `config.js` (**the model**), `sw.js` + `pwa.js` (service worker, "new version" banner), `model.htaccess` (a test build's model folder), `icons/`, `build.sh`, `dist.py` / `dist.sh`, `serve.py`, `selftest.html` |
 | `tests/` | Node unit tests (`editor_roundtrip.js`, `gpu_check.mjs`) and the browser tests (`browser/*.cjs`, headless Chrome) |
 | `presets.json` | THE decoding presets — the app's, and the same an evaluation or a server-side read uses |
 | `markup.json` | the inline marks of the model's output |
@@ -149,6 +149,12 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   largest tensor (1694 MiB in all; with the 32 MiB upload buffer and the readback about 1.8 GB). Slices go back to the
   pool after use and serve the next phase. A page larger than the pool's sizing (more than 3025 image tokens) is
   refused before the read.
+- **The image in its own worker**: a wasm memory only grows — the page's held ~400 MiB after a 24 MP camera photo
+  was opened and cropped, and with a read's GPU memory iOS ended the page at its 2048 MB. The opened image and every
+  step on it (preview, crop, auto crop, the bake, PNG) run in `web/image-worker.js`; the page keeps only the file as it
+  came (compressed) and stays at ~2 MiB of wasm. Before a read the image worker is ended (the image's memory goes with
+  it) — the model gets the bake, nothing else; a later step starts a new worker from the kept file and replays the
+  steps. Image requests during a read wait for its end.
 - **Nothing held between reads**: after each read (done, stopped or failed) and when the app goes to the background,
   the engine worker is ended — its memory goes with it (iOS closed an idle page holding the pool in the background);
   the next read opens the engine in a new worker, on a new GPU device. A page iOS closed in the background is no crash:

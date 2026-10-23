@@ -17,11 +17,14 @@ const ok = R.ok;
   await page.setViewport({ width: 1440, height: 920, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => console.log("pageerror", e.message));
   page.on("console", (m) => { if (m.type() === "error") console.log("console.error", m.text()); });
-  // capture every JSON.stringify of a prep chain (the crop op the bridge hands to wasm)
+  // capture every prep chain the bridge hands to the image worker (the crop op): the ops of each worker message
   await page.evaluateOnNewDocument(() => {
-    const orig = JSON.stringify;
+    const post = Worker.prototype.postMessage;
     window.__ops = [];
-    JSON.stringify = function (v, ...r) { if (Array.isArray(v) && v.every((o) => o && o.op)) window.__ops.push(orig(v)); return orig(v, ...r); };
+    Worker.prototype.postMessage = function (m, ...r) {
+      if (m && Array.isArray(m.ops)) window.__ops.push(JSON.stringify(m.ops));
+      return post.call(this, m, ...r);
+    };
   });
   await page.goto(URL0, { waitUntil: "networkidle0" });
   await page.waitForFunction(() => document.getElementById("status").textContent !== "Ready" || true);
@@ -32,6 +35,14 @@ const ok = R.ok;
   await chooser.accept([IMG]);
   await page.waitForFunction(() => { const i = document.getElementById("img"); return i.complete && i.naturalWidth > 0 && !document.getElementById("stage").hidden; });
   await new Promise((r) => setTimeout(r, 300));
+  // the opened image lives in the image worker: the page's own wasm memory stays small (it held ~100 MiB for this
+  // 3000 × 2000 image, ~400 MiB for a 24 MP photo, when the page decoded it itself)
+  const pageWasm = await page.evaluate(async () => {
+    const app = await (await fetch([...document.scripts].map((s) => s.src).find((s) => /app\./.test(s)))).text();
+    const host = await import(new URL(app.match(/bridge-web\.[0-9a-f]+\.js/)[0], location.href).href);
+    return host.pageWasmBytes();
+  });
+  ok(pageWasm < 16 * 2 ** 20, `the page's wasm memory after opening a 3000 × 2000 image: ${(pageWasm / 2 ** 20).toFixed(1)} MiB (the image is in the image worker)`);
   const st = () => page.evaluate(() => {
     const i = document.getElementById("img"), r = i.getBoundingClientRect(), p = document.getElementById("imgPane");
     return { w: r.width, h: r.height, left: r.left, top: r.top, nat: i.naturalWidth, zoom: document.getElementById("zoomVal").textContent,

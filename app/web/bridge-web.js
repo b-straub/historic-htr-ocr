@@ -287,26 +287,37 @@ const commands = {
     presets = st.presets;
     return { ...st, settings: settings() };
   },
-  preview({ ops, sharp }) {
-    const p = ocr.preview(JSON.stringify(ops), sharp);
+  async preview({ ops, sharp }) {
+    const p = await imageWork("preview", { ops, sharp });
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = URL.createObjectURL(new Blob([p.jpeg], { type: "image/jpeg" }));
     return { url: previewUrl, w: p.w, h: p.h, bake: JSON.parse(p.bake) };
   },
-  read({ ops, preset }) {
+  async read({ ops, preset }) {
     const p = [...presets.shipped, ...presets.user].find((x) => x.name === preset);
     if (!p) throw new Error(`no preset '${preset}'`);
     const blocked = blockedNote();
     if (blocked) throw new Error(blocked.text);
     if (!gatePassed) throw new Error("this read did not pass modelGate first");
     gatePassed = false;
-    const b = ocr.bake(JSON.stringify(ops));
+    stopAsked = false;
+    // the baked model input, then the image worker ended — the full-size image and its copies go with it before the
+    // engine takes its GPU memory; image requests during the read wait for its end (holdImage)
+    const b = await imageWork("bake", { ops });
+    endImageWorker();
+    if (stopAsked) {
+      // a Stop while the image was baked: no read
+      emit("ocr:error", "stopped");
+      return null;
+    }
+    const done = holdImage();
     // inside a read one worker, one GPU device and its fixed memory pool (ocr-wgpu gpu.rs Pool — nothing freed and
     // allocated anew: iOS kept counting freed GPU memory against the page); after it — done, stopped or failed — the
     // worker is ended (releaseEngine): its memory goes with it (about 1.8 GB of GPU memory held by an idle page made iOS
     // close it in the background), the next read opens the engine in a new one
     work("read", { source: modelSource(), rgb: b.rgb, w: b.w, h: b.h, preset: p, seed: b.seed }, [b.rgb.buffer]).then(
       (stats) => {
+        done();
         clearMarker();
         lastRead = stats;
         releaseEngine();
@@ -314,6 +325,7 @@ const commands = {
         emit("ocr:done", stats);
       },
       (err) => {
+        done();
         clearMarker();
         const why = gpuDead;
         releaseEngine();
@@ -323,12 +335,13 @@ const commands = {
     return JSON.parse(b.plan);
   },
   auto_crop({ ops, opts }) {
-    return JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts)));
+    return imageWork("autoCrop", { ops, opts });
   },
   /// a Stop: in the decode it counts at the next token (the text so far kept, ocr:done with cancelled); before it — the
   /// weight load, the image encode, the prefill, which the engine runs to their end without looking at the stop — the
   /// engine is released at once (its worker ended; the read fails with "stopped": ocr:error)
   cancel() {
+    stopAsked = true;
     if (currentStep !== STEP.decoding && releaseEngine("stopped")) {
       return;
     }
@@ -378,11 +391,76 @@ export function pickImage() {
   });
 }
 
+// ── the image worker (image-worker.js) ───────────────────────────────
+// The opened image lives in its own worker, never in the page's wasm (a wasm memory only grows: a 24 MP camera photo
+// left the page ~400 MiB, and with a read's GPU memory iOS ended the page at its 2048 MB). The page keeps the file as
+// it came (compressed: a few MB); the worker decodes it and does every step (preview, bake, auto crop, PNG). Before a
+// read the worker is ended — the image's memory goes with it; the next request starts a new worker from the kept file
+// (each request carries the steps, ops). Requests during a read wait for its end: a new worker then would take the
+// memory back while the engine needs it.
+let imageFile = null;   // { bytes: ArrayBuffer (the file as it came), name } — null: no image open
+let stopAsked = false;  // a Stop since the read began (one while its image is baked ends it before the engine starts)
+let imager = null;      // { worker, opened: Promise ({ stem, w, h }) } while the image is in a worker
+let imageHold = null;   // a Promise while a read runs: image requests wait for it
+const imageWaiting = new Map();
+let imageNextId = 1;
+function startImageWorker() {
+  const worker = new Worker(new URL("./image-worker.js", import.meta.url), { type: "module" });
+  worker.onmessage = (e) => {
+    const m = e.data;
+    const w = imageWaiting.get(m.id);
+    imageWaiting.delete(m.id);
+    if (m.ok) w.resolve(m.result); else w.reject(m.error);
+  };
+  worker.onerror = (e) => {
+    for (const w of imageWaiting.values()) w.reject(`image worker: ${e.message}`);
+    imageWaiting.clear();
+    endImageWorker();
+  };
+  const post = (cmd, args = {}) => new Promise((resolve, reject) => {
+    const id = imageNextId++;
+    imageWaiting.set(id, { resolve, reject });
+    worker.postMessage({ id, cmd, ...args });
+  });
+  // the first message: the kept file (a copy: the kept bytes stay with the page)
+  const opened = post("open", { bytes: imageFile.bytes.slice(0), name: imageFile.name });
+  return { worker, post, opened };
+}
+function endImageWorker() {
+  if (imager === null) return;
+  imager.worker.terminate();
+  for (const w of imageWaiting.values()) w.reject("the image worker was ended");
+  imageWaiting.clear();
+  imager = null;
+}
+/// one image step in the image worker (started from the kept file when there is none)
+async function imageWork(cmd, args) {
+  while (imageHold !== null) await imageHold;
+  if (imageFile === null) throw new Error("no image open");
+  if (imager === null) imager = startImageWorker();
+  const im = imager;
+  await im.opened;
+  return im.post(cmd, args);
+}
+/// a read runs: image requests wait until the returned function is called (the read's end)
+function holdImage() {
+  let release;
+  imageHold = new Promise((r) => { release = r; });
+  return () => { imageHold = null; release(); };
+}
+
 export async function openImage(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  const bytes = await file.arrayBuffer();
+  const before = imageFile;
+  endImageWorker();
+  imageFile = { bytes, name: file.name };
+  imager = startImageWorker();
   try {
-    return JSON.parse(ocr.open_image(bytes, file.name));
+    return await imager.opened;
   } catch (e) {
+    // not an image it can read: the image before stays (its worker starts again when needed)
+    endImageWorker();
+    imageFile = before;
     throw e instanceof Error ? e.message : String(e);
   }
 }
@@ -414,7 +492,7 @@ export async function saveAs(what, { stem, ops, text }) {
   const name = `${stem || "read"}.${what}`;
   if (what === "txt") download(name, new Blob([text], { type: "text/plain;charset=utf-8" }));
   if (what === "html") download(name, new Blob([ocr.document(stem, text)], { type: "text/html;charset=utf-8" }));
-  if (what === "png") download(name, new Blob([ocr.baked_png(JSON.stringify(ops))], { type: "image/png" }));
+  if (what === "png") download(name, new Blob([await imageWork("bakedPng", { ops })], { type: "image/png" }));
   return `${name} (download)`;
 }
 
@@ -647,6 +725,11 @@ $("modelFromHub").onclick = () => downloadFrom(MODEL_BASE);
 /// version / commit / build time for the About box: stamped into index.html by web/dist.py; the dev server has none
 // the memory after a read, for the breadcrumb (an iPad PWA killed by iOS leaves only that log): the wasm heaps of the
 // worker and of this page (they only grow) + the engine's GPU ledger (between reads, and the last read's peak)
+/// the page's own wasm memory (bytes) — small: the image is in the image worker (tests/browser/ui.cjs checks it)
+export function pageWasmBytes() {
+  return ocr.wasm_memory_bytes();
+}
+
 export async function memoryNote() {
   const w = await work("memory");
   const parts = [`wasm worker ${mb(w.wasmBytes)}`, `page ${mb(ocr.wasm_memory_bytes())}`];
