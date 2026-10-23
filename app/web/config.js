@@ -22,7 +22,8 @@ export const MODEL = {
   md5: { "text-q8_0.gguf": "5b0d07481b0d65e5a0e2d317d78cc410", "mmproj-bf16.gguf": "01481f8c70a20012169830adcfbb75c9" },
 };
 
-/// the folder the model files are downloaded from
+/// the folder the model files are downloaded from (a test build: web/dist.py --model-base replaces it with a folder on
+/// the app's own web space, and MODEL_FROM with "this server (test build)")
 export const MODEL_BASE = `${MODEL.repo}/resolve/main/`;
 /// for texts: "downloaded once from …"
 export const MODEL_FROM = "Hugging Face";

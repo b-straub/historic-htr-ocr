@@ -119,10 +119,17 @@ def build_stamp(version):
     return {"version": version, "git": commit + ("-dirty" if dirty else ""), "built": int(time.time())}
 
 
-def build(out):
+# a test build's model folder (--model-base): the two model files on the same web space as the app — the CSP allows
+# only the app's own origin and Hugging Face, and a download from there does not count on the Hub
+TEST_MODEL_FROM = "this server (test build)"
+
+
+def build(out, model_base=None):
     s = Site(out)
     version = app_version()
     stamp = build_stamp(version)
+    if model_base is not None:
+        stamp["modelBase"] = model_base
 
     # the engine: wasm ← its JS glue ← the worker ← the web bridge ← app.js
     wasm = s.put_hashed("ocr_web_bg.wasm", read(os.path.join(PKG, "ocr_web_bg.wasm"), "rb"))
@@ -131,7 +138,11 @@ def build(out):
     worker = replace_once(read(os.path.join(WEB, "worker.js")), '"./pkg/ocr_web.js"', f'"./{glue}"', "web/worker.js")
     worker = s.put_hashed("worker.js", worker)
     gpucheck = s.put_hashed("gpu-check.js", read(os.path.join(WEB, "gpu-check.js")))
-    config = s.put_hashed("config.js", read(os.path.join(WEB, "config.js")))
+    config = read(os.path.join(WEB, "config.js"))
+    if model_base is not None:
+        config = replace_once(config, "export const MODEL_BASE = `${MODEL.repo}/resolve/main/`;", f'export const MODEL_BASE = "{model_base}";', "web/config.js")
+        config = replace_once(config, 'export const MODEL_FROM = "Hugging Face";', f'export const MODEL_FROM = "{TEST_MODEL_FROM}";', "web/config.js")
+    config = s.put_hashed("config.js", config)
     bridge = read(os.path.join(WEB, "bridge-web.js"))
     bridge = replace_once(bridge, '"./gpu-check.js"', f'"./{gpucheck}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./config.js"', f'"./{config}"', "web/bridge-web.js")
@@ -240,7 +251,16 @@ def check_licence(out):
 def main():
     ap = argparse.ArgumentParser(description="OCR Lite: assemble the deployable web build")
     ap.add_argument("--out", default=os.path.join(APP, "dist"), help="default: app/dist/")
+    ap.add_argument("--model-base", default=None,
+                    help="a TEST build: the model folder on the app's own web space (relative to the app, e.g. ../model/, "
+                         "or an absolute path /…/model/) instead of Hugging Face — the two .gguf files are put there by hand")
     args = ap.parse_args()
+    model_base = args.model_base
+    if model_base is not None:
+        if "://" in model_base or model_base.startswith("//"):
+            die(f"--model-base {model_base}: a path on the app's own web space (the CSP allows only its own origin and Hugging Face)")
+        if not model_base.endswith("/"):
+            model_base += "/"
     for f in ("ocr_web_bg.wasm", "ocr_web.js"):
         if not os.path.isfile(os.path.join(PKG, f)):
             die(f"web/pkg/{f} missing — run web/build.sh")
@@ -248,9 +268,11 @@ def main():
     if os.path.exists(out):
         shutil.rmtree(out)
     os.makedirs(out)
-    version, shell = build(out)
+    version, shell = build(out, model_base)
     size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(out) for f in fs)
     print(f"dist: OCR Lite {version} → {out} ({len(shell)} shell files, {size / 1e6:.1f} MB; no model in it)")
+    if model_base is not None:
+        print(f"dist: TEST build — the model comes from {model_base} on the app's web space, not from Hugging Face")
 
 
 if __name__ == "__main__":

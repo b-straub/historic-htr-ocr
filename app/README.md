@@ -74,6 +74,14 @@ remoteFiles: { "text-q8_0.gguf": "LightOnOCR-3-1B.Q8_0.gguf", "mmproj-bf16.gguf"
 A model stored in the browser is used only when its record (`model-source.json` in OPFS) says it came from an allowed
 source; otherwise the setup downloads the model again.
 
+**A test build** that does not download from Hugging Face (testing on your own web space would count as downloads of
+the model on the Hub): `web/dist.sh --model-base <path>` takes the model from a folder on the app's own web space — a
+path relative to the app (`../model/`) or absolute (`/ocrlite-model/`), never another origin (the CSP allows only the
+app's own origin and Hugging Face). Put `text-q8_0.gguf` + `mmproj-bf16.gguf` there by hand, outside the app's folder
+(the next deploy replaces that). The setup then says "this server (test build)", the build stamp
+(`<meta name="ocrlite-build">`) names the folder, and Verify model checks the same MD5s. The GitHub Pages build never
+gets this option: it downloads from Hugging Face.
+
 ## Test
 
 ```sh
