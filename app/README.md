@@ -17,7 +17,7 @@ Live: <https://b-straub.github.io/historic-htr-ocr/app/> · the output format: [
 | `crates/ocr-wgpu` | the engine: vision encoder + text decoder as hand-written WGSL kernels (f32, f16, f16 matrix units), GPU token choice, GPU memory ledger; examples `read` (a native read), `gguf_info`, `adapter`, `cut` |
 | `crates/ocr-web` | the browser build: ocr-core + ocr-wgpu behind wasm-bindgen (wasm32 only) |
 | `ui/` | the page: `index.html`, `app.js` (the prep chain, the state table of every control), `editor.js` (WYSIWYG markup editing), `setup.js` (first-run setup), `scan.js` (the read's scan overlay), CSS |
-| `web/` | the host side: `bridge-web.js` (commands, events, model storage, crash marker), `worker.js` (the engine worker: OPFS / HTTP range reads into the engine's staging buffer), `gpu-check.js` (the device check), `config.js` (**the model**), `sw.js` + `pwa.js` (service worker, "new version" banner), `icons/`, `build.sh`, `dist.py` / `dist.sh`, `serve.py`, `selftest.html` |
+| `web/` | the host side: `bridge-web.js` (commands, events, model storage, crash marker), `worker.js` (the engine worker: OPFS / HTTP range reads into the engine's staging buffer), `gpu-check.js` (the device check), `config.js` (**the model**), `sw.js` + `pwa.js` (service worker, "new version" banner), `model.htaccess` (a test build's model folder), `icons/`, `build.sh`, `dist.py` / `dist.sh`, `serve.py`, `selftest.html` |
 | `tests/` | Node unit tests (`editor_roundtrip.js`, `gpu_check.mjs`) and the browser tests (`browser/*.cjs`, headless Chrome) |
 | `presets.json` | THE decoding presets — the app's, and the same an evaluation or a server-side read uses |
 | `markup.json` | the inline marks of the model's output |
@@ -75,12 +75,15 @@ A model stored in the browser is used only when its record (`model-source.json` 
 source; otherwise the setup downloads the model again.
 
 **A test build** that does not download from Hugging Face (testing on your own web space would count as downloads of
-the model on the Hub): `web/dist.sh --model-base <path>` (or `OCR_LITE_MODEL_BASE=<path> app/ci.sh build`) takes the model from a folder on the app's own web space — a
-path relative to the app (`../model/`) or absolute (`/ocrlite-model/`), never another origin (the CSP allows only the
-app's own origin and Hugging Face). Put `text-q8_0.gguf` + `mmproj-bf16.gguf` there by hand, outside the app's folder
-(the next deploy replaces that). The setup then says "this server (test build)", the build stamp
-(`<meta name="ocrlite-build">`) names the folder, and Verify model checks the same MD5s. The GitHub Pages build never
-gets this option: it downloads from Hugging Face.
+the model on the Hub): `web/dist.sh --model-base <path>` (or `OCR_LITE_MODEL_BASE=<path> app/ci.sh build`) takes the
+model from a folder on the app's own web space — a path relative to the app (`../model/`, `./model/`) or absolute
+(`/ocrlite-model/`), never another origin (the CSP allows only the app's own origin and Hugging Face). Put
+`text-q8_0.gguf` + `mmproj-bf16.gguf` there by hand, outside the app's folder (the next deploy replaces that) — or inside
+it with a deploy that keeps that folder. Optionally `web/model.htaccess` as `.htaccess` beside them (Apache): only the
+app's own pages may fetch the files (`Sec-Fetch-Site: same-origin`) — it keeps other sites and direct links off your
+bandwidth, it is no protection (anyone can send the header). The setup then says "this server (test build)", the build
+stamp (`<meta name="ocrlite-build">`) names the folder, and Verify model checks the same MD5s. The GitHub Pages build
+never gets this option: it downloads from Hugging Face.
 
 ## Test
 

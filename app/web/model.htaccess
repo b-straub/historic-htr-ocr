@@ -1,0 +1,13 @@
+# OCR Lite — Copyright (c) 2026 Bernhard Straub
+# SPDX-License-Identifier: MIT
+#
+# For a test build's model folder (web/dist.sh --model-base): upload it by hand as .htaccess into that folder, beside
+# text-q8_0.gguf and mmproj-bf16.gguf. The folder holds a copy of the Hugging Face model, so reinstalling a test build
+# does not count as a download on the Hub; this file keeps other sites and direct links from using the web space's
+# bandwidth for it. Not a secret: anyone can send the header by hand.
+# Needs Apache 2.4 with AllowOverride AuthConfig; a host that answers 500 does not allow Options here: drop that line.
+
+# only the app's own pages may fetch it (browsers send Sec-Fetch-Site on every request): a link, the address bar or
+# another site gets 403; range requests work
+Require expr "%{HTTP:Sec-Fetch-Site} == 'same-origin'"
+Options -Indexes
