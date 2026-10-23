@@ -1625,7 +1625,18 @@ impl Gpu {
             src.read_at(t.file_offset + pos, &mut buf[..real]).with_context(|| format!("tensor {}", t.name))?;
             up.read_ms += t0.elapsed().as_secs_f64() * 1e3;
             buf[real..].fill(0);
-            self.staging.buffer().slice(at..at + piece).get_mapped_range_mut().context("map the upload staging buffer")?.copy_from_slice(buf);
+            let range = self.staging.buffer().slice(at..at + piece);
+            // in the browser wgpu's writable view copies the mapped range into the wasm heap first and back on drop (+ an
+            // allocation per piece): 4 copies of every weight byte; the read view's Uint8Array IS the mapped memory —
+            // written there straight from the chunk (one copy)
+            #[cfg(target_arch = "wasm32")]
+            {
+                let view = range.get_mapped_range().context("map the upload staging buffer")?;
+                // SAFETY: nothing allocates between the view of `buf` (wasm memory) and the copy
+                unsafe { view.as_uint8array().set(&js_sys::Uint8Array::view(buf), 0) };
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            range.get_mapped_range_mut().context("map the upload staging buffer")?.copy_from_slice(buf);
             up.copies.push((at, dst.clone(), pos, piece));
             up.fill = (at + piece).div_ceil(COPY_ALIGN) * COPY_ALIGN;
             pos += piece;

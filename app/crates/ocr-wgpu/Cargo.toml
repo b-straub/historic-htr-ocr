@@ -25,6 +25,11 @@ serde_json = "1"
 # pinned: 30.0.1, a release older than two weeks when it was picked
 wgpu = "=30.0.1"
 
+# the browser: the weight upload writes the mapped staging buffer's Uint8Array directly (Gpu::upload_tensor); the
+# version wgpu 30.0.1 resolves to
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "=0.3.106"
+
 [dev-dependencies]
 # examples/read.rs bakes an unbaked image exactly as the app does (imageops only: no llama.cpp)
 ocr-core = { path = "../ocr-core", default-features = false }
