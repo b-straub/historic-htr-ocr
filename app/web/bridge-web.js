@@ -680,6 +680,7 @@ const MODEL_ROOM = 1.5e9; // the two files (1.4 GB) + headroom: less free storag
 // retry without it — nothing to warm up)
 const RANK = { reject: 0, pending: 1, slow: 2, ok: 3 };
 const facts = () => NO_WEBGPU === null;
+const RETRY_PAUSE_MS = 3000;
 // the device check's memory test (iPhone / iPad): the GPU memory a read WRITES at its peak — the largest page (1540 ×
 // 1540) uses 1533 MiB of the pool in the prefill (native, F16 path) + the 32 MiB upload buffer + the 32 MiB readback ≈
 // 1600 MiB. The test writes every byte it holds; the pool's untouched rest (1694 MiB reserved) is not counted that way:
@@ -704,7 +705,9 @@ export const setup = {
     };
     // a first check right after a fresh install often failed, threw or came out slow (the browser's GPU process and the
     // test shaders cold — iPhone 18 Pro in Safari: an error at the first check, the retry passed); a second one, all anew
-    // (adapter, device), passed (user): one more run by itself, the better counts; an error twice is the error
+    // (adapter, device), passed (user): one more run by itself, the better counts; an error twice is the error. The pause
+    // before it is RETRY_PAUSE_MS: half a second was too short on the iPhone 18 Pro in Safari (both runs failed with a
+    // timeout of the GPU benchmark, "Check again" by hand a little later passed)
     let r = null;
     let firstError = null;
     try {
@@ -713,7 +716,8 @@ export const setup = {
       firstError = e;
     }
     if (firstError !== null || (r.verdict !== "ok" && facts(r))) {
-      await new Promise((res) => setTimeout(res, 500));
+      onStep({ verdict: "pending", headline: "Checking this device's GPU again (the first run is often cold)…", detected: [], problems: [], notes: [], hints: [] });
+      await new Promise((res) => setTimeout(res, RETRY_PAUSE_MS));
       const again = await runGpuCheck(navigator.gpu, env, onStep);
       if (r === null || RANK[again.verdict] >= RANK[r.verdict]) {
         r = again;
