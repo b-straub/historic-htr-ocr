@@ -15,13 +15,17 @@ The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the ou
 trained and scored. Questions, problems and reading errors worth reporting:
 [issues](https://github.com/b-straub/historic-htr-ocr/issues).
 
-## What's new in v1.1.5
+## What's new in v1.2.0
 
-- **iPhone: page after page, up to the largest size.** The engine keeps one fixed GPU memory pool (about 1.8 GB) and
-  sends its work to the GPU in short pieces — before, iOS killed the page or scrambled the text of large pages.
-- **Back from the background**: a read interrupted by switching to another app starts again by itself when you return.
-- **Verify model** (Settings → Model): the stored model files checked against the release, without the network.
-- **Phones held upright**: the title bar in two lines.
+- **Camera photos on the iPhone**: a 24 MP photo reads (iPhone 18 Pro) — the image and every step on it now live in
+  their own worker, which is ended before the read, so only the model's input goes on. HEIC / HEIF, WebP and AVIF open
+  too.
+- **Nothing held between reads**: OCR Lite gives back its GPU memory after each read and when you switch to another
+  app — iOS no longer closes it right away in the background, and if it does, that is no crash message.
+- **Stop works at once**, also while the image is encoded or the prompt read (before, only once text came).
+- **Phones**: Fit on by default, the crop menu and Settings (buttons, presets as cards) fit a phone held upright.
+- **Device check**: its memory test matches what a read uses (the 1.8 GB test ended iPhones that read fine), and a
+  cold first run is repeated by itself after a short pause.
 
 ## This repository
 
