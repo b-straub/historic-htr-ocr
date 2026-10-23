@@ -195,12 +195,12 @@ function freshWorker() {
 /// memory pool (about 1.8 GB) — ended, a new one started (it opens the engine at the next read); a read it was running
 /// fails (the app restarts it on return), the engine's death is forgotten. Not while the worker does other work (a model
 /// download / upload, the device check's memory test) → false
-export function releaseEngine() {
+export function releaseEngine(why = "the engine was released (the app went to the background)") {
   if ([...waiting.values()].some((w) => w.cmd !== "read")) {
     return false;
   }
   for (const w of waiting.values()) {
-    w.reject("the engine was released (the app went to the background)");
+    w.reject(why);
   }
   waiting.clear();
   freshWorker();
@@ -324,7 +324,13 @@ const commands = {
   auto_crop({ ops, opts }) {
     return JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts)));
   },
+  /// a Stop: in the decode it counts at the next token (the text so far kept, ocr:done with cancelled); before it — the
+  /// weight load, the image encode, the prefill, which the engine runs to their end without looking at the stop — the
+  /// engine is released at once (its worker ended; the read fails with "stopped": ocr:error)
   cancel() {
+    if (currentStep !== STEP.decoding && releaseEngine("stopped")) {
+      return;
+    }
     worker.postMessage({ cmd: "cancel" });
   },
   render({ text }) {

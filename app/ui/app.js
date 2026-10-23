@@ -937,10 +937,18 @@ listen("ocr:done", async (e) => {
     !r.stoppedOnEog && !r.cancelled ? "err" : "ok");
 });
 listen("ocr:error", (e) => {
-  // the read ended by the engine's release in the background: no error — it starts again on return
+  // the read ended by the engine's release in the background: no error — it starts again on return; a Stop before the
+  // text (the engine released at once, host cancel): stopped, no text
   const released = restartOnReturn && away;
+  const stopped = S.stopping && String(e.payload) === "stopped";
   setReading(false);
-  status(released ? "Stopped: the app went to the background — the read starts again when you return" : String(e.payload), released ? "ok" : "err");
+  if (released) {
+    status("Stopped: the app went to the background — the read starts again when you return", "ok");
+  } else if (stopped) {
+    status("Stopped before the text began", "ok");
+  } else {
+    status(String(e.payload), "err");
+  }
 });
 
 // ── copy / save ───────────────────────────────────────────────────────

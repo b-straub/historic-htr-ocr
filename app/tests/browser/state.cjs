@@ -277,6 +277,15 @@ let SMALL = null;
   await chooser.accept([process.env.OCR_LITE_READ_IMAGE]);
   await page.waitForFunction((b) => document.getElementById("bakeInfo").textContent !== b, { timeout: 30000 }, before);
   await sleep(300);
+  // Stop before the text (the image encode runs ~10 s here): the engine released at once, the read ends within seconds
+  await page.click("#readBtn");
+  await page.waitForFunction(() => /image|Encoding/i.test(document.getElementById("status").textContent) && document.getElementById("readBtn").dataset.state === "reading", { timeout: 60000, polling: 50 });
+  const t0 = Date.now();
+  await page.click("#readBtn");
+  await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "idle", { timeout: 30000, polling: 50 });
+  const stopMs = Date.now() - t0;
+  const stopStatus = await page.evaluate(() => document.getElementById("status").textContent);
+  ok(stopMs < 3000 && /Stopped before the text began/.test(stopStatus), `Stop in the image encode ends the read in ${stopMs} ms: "${stopStatus}"`);
   await page.click("#readBtn");
   await page.waitForFunction(() => document.getElementById("editor").textContent.length > 20, { timeout: 120000, polling: 100 });
   await page.evaluate(() => {
