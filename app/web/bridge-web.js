@@ -4,7 +4,8 @@
 // The host bridge of the browser build — the interface ui/app.js talks to:
 //   commands  served by ocr-web's wasm on this thread (image work) or by the engine worker (worker.js: model + read);
 //             errors reject with the message string
-//   events    ocr:status / ocr:phase / ocr:text / ocr:done / ocr:error from the worker's messages
+//   events    ocr:status / ocr:phase / ocr:text / ocr:done / ocr:error from the worker's messages; ocr:result { text, ok }
+//             the end of a job that wrote ocr:status (the model check)
 //   files     Open = a file input, drag-drop = HTML5 drop, Save = a download (Blob URL)
 //   settings  { preset, modelUrl } + the user's presets in localStorage; the model lives in OPFS (Settings: download
 //             it, see what is stored, delete) — the other sources (upload the two files, download them from a folder
@@ -566,12 +567,22 @@ async function busy(job) {
 }
 
 /// the model check: both stored files' MD5 against the release (config.js MODEL.md5) → { ok, damaged: [names], text }
+/// The worker's per-file progress goes to the status line ("checking … (0.83 GB)…"): its result or error goes there too,
+/// else the last file's line stayed after the check
 export async function verifyModel() {
-  const got = await work("verifyModel");
+  let got;
+  try {
+    got = await work("verifyModel");
+  } catch (e) {
+    emit("ocr:result", { text: `The model check failed: ${e instanceof Error ? e.message : e}`, ok: false });
+    throw e;
+  }
   const damaged = Object.keys(MODEL.md5).filter((name) => got[name] !== MODEL.md5[name]);
-  return damaged.length === 0
+  const r = damaged.length === 0
     ? { ok: true, damaged, text: "The stored model is intact (both files match the release)." }
-    : { ok: false, damaged, text: `The stored model is damaged: ${damaged.join(", ")} differs from the release. Delete the model (Settings) and download it again.` };
+    : { ok: false, damaged, text: `The stored model is damaged: ${damaged.join(", ")} ${damaged.length === 1 ? "differs" : "differ"} from the release. Delete the model (Settings) and download it again.` };
+  emit("ocr:result", { text: r.text, ok: r.ok });
+  return r;
 }
 $("modelVerify").onclick = async () => {
   $("settingsErr").textContent = "";

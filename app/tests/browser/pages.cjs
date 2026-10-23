@@ -134,6 +134,9 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     const verdict = await page.evaluate(() => document.getElementById("modelProgressText").textContent || document.getElementById("settingsErr").textContent);
     ok(real ? /intact/.test(verdict) : /damaged/.test(verdict), `Verify model (${real ? "the real model" : "a stand-in"}, ${((Date.now() - tv) / 1000).toFixed(1)} s): ${verdict}`);
     await page.evaluate(() => document.getElementById("settingsDlg").close());
+    // the status line ends with the check's result, not the worker's last "checking …" line
+    const after = await page.evaluate(() => document.getElementById("status").textContent);
+    ok(/intact|damaged/.test(after) && !/checking/i.test(after), `status line after the check: "${after}"`);
 
     // a read with the real model: must equal the native read
     if (!real) {

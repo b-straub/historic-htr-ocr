@@ -895,6 +895,7 @@ async function readChecks() {
   return true;
 }
 listen("ocr:status", (e) => status(e.payload, "busy"));
+listen("ocr:result", (e) => status(e.payload.text, e.payload.ok ? "ok" : "err"));
 // the read's phase times so far (ocr-decode Phase / ReadStats): "load 0.9 s · image 6.5 s · prefill 1.5 s"; loadMs =
 // the browser engine's weight load for this read (it frees the weights after each read); without encodeMs the engine
 // (llama.cpp) encodes the image inside its prefill
