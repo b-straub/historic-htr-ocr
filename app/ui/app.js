@@ -638,11 +638,12 @@ document.addEventListener("selectionchange", () => {
 });
 
 // Fit: every line as written (no wrapping), the font scaled down so the widest line or table fits the panel — a view
-// setting (remembered in this browser), the text is not changed. Refitted whenever the text or the panel changes.
+// setting (remembered in this browser), the text is not changed. Refitted whenever the text or the panel changes. On
+// by default (it fits on every device); off only once turned off in this browser
 const FIT_KEY = "ocrlite.fit";
 const FIT_MIN_PX = 8; // below this a line is unreadable: the panel scrolls instead
-let fitOn = false;
-try { fitOn = localStorage.getItem(FIT_KEY) === "1"; } catch {}
+let fitOn = true;
+try { fitOn = localStorage.getItem(FIT_KEY) !== "0"; } catch {}
 let fitFrame = 0;
 function fitText() {
   const ed = $("editor");
