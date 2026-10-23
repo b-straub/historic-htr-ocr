@@ -27,7 +27,7 @@ use anyhow::{Context, Result, bail};
 use ocr_decode::presets::Preset;
 
 use crate::gguf::{Gguf, TensorSource, TensorType};
-use crate::gpu::{BindCache, Buf, Compute, DMV_FFN_R, DMV_R, Gpu, MemKind, Uploader, Weight, WeightType, stride_groups};
+use crate::gpu::{BindCache, Buf, Compute, DMV_FFN_R, DMV_R, Gpu, MemKind, Uploader, Weight, WeightType, query_chunks, stride_groups};
 use crate::tokenizer::Token;
 
 /// marks a prompt row the embedding gather skips (an image row, copied from the vision encoder)
@@ -483,8 +483,10 @@ impl TextModel {
         for (li, ly) in self.layers.iter().enumerate() {
             b.rms_norm(&x, &ly.attn_norm, &h, l, d, c.eps)?;
             b.matmul(&h, &ly.q, &qr, l, false)?;
+            b.throttle().await?;
             b.matmul(&h, &ly.k, &kr, l, false)?;
             b.matmul(&h, &ly.v, &vr, l, false)?;
+            b.throttle().await?;
             b.rms_norm(&qr, &ly.q_norm, &q, l * c.n_head, c.d_head, c.eps)?;
             b.rms_norm(&kr, &ly.k_norm, &kn, l * c.n_kv, c.d_head, c.eps)?;
             self.rope(&mut b, s, &q, l, c.n_head, pos0)?;
@@ -495,13 +497,21 @@ impl TextModel {
             // (a matrix-unit version of this kernel — 16 queries per workgroup, 30 KB of workgroup memory — measured
             // slower than this one on the M3: 31 vs 24 ms per layer on a full test page)
             let causal = if gpu.compute == Compute::F32 { "attention_causal" } else { "attention_causal_h" };
-            b.dispatch(causal, &attn, &[&q, &s.k[li], &s.v[li], &qr], ((l as u32).div_ceil(64), c.n_head as u32, 1))?;
+            for (qb0, blocks) in query_chunks(l, s.n_past + l) {
+                b.dispatch(causal, &[attn[0], attn[1], attn[2], attn[3], attn[4], qb0], &[&q, &s.k[li], &s.v[li], &qr], (blocks, c.n_head as u32, 1))?;
+                b.flush();
+                b.throttle().await?;
+            }
             b.matmul(&qr, &ly.o, &x, l, true)?;
             b.rms_norm(&x, &ly.ffn_norm, &h, l, d, c.eps)?;
             b.matmul(&h, &ly.gate, &g, l, false)?;
+            b.throttle().await?;
             b.matmul(&h, &ly.up, &u, l, false)?;
+            b.throttle().await?;
             b.dispatch("swiglu", &[(l * f) as u32], &[&u, &g], (stride_groups((l * f) as u64), 1, 1))?;
             b.matmul(&g, &ly.down, &x, l, true)?;
+            b.flush();
+            b.throttle().await?;
         }
         b.copy(&x, (l - 1) * d, &s.x, 0, d)?;
         self.head(&mut b, s)?;

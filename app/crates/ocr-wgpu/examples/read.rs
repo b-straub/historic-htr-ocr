@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     let mut repeat = 1usize;
     let mut cancel_after = None::<usize>;
     let mut tap_logits = false;
-    let mut then = None::<PathBuf>;
+    let mut then: Vec<PathBuf> = Vec::new();
     let mut i = 2;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -92,7 +92,7 @@ fn main() -> Result<()> {
             "--out" => out = Some(PathBuf::from(val)),
             "--repeat" => repeat = val.parse::<usize>()?.max(1),
             "--cancel-after" => cancel_after = Some(val.parse()?),
-            "--then" => then = Some(PathBuf::from(val)),
+            "--then" => then.extend(val.split(',').map(PathBuf::from)),
             a => bail!("unknown argument {a}"),
         }
         i += 2;
@@ -235,12 +235,20 @@ fn main() -> Result<()> {
     );
     let (peak, small) = engine.gpu.pool_small_blocks();
     println!("memory pool MiB: {:.1} (fixed) · small blocks in use at most {peak} of {small}", mib(engine.gpu.pool_bytes()));
-    // --then <image>: one more read on the same engine (the pool as the first left it)
-    if let Some(next) = &then {
+    // --then <image>[,<image>…]: more reads on the same engine, in order (the pool as the read before left it); each
+    // text goes to <out>.then<i>.txt
+    for (i, next) in then.iter().enumerate() {
         let img2 = ocr_core::imageops::load(next)?.to_rgb8();
         let (img2, _) = ocr_core::imageops::bake(&img2, ocr_core::imageops::Bake::PIXTRAL);
         let stem2 = next.file_stem().context("image name")?.to_string_lossy().into_owned();
-        let r2 = engine.read_inspect(&files, ImageInput::Pixels(&img2), &p, seed_for_stem(&stem2), |_| {}, |_| true, None)?;
+        let mut text2 = String::new();
+        let r2 = engine.read_inspect(&files, ImageInput::Pixels(&img2), &p, seed_for_stem(&stem2), |_| {}, |s| {
+            text2.push_str(s);
+            true
+        }, None)?;
+        if let Some(o) = &out {
+            std::fs::write(o.with_extension(format!("then{}.txt", i + 1)), &text2)?;
+        }
         let g = r2.stats.gpu_memory.as_ref().context("the wgpu read reported no GPU memory")?;
         let (peak, small) = engine.gpu.pool_small_blocks();
         println!("then {stem2} {}x{}: {} image tokens · {} tokens · peak {:.1} MiB in {} · small blocks in use at most {peak} of {small}", img2.width(), img2.height(), r2.stats.image_tokens, r2.stats.out_tokens, mib(g.peak_bytes), g.peak_phase);

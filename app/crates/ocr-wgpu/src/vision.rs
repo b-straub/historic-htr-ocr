@@ -23,7 +23,7 @@ use image::RgbImage;
 use crate::gguf::{Gguf, TensorSource, TensorType};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::gpu::STAGING_BYTES;
-use crate::gpu::{Batch, Buf, Compute, FFN_ROWS, Gpu, Precision, Uploader, Weight, WeightType, stride_groups};
+use crate::gpu::{Batch, Buf, Compute, FFN_ROWS, Gpu, Precision, Uploader, Weight, WeightType, query_chunks, stride_groups};
 
 /// clip.cpp sets rope_theta = 10000 for LIGHTONOCR in code (load_hparams); the GGUF carries no key for it
 const ROPE_THETA: f32 = 10000.0;
@@ -136,7 +136,7 @@ async fn weight<S: TensorSource>(gpu: &Gpu, up: &mut Uploader, g: &Gguf<S>, name
     let mut w = Weight { buf: gpu.upload_tensor(up, &g.source, t).await?, ty, rows, cols };
     if let (Some(over), WeightType::Bf16) = (over, ty) {
         let scale = if name.ends_with(".ffn_down.weight") { FFN_DOWN_SCALE } else { 1.0 };
-        gpu.weight_to_f16(&mut w, over, scale)?;
+        gpu.weight_to_f16_uploaded(up, &mut w, over, scale)?;
     }
     Ok(w)
 }
@@ -225,6 +225,8 @@ impl Vision {
             mm2: weight(gpu, up, g, "mm.2.weight", cfg.proj_dim, cfg.proj_dim, over).await?,
             cfg,
         };
+        // the last copies and conversions submitted: the over-range count is complete
+        gpu.upload_flush(up).await?;
         if let Some(o) = &over_buf {
             let n = gpu.read_f32(o, 1).await?[0].to_bits();
             if n > 0 {
@@ -250,20 +252,20 @@ impl Vision {
     /// layers and returns the residual stream [n_patches][dim] instead (Some(0) = after pre_ln) — the bisect hook
     /// `prec`: Precision::F32 normally; LlamaMetal emulates llama.cpp Metal's rounding (gpu.rs) for the bisect
     pub async fn encode(&self, gpu: &Gpu, img: &RgbImage, layers: Option<usize>, prec: Precision) -> Result<Embeddings> {
-        let (buf, n_tokens, dim) = self.run(gpu, img, layers, prec)?;
+        let (buf, n_tokens, dim) = self.run(gpu, img, layers, prec).await?;
         Ok(Embeddings { n_tokens, dim, data: gpu.read_f32(&buf, n_tokens * dim).await? })
     }
 
     /// the image's embeddings left on the GPU for the text decoder: (buffer [n_tokens][proj_dim] f32 — padded, so it
     /// may be larger —, n_tokens, proj_dim)
-    pub fn encode_gpu(&self, gpu: &Gpu, img: &RgbImage) -> Result<(Buf, usize, usize)> {
-        self.run(gpu, img, None, Precision::F32)
+    pub async fn encode_gpu(&self, gpu: &Gpu, img: &RgbImage) -> Result<(Buf, usize, usize)> {
+        self.run(gpu, img, None, Precision::F32).await
     }
 
     /// the encoder's dispatches, submitted: (the buffer holding the result, rows, row width)
-    fn run(&self, gpu: &Gpu, img: &RgbImage, layers: Option<usize>, prec: Precision) -> Result<(Buf, usize, usize)> {
+    async fn run(&self, gpu: &Gpu, img: &RgbImage, layers: Option<usize>, prec: Precision) -> Result<(Buf, usize, usize)> {
         if gpu.compute != Compute::F32 && prec == Precision::F32 {
-            return self.run_f16(gpu, img, layers);
+            return self.run_f16(gpu, img, layers).await;
         }
         let c = &self.cfg;
         let (px, py) = self.grid(img)?;
@@ -302,6 +304,8 @@ impl Vision {
             b.matmul_p(&hb, &l.up, &u, n, false, prec)?;
             b.dispatch("swiglu", &[(n * f) as u32], &[&u, &g], (stride_groups((n * f) as u64), 1, 1))?;
             b.matmul_p(&g, &l.down, &x, n, true, prec)?;
+            b.flush();
+            b.throttle().await?;
         }
         if layers.is_some() {
             b.submit();
@@ -321,7 +325,7 @@ impl Vision {
     ///        the values the f16 kernels rounded on their way into the tiles / matrix units before (round 3 moved the
     ///        rounding into the producers: half the bytes, same numbers).
     /// Rows are padded to whole 64-row tiles (matmul_coopd reads / writes them; they hold zeros or unused values).
-    fn run_f16(&self, gpu: &Gpu, img: &RgbImage, layers: Option<usize>) -> Result<(Buf, usize, usize)> {
+    async fn run_f16(&self, gpu: &Gpu, img: &RgbImage, layers: Option<usize>) -> Result<(Buf, usize, usize)> {
         let c = &self.cfg;
         let (px, py) = self.grid(img)?;
         let n = px * py;
@@ -358,20 +362,31 @@ impl Vision {
         for l in &self.layers[..n_layers] {
             b.rms_norm_h(&x, &l.ln1, &h16, n, d, c.eps)?;
             b.matmul_f16x(&h16, &l.q, &q, n, false)?;
+            b.throttle().await?;
             b.matmul_f16x(&h16, &l.k, &k, n, false)?;
+            b.throttle().await?;
             b.matmul_f16x(&h16, &l.v, &v, n, false)?;
+            b.throttle().await?;
             b.dispatch("rope2d", &rope, &[&csb, &q], rope_groups)?;
             b.dispatch("rope2d", &rope, &[&csb, &k], rope_groups)?;
             b.dispatch("heads_f16", &heads, &[&k, &v, &kh, &vh], heads_groups)?;
             if gpu.compute == Compute::F16Coop {
                 b.dispatch("attention_coop", &attn, &[&q, &kh, &vh, &a16], ((n as u32).div_ceil(32), c.n_head as u32, 1))?;
             } else {
-                b.dispatch("attention_tile", &attn, &[&q, &kh, &vh, &a16], ((n as u32).div_ceil(64), c.n_head as u32, 1))?;
+                for (qb0, blocks) in query_chunks(n, n_pad) {
+                    b.dispatch("attention_tile", &[attn[0], attn[1], attn[2], attn[3], qb0], &[&q, &kh, &vh, &a16], (blocks, c.n_head as u32, 1))?;
+                    b.flush();
+                    b.throttle().await?;
+                }
             }
             b.matmul_f16x(&a16, &l.o, &x, n, true)?;
+            b.throttle().await?;
             b.rms_norm_h(&x, &l.ln2, &h16, n, d, c.eps)?;
             b.ffn_f16(&h16, &l.gate, &l.up, &g16, n, 1.0 / FFN_DOWN_SCALE, &g, &u)?;
+            b.throttle().await?;
             b.matmul_f16x(&g16, &l.down, &x, n, true)?;
+            b.flush();
+            b.throttle().await?;
         }
         if layers.is_some() {
             b.submit();

@@ -24,6 +24,7 @@ struct Params {
     n_head: u32,
     scale: f32,
     n_pad: u32, // keys per head in Kh / Vh (a multiple of TK)
+    qb0: u32, // the dispatch's first query block (the attention is dispatched in query chunks: Batch::flush)
 }
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -46,7 +47,7 @@ var<workgroup> Cr: array<f32, 64>; // per query: this tile's rescale factor; at 
 @compute @workgroup_size(128, 1, 1)
 fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) li: u32) {
     let h = wg.y;
-    let qw = wg.x * BQ; // the workgroup's first query
+    let qw = (wg.x + p.qb0) * BQ; // the workgroup's first query
     let row = p.n_head * D4; // vec4s per token
     for (var e = li; e < BQ * D4; e += 128u) {
         let qi = min(qw + e / D4, p.n_tok - 1u);

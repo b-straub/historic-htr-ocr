@@ -736,12 +736,15 @@ struct Pool {
     fixed: bool,
     /// the most small blocks holding slices at once (the measure of POOL_SMALL_BLOCKS)
     peak_small: usize,
+    /// DIAGNOSTIC (OCR_WGPU_POISON=1, native): free memory filled with 0xFF bytes (NaN as f32 and f16) — at fix and on
+    /// every give — so a kernel reading outside its slice reads NaN
+    poison: Option<wgpu::Queue>,
 }
 
 impl Pool {
     fn new(limits: &wgpu::Limits) -> Self {
         let block = POOL_BLOCK.min(limits.max_buffer_size).min(limits.max_storage_buffer_binding_size as u64);
-        Pool { blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4), fixed: false, peak_small: 0 }
+        Pool { blocks: Vec::new(), block, align: (limits.min_storage_buffer_offset_alignment as u64).max(4), fixed: false, peak_small: 0, poison: None }
     }
 
     /// the pool at its full size, once: `small` small blocks and one large block of at least `large` bytes — from now on
@@ -758,6 +761,11 @@ impl Pool {
             self.add(device, large);
         }
         self.fixed = true;
+        if let Some(q) = &self.poison {
+            for b in &self.blocks {
+                q.write_buffer(&b.buf, 0, &vec![0xFFu8; b.len as usize]);
+            }
+        }
         Ok(())
     }
 
@@ -810,6 +818,9 @@ impl Pool {
 
     fn give(&mut self, block: usize, off: u64, size: u64) {
         let b = &mut self.blocks[block];
+        if let Some(q) = &self.poison {
+            q.write_buffer(&b.buf, off, &vec![0xFFu8; size as usize]);
+        }
         b.free.give(off, size);
         b.used -= size;
         if b.used == 0 {
@@ -848,6 +859,27 @@ const POOL_BLOCK: u64 = 64 << 20;
 /// 128 (whole matmul tiles); the row views start at r0 · k · 2 bytes — aligned for any K of the model (1024)
 pub const FFN_ROWS: usize = 1024;
 
+
+/// the most rows of a large product (the vision encoder, the prefill) one command buffer holds on the F16 path (the
+/// browsers): larger products are recorded in row blocks, each submitted on its own (Batch::flush) — iOS restarts the
+/// GPU when one command buffer runs for long (a 1540 × 1540 page: 12,100 rows; one command buffer per layer still
+/// died there, a fresh small page read)
+pub const SUBMIT_ROWS: usize = 2048;
+/// the most query × key pairs (all heads) of an attention one command buffer holds (Batch::flush; ~28 ms on the M3 for
+/// the vision attention, attention_tile.wgsl's 198 ms per layer for 7700²)
+pub const SUBMIT_PAIRS: usize = 8 << 20;
+/// the most command buffers a recording keeps queued before it waits for the GPU (Batch::throttle): 1024-row blocks
+/// queued without a wait (~1800 command buffers for a small page) lost the iPhone's device on every page; one per layer
+/// (24 queued) read
+pub const MAX_IN_FLIGHT: usize = 8;
+
+/// an attention over `n_q` queries (blocks of 64) and up to `keys` keys in chunks of SUBMIT_PAIRS → (the first query
+/// block, the blocks) per chunk
+pub fn query_chunks(n_q: usize, keys: usize) -> Vec<(u32, u32)> {
+    let blocks = n_q.div_ceil(64);
+    let per = (SUBMIT_PAIRS / (64 * keys.max(1))).max(1);
+    (0..blocks).step_by(per).map(|b0| (b0 as u32, per.min(blocks - b0) as u32)).collect()
+}
 
 /// how the host hears of a fatal GPU event (set_fatal_hook): `kind` = "lost" (the device was lost — on a phone /
 /// tablet most likely the OS reclaiming memory) | "destroyed" (device.destroy() — the tests) | "outOfMemory" |
@@ -1270,7 +1302,13 @@ impl Gpu {
                 stats: BTreeMap::new(),
             })
         });
-        let pool = Arc::new(Mutex::new(Pool::new(&limits)));
+        #[allow(unused_mut)]
+        let mut pool = Pool::new(&limits);
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::env::var("OCR_WGPU_POISON").as_deref() == Ok("1") {
+            pool.poison = Some(queue.clone());
+        }
+        let pool = Arc::new(Mutex::new(pool));
         let staging = counted(
             &mem,
             device.create_buffer(&wgpu::BufferDescriptor { label: Some("upload staging"), size: STAGING_BYTES, usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false }),
@@ -1549,7 +1587,7 @@ impl Gpu {
     /// the reusable staging chunk of the weight upload (size rounded up to 4 bytes)
     pub fn uploader(&self, bytes: u64) -> Uploader {
         let size = (bytes.max(4).div_ceil(4) * 4).min(self.staging.size());
-        Uploader { size, chunk: vec![0u8; size as usize], mapped: false, fill: 0, copies: Vec::new(), read_ms: 0.0, wait_ms: 0.0 }
+        Uploader { size, chunk: vec![0u8; size as usize], mapped: false, fill: 0, copies: Vec::new(), converts: Vec::new(), read_ms: 0.0, wait_ms: 0.0 }
     }
 
     /// stream a tensor's file range into a new GPU buffer through the staging chunk (the buffer is padded to 4 bytes,
@@ -1592,9 +1630,8 @@ impl Gpu {
             up.fill = (at + piece).div_ceil(COPY_ALIGN) * COPY_ALIGN;
             pos += piece;
         }
-        // the tensor's copies submitted now: what the caller records next (the bf16 → f16 conversion of this weight)
-        // comes after them in the queue — deferred to a full staging buffer, the conversion ran on the empty slice
-        self.upload_submit(up);
+        // the copies wait in the staging buffer until it is full (one GPU round trip per 32 MiB, not per tensor): the
+        // tensor is on the GPU after upload_flush; a conversion of it goes through weight_to_f16_uploaded
         Ok(dst)
     }
 
@@ -1610,6 +1647,15 @@ impl Gpu {
             enc.copy_buffer_to_buffer(self.staging.buffer(), at, dst.buffer(), dst.offset() + pos, n);
         }
         self.queue.submit([enc.finish()]);
+        for (w, over, scale) in up.converts.drain(..) {
+            let words = w.size() / 4;
+            let mut b = self.batch();
+            // the arguments were checked when the conversion was queued (weight_to_f16_uploaded)
+            if let Err(e) = b.dispatch("f16_from_bf16", &[words as u32, scale.to_bits()], &[&w, &over], (stride_groups(words), 1, 1)) {
+                panic!("f16_from_bf16: {e:#}");
+            }
+            b.submit();
+        }
     }
 
     /// the load's last copies submitted and taken by the GPU (the end of a load)
@@ -1633,6 +1679,23 @@ impl Gpu {
         let mut b = self.batch();
         b.dispatch("f16_from_bf16", &[words as u32, scale.to_bits()], &[&w.buf, over], (stride_groups(words), 1, 1))?;
         b.submit();
+        w.ty = WeightType::F16;
+        Ok(())
+    }
+
+    /// weight_to_f16 for a weight just streamed through `up` (upload_tensor): the conversion is submitted right after the
+    /// weight's last copies (upload_submit); the weight is f16 from here on for what is recorded after upload_flush
+    pub fn weight_to_f16_uploaded(&self, up: &mut Uploader, w: &mut Weight, over: &Buf, scale: f32) -> Result<()> {
+        if scale.to_bits() & 0x007f_ffff != 0 || scale <= 0.0 {
+            bail!("weight_to_f16: scale {scale} is not a power of two");
+        }
+        if w.ty != WeightType::Bf16 {
+            bail!("weight_to_f16: a {:?} weight", w.ty);
+        }
+        if !self.kernels.contains_key("f16_from_bf16") {
+            bail!("weight_to_f16: no kernel f16_from_bf16 on the {:?} path", self.compute);
+        }
+        up.converts.push((w.buf.clone(), over.clone(), scale));
         w.ty = WeightType::F16;
         Ok(())
     }
@@ -1728,6 +1791,8 @@ impl Gpu {
             slots: HashMap::new(),
             cache,
             prof: Vec::new(),
+            written: 0,
+            in_flight: 0,
         }
     }
 }
@@ -1741,6 +1806,9 @@ pub struct Uploader {
     mapped: bool,
     fill: u64,
     copies: Vec<(u64, Buf, u64, u64)>,
+    /// bf16 → f16 conversions (weight, over-range counter, scale) waiting for their weight's copies: submitted right after
+    /// them (upload_submit — the queue keeps the order)
+    converts: Vec<(Buf, Buf, f32)>,
     /// the time spent reading the model files (TensorSource::read_at) — the load's I/O part
     pub read_ms: f64,
     /// the time spent waiting for the staging buffer (its map) and the GPU's copies
@@ -1773,6 +1841,11 @@ pub struct Batch<'a> {
     cache: Option<&'a BindCache>,
     /// the profiler's key per timed dispatch (query pair i)
     prof: Vec<String>,
+    /// the words of `words` already written to gpu.params (flush writes only the new ones: a slot a queued command
+    /// buffer reads is never rewritten by its own recording)
+    written: usize,
+    /// command buffers submitted by flush since the last throttle wait
+    in_flight: usize,
 }
 
 impl Batch<'_> {
@@ -1905,7 +1978,11 @@ impl Batch<'_> {
                 WeightType::F32 => "matmul128h_f32",
                 WeightType::Q8_0 => "matmul128h_q8_0",
             };
-            return self.dispatch(kernel, &params, &[x, &w.buf, y], (n.div_ceil(128), (m as u32).div_ceil(128), 1));
+            let (xrow, yrow) = (k as u64 * 4, n as u64 * 4);
+            return self.in_row_blocks(m, |b, r0, rows| {
+                let (xv, yv) = (x.view(r0 as u64 * xrow, rows as u64 * xrow)?, y.view(r0 as u64 * yrow, rows as u64 * yrow)?);
+                b.dispatch(kernel, &[rows as u32, n, k, accumulate as u32, xround], &[&xv, &w.buf, &yv], (n.div_ceil(128), (rows as u32).div_ceil(128), 1))
+            });
         }
         if k % 4 == 0 {
             let kernel = match w.ty {
@@ -1942,7 +2019,13 @@ impl Batch<'_> {
                 }
                 self.dispatch("matmul_coopd", &params, &[x, &w.buf, y], ((n / 64) as u32, (mp / 64) as u32, 1))
             }
-            Compute::F16 => self.dispatch("matmul128hx_f16", &[m as u32, n as u32, k as u32, accumulate as u32, 0], &[x, &w.buf, y], ((n as u32).div_ceil(128), (m as u32).div_ceil(128), 1)),
+            Compute::F16 => {
+                let (xrow, yrow) = (k as u64 * 2, n as u64 * 4);
+                self.in_row_blocks(m, |b, r0, rows| {
+                    let (xv, yv) = (x.view(r0 as u64 * xrow, rows as u64 * xrow)?, y.view(r0 as u64 * yrow, rows as u64 * yrow)?);
+                    b.dispatch("matmul128hx_f16", &[rows as u32, n as u32, k as u32, accumulate as u32, 0], &[&xv, &w.buf, &yv], ((n as u32).div_ceil(128), (rows as u32).div_ceil(128), 1))
+                })
+            }
             Compute::F32 => bail!("matmul_f16x on the f32 path"),
         }
     }
@@ -1981,6 +2064,9 @@ impl Batch<'_> {
                     self.matmul_f16x(&xv, wg, gate, rows, false)?;
                     self.matmul_f16x(&xv, wu, up, rows, false)?;
                     self.dispatch("swiglu_h", &[(rows * f) as u32, out_scale.to_bits()], &[up, gate, &gv], (stride_groups((rows * f) as u64), 1, 1))?;
+                    if (r0 + rows) % SUBMIT_ROWS == 0 {
+                        self.flush();
+                    }
                 }
                 Ok(())
             }
@@ -2021,12 +2107,57 @@ impl Batch<'_> {
         self.dispatch("rms_norm", &[rows as u32, dim as u32, eps.to_bits()], &[x, w, y], (rows as u32, 1, 1))
     }
 
+    /// rows 0…m in blocks of SUBMIT_ROWS, each recorded by `f(batch, first row, rows)` and submitted on its own
+    /// (flush); m ≤ SUBMIT_ROWS: one call, nothing submitted
+    fn in_row_blocks(&mut self, m: usize, mut f: impl FnMut(&mut Self, usize, usize) -> Result<()>) -> Result<()> {
+        if m <= SUBMIT_ROWS {
+            return f(self, 0, m);
+        }
+        for r0 in (0..m).step_by(SUBMIT_ROWS) {
+            f(self, r0, SUBMIT_ROWS.min(m - r0))?;
+            self.flush();
+        }
+        Ok(())
+    }
+
+    /// what is recorded so far to the queue as a command buffer of its own; the batch records on into a new one. A long
+    /// recording (the vision encoder, the prefill over a large page: seconds of GPU time on a phone) is cut into one
+    /// command buffer per layer: iOS takes a command buffer running for seconds as a GPU hang and restarts the GPU
+    /// (iPhone 16 Pro: "IOGPUScheduler … GPURestartSignaled type=2", the other work "discarded (victim of GPU
+    /// error/recovery)") — the read's output garbage, the next read's first work lost too, no error reaches the page
+    /// The batch's parameter slots go on: each command buffer's parameters keep their own slots (written once, before
+    /// that command buffer is submitted). Callers wait with throttle between flushes.
+    pub fn flush(&mut self) {
+        self.pass = None;
+        self.write_params();
+        let enc = std::mem::replace(&mut self.enc, self.gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("batch") }));
+        self.gpu.queue.submit([enc.finish()]);
+        self.in_flight += 1;
+    }
+
+    /// wait for the GPU once MAX_IN_FLIGHT flushed command buffers are queued (a recording of hundreds of them, queued
+    /// at once, lost the iPhone's device)
+    pub async fn throttle(&mut self) -> Result<()> {
+        if self.in_flight >= MAX_IN_FLIGHT {
+            self.gpu.wait().await?;
+            self.in_flight = 0;
+        }
+        Ok(())
+    }
+
+    /// the parameter words not yet in gpu.params written there (at their own offsets)
+    fn write_params(&mut self) {
+        if self.words.len() > self.written {
+            let at = self.gpu.params.offset() + self.written as u64 * 4;
+            self.gpu.queue.write_buffer(self.gpu.params.buffer(), at, bytemuck::cast_slice(&self.words[self.written..]));
+            self.written = self.words.len();
+        }
+    }
+
     /// the batch to the queue → its submission index (what a map of its results waits for, Gpu::read_mapped_u32)
     pub fn submit(mut self) -> wgpu::SubmissionIndex {
         self.pass = None;
-        if !self.words.is_empty() {
-            self.gpu.queue.write_buffer(self.gpu.params.buffer(), self.gpu.params.offset(), bytemuck::cast_slice(&self.words));
-        }
+        self.write_params();
         let Some(p) = &self.gpu.prof else {
             return self.gpu.queue.submit([self.enc.finish()]);
         };
@@ -2260,6 +2391,7 @@ mod tests {
         let t = TensorInfo { shape: vec![449], ..t };
         let mut up = gpu.uploader(40);
         let buf = pollster::block_on(gpu.upload_tensor(&mut up, &file, &t)).unwrap();
+        pollster::block_on(gpu.upload_flush(&mut up)).unwrap();
         let words = pollster::block_on(gpu.read_f32(&buf, 900 / 4)).unwrap();
         let bytes: Vec<u8> = bytemuck::cast_slice(&words).to_vec();
         assert_eq!(&bytes[..898], &file[97..995]);

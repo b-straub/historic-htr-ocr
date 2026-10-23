@@ -17,7 +17,7 @@ struct Params {
     n_kv: u32,
     pos0: u32,
     scale: f32,
-    _p0: u32,
+    qb0: u32, // the dispatch's first query block (the prefill's attention is dispatched in query chunks: Batch::flush)
     _p1: u32,
     _p2: u32,
 }
@@ -44,7 +44,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) l
     let h = wg.y;
     let ql = li & 63u;
     let half = li >> 6u;
-    let qi = min(wg.x * 64u + ql, p.n_q - 1u); // a thread past the end computes the last query again, stores nothing
+    let qi = min((wg.x + p.qb0) * 64u + ql, p.n_q - 1u); // a thread past the end computes the last query again, stores nothing
     let qpos = p.pos0 + qi;
     let kvh = h / (p.n_head / p.n_kv);
     let qb = qi * p.n_head * D4 + h * D4 + half * 16u;
@@ -53,7 +53,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) l
     //@UNROLL var acc# = vec4<f32>(0.0);
     var m = -3.0e38;
     var l = 0.0;
-    let kend = p.pos0 + min(wg.x * 64u + 63u, p.n_q - 1u) + 1u; // keys the workgroup's last query sees
+    let kend = p.pos0 + min((wg.x + p.qb0) * 64u + 63u, p.n_q - 1u) + 1u; // keys the workgroup's last query sees
     for (var k0 = 0u; k0 < kend; k0 += TK) {
         workgroupBarrier();
         for (var e = li; e < TK * D4; e += 128u) {
@@ -86,7 +86,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) l
         }
         m = tmax;
     }
-    if (wg.x * 64u + ql < p.n_q) {
+    if ((wg.x + p.qb0) * 64u + ql < p.n_q) {
         let inv = 1.0 / l;
         //@UNROLL O[qb + #u] = acc# * inv;
     }

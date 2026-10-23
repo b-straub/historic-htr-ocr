@@ -318,7 +318,7 @@ impl Engine {
         let t2 = Instant::now();
         on_phase(Phase::EncodingImage);
         gpu.phase("vision");
-        let (img_buf, n_img, _) = vision.encode_gpu(gpu, img)?;
+        let (img_buf, n_img, _) = vision.encode_gpu(gpu, img).await?;
         gpu.wait().await?;
         let encode_ms = t2.elapsed().as_secs_f64() * 1e3;
         drop(vision);
@@ -426,7 +426,7 @@ impl Engine {
         self.gpu.phase("vision");
         let (img_buf, n_img) = match image {
             ImageInput::Pixels(img) => {
-                let (buf, n, _) = model.vision.encode_gpu(&self.gpu, img)?;
+                let (buf, n, _) = model.vision.encode_gpu(&self.gpu, img).await?;
                 (buf, n)
             }
             ImageInput::Embeddings(e) => {
