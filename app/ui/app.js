@@ -996,18 +996,23 @@ $("presetSel").onchange = async () => {
 function presetRow(p, editable, idx) {
   const tr = document.createElement("tr");
   if (!editable) tr.className = "shipped";
-  for (const [k, type] of FIELDS) {
+  for (const [k, type, label] of FIELDS) {
     const td = document.createElement("td"), inp = document.createElement("input");
+    // the column's label on the cell: a narrow screen shows each preset as a card (style.css), label beside value
+    td.dataset.label = label;
+    td.className = `f-${k}`;
     inp.type = type;
     if (type === "number") inp.step = "any";
     inp.value = p[k];
     inp.readOnly = !editable;
+    if (!editable) inp.title = "a shipped preset is read-only — Duplicate makes an editable copy";
     if (k === "name") inp.style.width = `${nameCh}ch`;
     if (editable) inp.oninput = () => { draftUser[idx][k] = type === "number" ? Number(inp.value) : inp.value; };
     td.append(inp);
     tr.append(td);
   }
   const td = document.createElement("td"), b = document.createElement("button");
+  td.className = "act";
   b.type = "button";
   b.className = "btn small";
   if (editable) {

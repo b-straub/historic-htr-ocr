@@ -242,6 +242,24 @@ input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent)
 #presetTable th:not(:first-child) { text-align: right; }
 #presetTable input[readonly] { background: transparent; border-color: transparent; }
 #presetTable tr.shipped td:first-child input { font-weight: 600; }
+/* up to 900 px wide (a phone either way up, a tablet held upright) the 9 columns do not fit: each preset is a card —
+   its name across the top, the values as label · value pairs side by side, Duplicate / Delete at the bottom right */
+@media (max-width: 900px) {
+  #presetWrap { overflow-x: visible; border: 0; }
+  #presetTable, #presetTable tbody { display: block; width: 100%; }
+  #presetTable tr:first-child { display: none; }
+  #presetTable tr { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 4px 14px; padding: 10px 12px;
+    margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; }
+  #presetTable td { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0; border: 0; }
+  #presetTable td::before { content: attr(data-label); color: var(--muted); font-size: 12px; }
+  #presetTable td.f-name, #presetTable td.act { grid-column: 1 / -1; }
+  #presetTable td.f-name::before, #presetTable td.act::before { content: none; }
+  #presetTable td.f-name input { width: 100% !important; }
+  #presetTable input[type="number"] { width: 7ch; }
+  #presetTable td.act { justify-content: flex-end; }
+  /* an editable (own) preset: its fields look like fields */
+  #presetTable tr:not(.shipped) { border-color: var(--accent); }
+}
 .err { color: var(--warn); min-height: 1.2em; margin: 6px 0 0; }
 .dlgfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .prelines { white-space: pre-line; }
