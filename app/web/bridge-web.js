@@ -17,7 +17,7 @@
 //             the download with progress and cancel
 import init, * as ocr from "./pkg/ocr_web.js";
 import { osOf, runGpuCheck } from "./gpu-check.js";
-import { LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES } from "./config.js";
+import { LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES, MODEL_TEST } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS = "ocrlite.settings";
@@ -625,6 +625,12 @@ $("modelDownload").onclick = () => {
   downloadFrom(base);
 };
 $("modelFromHub").textContent = `Download from ${MODEL_FROM}`;
+// a test build: the model's source in Settings is this server's folder, the Hugging Face repo stays linked as its origin
+if (MODEL_TEST) {
+  const hint = $("modelOpenHint");
+  const repo = hint.querySelector("a");
+  hint.replaceChildren(`A test build: the model is downloaded once from this server (${new URL(MODEL_BASE, location.href).pathname}), then read from this browser's storage, offline too — a copy of the open model (CC BY-SA 4.0) from its `, repo, ".");
+}
 $("modelFromHub").onclick = () => downloadFrom(MODEL_BASE);
 
 /// version / commit / build time for the About box: stamped into index.html by web/dist.py; the dev server has none

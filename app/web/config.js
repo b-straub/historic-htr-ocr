@@ -27,6 +27,9 @@ export const MODEL = {
 export const MODEL_BASE = `${MODEL.repo}/resolve/main/`;
 /// for texts: "downloaded once from …"
 export const MODEL_FROM = "Hugging Face";
+/// a test build (web/dist.py --model-base sets it): the model comes from MODEL_BASE on the app's own web space — the
+/// texts that name Hugging Face as the source say so
+export const MODEL_TEST = false;
 
 /// where a model may come from — ONE switch for the page (the setup's and Settings' controls, ?model=) and the engine
 /// worker (told at its start: its commands refuse a source not listed):
