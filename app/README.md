@@ -90,9 +90,11 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
 - **Browser** (`tests/browser/`, headless Chrome via puppeteer-core; `npm ci` in `app/tests/`, Chrome from `$CHROME`
   or the usual install): `ui` (zoom, crop mapping, pencil, About, layout), `setup` (the first-run setup with a stand-in
   model), `state` (every control's state), `pages` (the published site: pages, links, examples, CSP, service worker,
-  manifest, a real Hugging Face download started and cancelled). The parts that need a read — the Read / Stop states,
-  a read compared with the native read — run with `OCR_LITE_MODEL_DIR` (+ `OCR_LITE_READ_IMAGE`,
-  `OCR_LITE_READ_EXPECT` for `pages`) and are reported as `SKIP` without it. Screenshots go to `test-output/`.
+  manifest; with `OCR_LITE_HF_DOWNLOAD=1` a real Hugging Face download started and cancelled — off in CI and by
+  default: each run counts as a download of the model on the Hub, so it runs by hand before a release). The parts that
+  need a read — the Read / Stop states, a read compared with the native read — run with `OCR_LITE_MODEL_DIR` (+
+  `OCR_LITE_READ_IMAGE`, `OCR_LITE_READ_EXPECT` for `pages`) and are reported as `SKIP` without it. Screenshots go to
+  `test-output/`.
 
 ## CI and publishing
 

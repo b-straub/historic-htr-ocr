@@ -3,8 +3,9 @@
 //
 // The published build as GitHub Pages serves it (web/serve.py --dist <site> --prefix /historic-htr-ocr/): the project
 // pages and their links, the app under /app/ — its CSP, the setup to a stored model, About / Help / Settings, the
-// service worker + manifest under the sub-path, and the production model URL (a real download from Hugging Face is
-// started and cancelled: needs the network). The model for the setup comes from /model/ (?modelBase=/model/,
+// service worker + manifest under the sub-path, and the production model URL — a real download from Hugging Face is
+// started and cancelled only with OCR_LITE_HF_DOWNLOAD=1 (needs the network; every run would count as a download of the
+// model on the Hub: not in CI, before a release by hand). The model for the setup comes from /model/ (?modelBase=/model/,
 // localhost only): the real one with OCR_LITE_MODEL_DIR — then one image is read and must equal the native read
 // (OCR_LITE_READ_IMAGE + OCR_LITE_READ_EXPECT, ocr-wgpu --example read --out) — else a stand-in, and the read is a SKIP.
 //   node tests/browser/pages.cjs
@@ -181,7 +182,11 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     const man = await page.evaluate(async () => { const l = document.querySelector('link[rel="manifest"]'); const r = await fetch(l.href); return { ok: r.ok, m: await r.json(), url: l.href }; });
     ok(man.ok && man.url === `${BASE}manifest.webmanifest` && new URL(man.m.start_url, man.url).href === BASE, `manifest under the sub-path: start_url → ${new URL(man.m.start_url, man.url).href}`);
 
-    // no ?modelBase: the real Hugging Face URL — the download runs (needs the network)
+    // no ?modelBase: the real Hugging Face URL — the download runs (needs the network; only with OCR_LITE_HF_DOWNLOAD=1:
+    // each run counts as a download on the Hub)
+    if (process.env.OCR_LITE_HF_DOWNLOAD !== "1") {
+      R.skip("production base (no ?modelBase): the HF download runs — set OCR_LITE_HF_DOWNLOAD=1 (it counts as a download on the Hub)");
+    } else {
     const ctx = await browser.createBrowserContext();
     const p2 = await ctx.newPage();
     const fetched = [];
@@ -199,6 +204,7 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     await p2.click("#suCancel").catch(() => {});
     await p2.close();
     await ctx.close();
+    }
     ok(errors.length === 0, `no page errors (${errors.length})`);
   } finally {
     await browser.close();
