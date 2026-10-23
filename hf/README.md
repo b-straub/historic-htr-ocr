@@ -387,7 +387,7 @@ no upload of your images. Crop, read, edit the marks, export.
   speed before the download and, on iPhone and iPad, tests the memory.
 - Measured (one dense page, 980 × 1540, 869 output tokens): Apple M3 MacBook, Chrome — image 8.3 s, prefill 1.8 s,
   decode 84 tok/s; iPad Pro 13" (M4), Safari — 24 s in total (66 tok/s); the same page on the M3 in Safari 26 s;
-  iPhone 16 Pro, Safari — 43 tok/s on a dense Humboldt page.
+  iPhone 16 Pro, Safari — 43 tok/s on a dense Humboldt page; iPhone 18 Pro, Safari — 80 tok/s.
 - Tested on an Apple-silicon Mac and an iPad Pro M4; a Windows notebook as a proof of concept (Chrome, 7 tok/s — most
   likely on the chipset graphics, not its RTX 2070). The app's device check and help say which GPU the browser uses and
   how to switch a dual-GPU laptop to the fast one. Linux is untested. iPhone: experimental (the 16 Pro reads; older

@@ -702,13 +702,20 @@ export const setup = {
       secure: window.isSecureContext,
       flagged: unsupported ? unsupportedNote(unsupported).text : null,
     };
-    // a first check right after a fresh install often failed or came out slow (the browser's GPU process and the test
-    // shaders cold); a second one, all anew (adapter, device), passed (user): one more run by itself, the better counts
-    let r = await runGpuCheck(navigator.gpu, env, onStep);
-    if (r.verdict !== "ok" && facts(r)) {
+    // a first check right after a fresh install often failed, threw or came out slow (the browser's GPU process and the
+    // test shaders cold — iPhone 18 Pro in Safari: an error at the first check, the retry passed); a second one, all anew
+    // (adapter, device), passed (user): one more run by itself, the better counts; an error twice is the error
+    let r = null;
+    let firstError = null;
+    try {
+      r = await runGpuCheck(navigator.gpu, env, onStep);
+    } catch (e) {
+      firstError = e;
+    }
+    if (firstError !== null || (r.verdict !== "ok" && facts(r))) {
       await new Promise((res) => setTimeout(res, 500));
       const again = await runGpuCheck(navigator.gpu, env, onStep);
-      if (RANK[again.verdict] >= RANK[r.verdict]) {
+      if (r === null || RANK[again.verdict] >= RANK[r.verdict]) {
         r = again;
       }
     }
