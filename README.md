@@ -15,6 +15,14 @@ The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the ou
 trained and scored. Questions, problems and reading errors worth reporting:
 [issues](https://github.com/b-straub/historic-htr-ocr/issues).
 
+## What's new in v1.1.5
+
+- **iPhone: page after page, up to the largest size.** The engine keeps one fixed GPU memory pool (about 1.8 GB) and
+  sends its work to the GPU in short pieces — before, iOS killed the page or scrambled the text of large pages.
+- **Back from the background**: a read interrupted by switching to another app starts again by itself when you return.
+- **Verify model** (Settings → Model): the stored model files checked against the release, without the network.
+- **Phones held upright**: the title bar in two lines.
+
 ## This repository
 
 | Path | What |

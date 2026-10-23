@@ -383,7 +383,7 @@ web worker, the GGUF pair downloaded once from this repository into the browser'
 no upload of your images. Crop, read, edit the marks, export.
 
 - Needs WebGPU in workers + OPFS: **Chrome / Edge 113+** or **Safari 26+** (macOS, iPadOS; iOS experimental); not Firefox. About
-  1.4 GB of GPU memory per read (1.6 GB when a read runs to its token limit); a built-in device check estimates the
+  1.8 GB of GPU memory (a fixed pool, taken when the engine starts); a built-in device check estimates the
   speed before the download and, on iPhone and iPad, tests the memory.
 - Measured (one dense page, 980 × 1540, 869 output tokens): Apple M3 MacBook, Chrome — image 8.3 s, prefill 1.8 s,
   decode 84 tok/s; iPad Pro 13" (M4), Safari — 24 s in total (66 tok/s); the same page on the M3 in Safari 26 s;

@@ -128,14 +128,19 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
 
 - **GPU memory**: no browser tells a page how much GPU memory is free, so the engine counts every buffer it creates
   (`ocr-wgpu` `Buf`, Settings shows it). Each read loads the weights in two stages — the vision weights (790 MiB),
-  the image encode, the vision weights freed, then the text weights (604 MiB) — so the two sets are never on the GPU
-  together: a full page peaks at about 1.2–1.4 GB (1.6 GB for a read that runs to its token cap; before the staging
-  1.9–2.1 / 2.4 GB — iPadOS killed the page at the second read). After the read the weights are freed; between reads
-  the GPU holds 0.3 MiB.
-- **Two workers per read**: iOS kept counting freed GPU memory against the page (an iPhone was killed at its
-  2048 MB limit in the text load, after the vision weights were freed). So a read runs over two engine workers: the
-  first loads the vision weights, encodes the image and is ended; a new one loads the text weights and reads on from
-  the embeddings (~10 MB). A terminated worker's memory goes; the new engine's start costs a few tenths of a second.
+  the image encode, the vision weights given back, then the text weights (604 MiB) — so the two sets are never on the
+  GPU together: the largest page (1540 × 1540, 3025 image tokens) peaks at 1533 MiB in use.
+- **A fixed memory pool**: iOS kept counting freed (destroyed) GPU memory against the page — an iPhone was killed at
+  its 2048 MB limit after the vision weights were freed. So every storage buffer is a slice of one pool, allocated
+  once when the engine starts and never grown or destroyed while it lives: 24 blocks of 64 MiB + one block for the
+  largest tensor (1694 MiB in all; with the 32 MiB upload buffer and the readback about 1.8 GB). Slices go back to the
+  pool after use and serve the next phase and the next read. A page larger than the pool's sizing (more than 3025
+  image tokens) is refused before the read.
+- **Short command buffers**: iOS restarts the GPU when one command buffer runs for long (the iPhone's log:
+  `GPURestartSignaled`, other work "discarded (victim of GPU error/recovery)"; the page saw scrambled text or a lost
+  device). The image encode and the prefill go to the GPU in pieces — matmuls in blocks of 2048 rows, the attention in
+  chunks of 8 M query × key pairs — and the engine waits for the GPU after every 8 pieces (hundreds queued at once
+  lost the device as well).
 - **KV cache once per read**: sized at the prefill for the prompt + the image tokens (a page's text is rarely longer)
   and grown only past that, by as much again — each growth allocates the whole larger cache and frees the old one, and
   iOS counted every freed generation (an iPhone died at the end of a long read when it grew by 512 rows).
@@ -150,7 +155,10 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   kill there → "not enough memory" at the next start, before the model's download.
 - **Phones and tablets**: side by side in landscape (one column only for a narrow screen held upright; on a low
   screen Read moves beside the zoom); **Fit** (every line as written, the font scaled to the widest line); a read
-  stops when the app goes to the background (iOS freezes it, it came back scrambled); `maximum-scale=1` against
+  stops when the app goes to the background (iOS freezes it: it came back scrambled or lost its GPU device) and starts
+  again on a fresh engine when the app is back (several signals: `visibilitychange`, `pagehide` / `pageshow`,
+  `freeze` / `resume`, a timer that notices a freeze); Open shows its icon only on a phone held upright (the title bar
+  in two lines); `maximum-scale=1` against
   iOS zooming into small-font fields; the first edit of a session warns that edits are not kept (a tech preview).
 
 ### WebGPU pitfalls

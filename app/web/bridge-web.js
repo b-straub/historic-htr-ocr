@@ -88,13 +88,11 @@ function store(key, value) {
 // Without localStorage (private mode, blocked site data) no marker can be kept: Settings says so.
 const CRASH_MARKER = "ocrlite.crashMarker";
 const UNSUPPORTED = "ocrlite.unsupported";
-// the engine's GPU buffers at the peak of a read, by ocr-wgpu's ledger (gpu.rs Buf), default preset. The load is
-// STAGED (engine.rs load_and_read): vision weights 790.5 MiB + the encoder's work, then — the vision weights freed —
-// text weights 604.1 MiB + KV cache + work. MEASURED (native M3, F16Coop, humboldt 44v, 1204 × 1540, 1893 tokens):
-// peak 1158 MiB in the decode (before staging 1949 MiB), vision 1113. DERIVED from the earlier unstaged measurements
-// (the same phases minus the other weight set): the largest test page's encode on F16 1984 → 1379 MiB = 1.45 GB; a
-// read that runs to its 7024-token cap (the full KV cache) 2293 → 1503 MiB = 1.58 GB.
-const GPU_NEED = "about 1.4 GB (1.6 GB for a read that runs to its token cap)";
+// the GPU memory the engine holds: its fixed memory pool (ocr-wgpu gpu.rs Pool::fix, allocated when the engine starts:
+// 24 × 64 MiB + the largest tensor's block = 1693.6 MiB, the Chrome breadcrumb "GPU pool") + the 32 MiB upload buffer
+// + the readback (32 MiB) ≈ 1758 MiB ≈ 1.8 GB. The largest page (1540 × 1540) peaks at 1533 MiB in use inside it
+// (native, F16 path).
+const GPU_NEED = "about 1.8 GB";
 const STEP = { encodingImage: "image encode", loadingText: "model load (text)", readingPrompt: "prefill", decoding: "decode" };
 let markerError = null;  // why the crash marker cannot be kept (storage unavailable), shown in Settings
 let currentStep = null;  // the heavy GPU step running now (null: none)
@@ -185,7 +183,8 @@ function gpuFatal(m) {
 }
 
 // ── the engine worker ────────────────────────────────────────────────
-// a worker is ended and a new one started in the middle of each read (commands.read): startWorker sets one up
+// one worker for every read (it keeps the engine's memory pool); a new one only after the device check's memory test
+// and when the app is back from the background (resetEngine): startWorker sets one up
 let worker = startWorker();
 // the worker ended and a new one started: after the device check's memory test (its GPU memory goes with the worker,
 // before the engine opens in the new one)
