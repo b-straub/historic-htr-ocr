@@ -149,6 +149,12 @@ main { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: m
   /* the second line from the left, Read at its right end */
   .titlebar .grow { display: none; }
   #readBtn { margin-left: auto; }
+  /* the crop menu (340 px, opened from the crop button far right) would run past the screen's edge: placed by the title
+     bar instead — the screen's width below its first line */
+  .titlebar { position: relative; }
+  .titlebar .menuwrap { position: static; }
+  .titlebar .menu.pop { left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); min-width: 0;
+    top: calc(max(8px, env(safe-area-inset-top, 0px)) + 38px); }
 }
 .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .cardhead { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
