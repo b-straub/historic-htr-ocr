@@ -284,12 +284,18 @@ let SMALL = null;
     document.dispatchEvent(new Event("visibilitychange"));
   });
   await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "idle", { timeout: 180000, polling: 100 });
+  const hiddenStatus = await page.evaluate(() => document.getElementById("status").textContent);
+  ok(/stopped: the app went to the background/.test(hiddenStatus), `background → read stopped: "${hiddenStatus}"`);
+  // back in the foreground: the engine anew (a new worker), the read again from the start — then stopped by hand
   await page.evaluate(() => {
     delete document.visibilityState;
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  const hiddenStatus = await page.evaluate(() => document.getElementById("status").textContent);
-  ok(/stopped: the app went to the background/.test(hiddenStatus), `background → read stopped: "${hiddenStatus}"`);
+  const restarted = await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "reading" && document.getElementById("editor").textContent.length > 20, { timeout: 120000, polling: 100 }).then(() => true, () => false);
+  const why = restarted ? "" : await page.evaluate(() => `status "${document.getElementById("status").textContent}" · crumbs ${sessionStorage.getItem("ocrlite.crumbs")}`);
+  ok(restarted, `foreground → the read restarted on a new engine and yields text${why}`);
+  await page.click("#readBtn");
+  await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "idle", { timeout: 180000, polling: 100 });
   }
   }
 

@@ -167,9 +167,16 @@ export function blockedNote() {
   if (gpuDead) return { text: `${gpuDead} — reload the page to start again`, kind: "err", link: null };
   return null;
 }
+// the app was away (app.js wentAway → awayFromApp) since the engine last started: a GPU loss then is the OS's doing
+// (a frozen / backgrounded page), no sign of the device — it is not marked unsupported; the app restarts the engine
+// (resetEngine) and the read when it is back
+let wasAway = false;
+export function awayFromApp() {
+  wasAway = true;
+}
 function gpuFatal(m) {
   gpuDead = m.message;
-  if (m.kind === "lost" || m.kind === "outOfMemory") {
+  if ((m.kind === "lost" || m.kind === "outOfMemory") && !wasAway && document.visibilityState !== "hidden") {
     markUnsupported({ step: currentStep ?? "no read (idle)", time: Date.now(), build: buildId(), cause: "gpu", why: m.message });
   }
   clearMarker();
@@ -185,6 +192,20 @@ let worker = startWorker();
 function freshWorker() {
   worker.terminate();
   worker = startWorker();
+}
+/// the engine started anew after the app was away (app.js cameBack): the worker — its wasm, GPU device and memory pool —
+/// ended, a new one started (it opens the engine at the next read); what the old one still owed fails, the engine's death
+/// is forgotten
+export function resetEngine() {
+  for (const w of waiting.values()) {
+    w.reject("the engine was restarted (the app was in the background)");
+  }
+  waiting.clear();
+  freshWorker();
+  gpuDead = null;
+  wasAway = false;
+  clearMarker();
+  drawMemory();
 }
 function startWorker() {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });

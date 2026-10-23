@@ -718,6 +718,9 @@ function setReading(on) {
   $("src").readOnly = on;
   if (!on) scan.stop();
   applyState();
+  if (!on) {
+    restartRead();
+  }
 }
 let streamTimer = null;
 function showStream() {
@@ -732,22 +735,86 @@ function showStream() {
     }
   }, 120);
 }
-// iOS freezes a page in the background: a read there stalls or comes back scrambled (pausing it
-// did not work) — it is stopped as with Stop, the text so far kept, and the status says why
+// iOS freezes a page in the background: a read there stalls, comes back scrambled or loses its GPU device (pausing it
+// did not work). A read running when the app goes away is stopped; when the app is back the engine starts anew
+// (host.resetEngine: a new worker, GPU device and memory pool) and the read starts again from the beginning.
+// No single event tells it on every browser — several signals feed wentAway / cameBack:
+//   visibilitychange   hidden / visible (the main one: app switch, home screen, lock)
+//   pagehide/pageshow  the page put into / back from the back-forward cache
+//   freeze / resume    Chromium's page lifecycle (a frozen background tab)
+//   a late timer tick  the page was frozen without any of these (seen with iOS home-screen apps): wall-clock time
+//                      jumped by more than AWAY_GAP_MS between two ticks of a 1 s timer
+// blur / focus are not used: on a desktop they fire on every switch to another window.
 let stoppedHidden = false;
+let away = false;
+let restartOnReturn = false;
+const AWAY_GAP_MS = 5000;
+let lastTick = Date.now();
 function stopRead() {
   S.stopping = true;
   applyState();
   invoke("cancel");
 }
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "hidden" || !S.reading || S.stopping) {
+function wentAway(why) {
+  if (away) {
     return;
   }
-  crumb("background: read stopped");
-  stoppedHidden = true;
-  stopRead();
+  away = true;
+  lastTick = Date.now();
+  host.awayFromApp();
+  crumb(`background (${why})`);
+  if (S.reading || S.starting) {
+    restartOnReturn = true;
+    stoppedHidden = true;
+    if (S.reading && !S.stopping) {
+      stopRead();
+    }
+  }
+}
+function cameBack(why) {
+  if (!away) {
+    return;
+  }
+  away = false;
+  // the gap behind an event's return is not counted again by the timer
+  lastTick = Date.now();
+  crumb(`foreground (${why})`);
+  if (!restartOnReturn) {
+    return;
+  }
+  // the engine anew at once — a read still running (its stop counts only at its next token, a frozen read may never get
+  // there) fails with "restarted" and ends (ocr:error → setReading(false) → restartRead)
+  host.resetEngine();
+  restartRead();
+}
+// the read again once the stopped one has ended and the app is in the foreground
+function restartRead() {
+  if (!restartOnReturn || away || S.reading || S.starting || document.visibilityState === "hidden") {
+    return;
+  }
+  restartOnReturn = false;
+  crumb("read restarted after the background");
+  setTimeout(() => $("readBtn").click(), 0);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    wentAway("hidden");
+  } else {
+    cameBack("visible");
+  }
 });
+window.addEventListener("pagehide", () => wentAway("pagehide"));
+window.addEventListener("pageshow", () => cameBack("pageshow"));
+document.addEventListener("freeze", () => wentAway("freeze"));
+document.addEventListener("resume", () => cameBack("resume"));
+setInterval(() => {
+  const now = Date.now();
+  if (now - lastTick > AWAY_GAP_MS && !away) {
+    wentAway(`frozen ${Math.round((now - lastTick) / 1000)} s`);
+    cameBack("timer");
+  }
+  lastTick = now;
+}, 1000);
 $("readBtn").onclick = async () => {
   if (S.reading) {
     stopRead();
