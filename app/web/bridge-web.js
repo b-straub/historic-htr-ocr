@@ -140,7 +140,7 @@ export function takeCrashNote() {
   markUnsupported(null);
   const when = new Date(u.time).toLocaleString();
   if (u.cause === "killed" && u.step === MEMORY_TEST_STEP) {
-    return `This device does not have enough memory for OCR Lite: the device check's memory test (${when}) needed ${(MEMORY_TEST_BYTES / 2 ** 30).toFixed(1)} GB of GPU memory and the system ended the app.\n\nOCR Lite runs on Macs and iPads with Apple silicon and on recent iPhones (experimental). You can still try — the next read tries again.`;
+    return `This device does not have enough memory for OCR Lite: the device check's memory test (${when}) needed ${(MEMORY_TEST_BYTES / 1e9).toFixed(1)} GB of GPU memory and the system ended the app.\n\nOCR Lite runs on Macs and iPads with Apple silicon and on recent iPhones (experimental). You can still try — the next read tries again.`;
   }
   const what = u.cause === "killed"
     ? `OCR Lite stopped during ${u.step} (${when}) — most likely this device ran out of memory.`
@@ -671,9 +671,10 @@ const MODEL_ROOM = 1.5e9; // the two files (1.4 GB) + headroom: less free storag
 // retry without it — nothing to warm up)
 const RANK = { reject: 0, pending: 1, slow: 2, ok: 3 };
 const facts = () => NO_WEBGPU === null;
-// the device check's memory test (iPhone / iPad): the larger half of a read — the image encode measured on the iPad's F16
-// path at 1408 MiB — plus about a tenth; the crash marker's step while it runs
-const MEMORY_TEST_BYTES = 1536 * 2 ** 20;
+// the device check's memory test (iPhone / iPad): what the engine holds on the GPU from its first read on — the fixed
+// memory pool (ocr-wgpu gpu.rs Pool::fix: 24 × 64 MiB + the largest tensor's 157.6 MiB block = 1693.6 MiB) + the 32 MiB
+// upload buffer + the 32 MiB readback ≈ 1758 MiB (GPU_NEED "about 1.8 GB"); the crash marker's step while it runs
+const MEMORY_TEST_BYTES = 1760 * 2 ** 20;
 const MEMORY_TEST_STEP = "device check: memory test";
 // the last device check's result — a per-viewer convenience (shown while the next check runs), never a gate: the check
 // runs again whenever the setup opens
