@@ -285,7 +285,7 @@ let SMALL = null;
   });
   await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "idle", { timeout: 180000, polling: 100 });
   const hiddenStatus = await page.evaluate(() => document.getElementById("status").textContent);
-  ok(/stopped: the app went to the background/.test(hiddenStatus), `background → read stopped: "${hiddenStatus}"`);
+  ok(/stopped: the app went to the background/i.test(hiddenStatus), `background → read stopped, the engine released: "${hiddenStatus}"`);
   // back in the foreground: the engine anew (a new worker), the read again from the start — then stopped by hand
   await page.evaluate(() => {
     delete document.visibilityState;

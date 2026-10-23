@@ -335,7 +335,7 @@
         <h3>Offline</h3>
         <p>Once downloaded, the model stays in this browser's storage and OCR Lite reads without a connection. Settings shows the stored files; deleting them frees the 1.4 GB.</p>
         <h3>Devices</h3>
-        <p>OCR Lite holds about 1.8 GB of GPU memory while it is open (taken once, when the first read starts): iPad and Mac with Apple silicon are fine; iPhone is experimental (tested: iPhone 16 Pro, 43 tokens/s). On iPhone and iPad the device check also tests the memory, before the download. Chrome / Edge 113+, Safari 26+.</p>
+        <p>A read takes about 1.8 GB of GPU memory, given back when it ends: iPad and Mac with Apple silicon are fine; iPhone is experimental (tested: iPhone 16 Pro, 43 tokens/s). On iPhone and iPad the device check also tests the memory, before the download. Chrome / Edge 113+, Safari 26+.</p>
         <p><b>Check this device</b> tests the GPU (WebGPU, its limits, a 1-second speed test) and estimates the reading speed. A laptop with two GPUs may run the browser on the slower built-in one — the check then says how to switch to the graphics card.</p>
         <h3>Tech preview</h3>
         <p>Reading in the browser with WebGPU is work in progress; on phones and tablets OCR Lite is not production-ready yet. Edits are not kept: a crash or a reload loses the text on the right — copy or save what you change. Real editing, with the work kept, is the next major step. A read interrupted by switching to another app starts again from the beginning when you come back.</p>

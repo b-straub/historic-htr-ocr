@@ -134,8 +134,12 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   its 2048 MB limit after the vision weights were freed. So every storage buffer is a slice of one pool, allocated
   once when the engine starts and never grown or destroyed while it lives: 24 blocks of 64 MiB + one block for the
   largest tensor (1694 MiB in all; with the 32 MiB upload buffer and the readback about 1.8 GB). Slices go back to the
-  pool after use and serve the next phase and the next read. A page larger than the pool's sizing (more than 3025
-  image tokens) is refused before the read.
+  pool after use and serve the next phase. A page larger than the pool's sizing (more than 3025 image tokens) is
+  refused before the read.
+- **Nothing held between reads**: after each read (done, stopped or failed) and when the app goes to the background,
+  the engine worker is ended — its memory goes with it (iOS closed an idle page holding the pool in the background);
+  the next read opens the engine in a new worker, on a new GPU device. A page iOS closed in the background is no crash:
+  the next start says so in the status line, not in the crash dialog.
 - **Short command buffers**: iOS restarts the GPU when one command buffer runs for long (the iPhone's log:
   `GPURestartSignaled`, other work "discarded (victim of GPU error/recovery)"; the page saw scrambled text or a lost
   device). The image encode and the prefill go to the GPU in pieces — matmuls in blocks of 2048 rows, the attention in

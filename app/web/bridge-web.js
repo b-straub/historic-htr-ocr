@@ -162,12 +162,11 @@ function unsupportedNote(u) {
 export function blockedNote() {
   if (NO_WEBGPU !== null) return { text: NO_WEBGPU, kind: "err", link: null };
   if (unsupported) return unsupportedNote(unsupported);
-  if (gpuDead) return { text: `${gpuDead} — reload the page to start again`, kind: "err", link: null };
+  if (gpuDead) return { text: `${gpuDead} — the next read starts on a new GPU device`, kind: "err", link: null };
   return null;
 }
-// the app was away (app.js wentAway → awayFromApp) since the engine last started: a GPU loss then is the OS's doing
-// (a frozen / backgrounded page), no sign of the device — it is not marked unsupported; the app restarts the engine
-// (resetEngine) and the read when it is back
+// the app was away (app.js wentAway → awayFromApp) and the engine could not be released (releaseEngine): a GPU loss
+// then is the OS's doing (a frozen / backgrounded page), no sign of the device — it is not marked unsupported
 let wasAway = false;
 export function awayFromApp() {
   wasAway = true;
@@ -179,12 +178,12 @@ function gpuFatal(m) {
   }
   clearMarker();
   drawMemory();
-  emit("ocr:error", `${m.message} — reload the page to start again`);
+  emit("ocr:error", `${m.message} — the read ends; the next one starts on a new GPU device`);
 }
 
 // ── the engine worker ────────────────────────────────────────────────
-// one worker for every read (it keeps the engine's memory pool); a new one only after the device check's memory test
-// and when the app is back from the background (resetEngine): startWorker sets one up
+// one worker for every read (it keeps the engine's memory pool); a new one after the device check's memory test and when
+// the app goes to the background (releaseEngine): startWorker sets one up
 let worker = startWorker();
 // the worker ended and a new one started: after the device check's memory test (its GPU memory goes with the worker,
 // before the engine opens in the new one)
@@ -192,12 +191,16 @@ function freshWorker() {
   worker.terminate();
   worker = startWorker();
 }
-/// the engine started anew after the app was away (app.js cameBack): the worker — its wasm, GPU device and memory pool —
-/// ended, a new one started (it opens the engine at the next read); what the old one still owed fails, the engine's death
-/// is forgotten
-export function resetEngine() {
+/// the engine released when the app goes to the background (app.js wentAway): the worker — its wasm, GPU device and
+/// memory pool (about 1.8 GB) — ended, a new one started (it opens the engine at the next read); a read it was running
+/// fails (the app restarts it on return), the engine's death is forgotten. Not while the worker does other work (a model
+/// download / upload, the device check's memory test) → false
+export function releaseEngine() {
+  if ([...waiting.values()].some((w) => w.cmd !== "read")) {
+    return false;
+  }
   for (const w of waiting.values()) {
-    w.reject("the engine was restarted (the app was in the background)");
+    w.reject("the engine was released (the app went to the background)");
   }
   waiting.clear();
   freshWorker();
@@ -205,6 +208,7 @@ export function resetEngine() {
   wasAway = false;
   clearMarker();
   drawMemory();
+  return true;
 }
 function startWorker() {
   const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
@@ -245,7 +249,7 @@ window.addEventListener("ocrlite:release", () => worker.terminate());
 function work(cmd, args = {}, transfer = []) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    waiting.set(id, { resolve, reject });
+    waiting.set(id, { cmd, resolve, reject });
     worker.postMessage({ id, cmd, ...args }, transfer);
   });
 }
@@ -296,18 +300,23 @@ const commands = {
     if (!gatePassed) throw new Error("this read did not pass modelGate first");
     gatePassed = false;
     const b = ocr.bake(JSON.stringify(ops));
-    // one worker, one GPU device: the engine keeps its memory pools from read to read (ocr-wgpu gpu.rs Pool) — nothing
-    // freed and allocated anew between or inside reads (iOS kept counting freed GPU memory against the page)
+    // inside a read one worker, one GPU device and its fixed memory pool (ocr-wgpu gpu.rs Pool — nothing freed and
+    // allocated anew: iOS kept counting freed GPU memory against the page); after it — done, stopped or failed — the
+    // worker is ended (releaseEngine): its memory goes with it (about 1.8 GB of GPU memory held by an idle page made iOS
+    // close it in the background), the next read opens the engine in a new one
     work("read", { source: modelSource(), rgb: b.rgb, w: b.w, h: b.h, preset: p, seed: b.seed }, [b.rgb.buffer]).then(
       (stats) => {
         clearMarker();
         lastRead = stats;
+        releaseEngine();
         drawMemory();
         emit("ocr:done", stats);
       },
       (err) => {
         clearMarker();
-        emit("ocr:error", gpuDead ? `${gpuDead} — reload the page to start again` : err);
+        const why = gpuDead;
+        releaseEngine();
+        emit("ocr:error", why ? `${why} — the next read starts on a new GPU device` : err);
       },
     );
     return JSON.parse(b.plan);
@@ -619,7 +628,7 @@ export async function memoryNote() {
   const w = await work("memory");
   const parts = [`wasm worker ${mb(w.wasmBytes)}`, `page ${mb(ocr.wasm_memory_bytes())}`];
   if (lastRead) {
-    parts.push(`GPU pool ${mb(lastRead.poolBytes)}`, `peak in use ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
+    parts.push(`GPU pool of the last read ${mb(lastRead.poolBytes)} (released after it)`, `peak in use ${mb(lastRead.gpuMemory.peakBytes)} (${lastRead.gpuMemory.peakPhase})`);
   }
   return parts.join(" · ");
 }

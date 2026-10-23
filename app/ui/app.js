@@ -112,10 +112,18 @@ function crumb(what, isZoom = false) {
   try { sessionStorage.setItem("ocrlite.crumbs", JSON.stringify(crumbs)); } catch {}
 }
 let lastCrash = null; // the trail of a page that ended without unloading
+// the page before ended while the app was in the background ("ocrlite.away", set by wentAway, removed by cameBack): iOS
+// closing a background app (iOS Safari sends no pagehide on an app switch) — no crash, a note in the status line
+let closedAway = false;
 try {
   if (sessionStorage.getItem("ocrlite.alive")) {
-    lastCrash = JSON.parse(sessionStorage.getItem("ocrlite.crumbs") ?? "[]");
+    if (sessionStorage.getItem("ocrlite.away")) {
+      closedAway = true;
+    } else {
+      lastCrash = JSON.parse(sessionStorage.getItem("ocrlite.crumbs") ?? "[]");
+    }
   }
+  sessionStorage.removeItem("ocrlite.away");
   sessionStorage.setItem("ocrlite.alive", "1");
   sessionStorage.removeItem("ocrlite.crumbs");
 } catch {}
@@ -736,8 +744,9 @@ function showStream() {
   }, 120);
 }
 // iOS freezes a page in the background: a read there stalls, comes back scrambled or loses its GPU device (pausing it
-// did not work). A read running when the app goes away is stopped; when the app is back the engine starts anew
-// (host.resetEngine: a new worker, GPU device and memory pool) and the read starts again from the beginning.
+// did not work), and closes background apps holding much memory. When the app goes away the engine is released
+// (host.releaseEngine: its worker ended — GPU device and memory pool, about 1.8 GB, given back; a new worker opens the
+// engine at the next read); a read running then ends and starts again from the beginning when the app is back.
 // No single event tells it on every browser — several signals feed wentAway / cameBack:
 //   visibilitychange   hidden / visible (the main one: app switch, home screen, lock)
 //   pagehide/pageshow  the page put into / back from the back-forward cache
@@ -761,14 +770,17 @@ function wentAway(why) {
   }
   away = true;
   lastTick = Date.now();
+  try { sessionStorage.setItem("ocrlite.away", "1"); } catch {}
   host.awayFromApp();
-  crumb(`background (${why})`);
   if (S.reading || S.starting) {
     restartOnReturn = true;
     stoppedHidden = true;
-    if (S.reading && !S.stopping) {
-      stopRead();
-    }
+  }
+  // the read (if one runs) fails with "released" → ocr:error → setReading(false); restartRead waits for the return
+  const released = host.releaseEngine();
+  crumb(`background (${why})${released ? ": engine released" : ": engine kept (the worker is busy)"}`);
+  if (!released && S.reading && !S.stopping) {
+    stopRead();
   }
 }
 function cameBack(why) {
@@ -778,13 +790,8 @@ function cameBack(why) {
   away = false;
   // the gap behind an event's return is not counted again by the timer
   lastTick = Date.now();
+  try { sessionStorage.removeItem("ocrlite.away"); } catch {}
   crumb(`foreground (${why})`);
-  if (!restartOnReturn) {
-    return;
-  }
-  // the engine anew at once — a read still running (its stop counts only at its next token, a frozen read may never get
-  // there) fails with "restarted" and ends (ocr:error → setReading(false) → restartRead)
-  host.resetEngine();
   restartRead();
 }
 // the read again once the stopped one has ended and the app is in the foreground
@@ -929,7 +936,12 @@ listen("ocr:done", async (e) => {
   status(`${[...phaseTimes(r), `${r.outTokens.toLocaleString()} tokens`, `${tps} tok/s`, ...choice, `total ${secs(total)}`].join(" · ")}${end}`,
     !r.stoppedOnEog && !r.cancelled ? "err" : "ok");
 });
-listen("ocr:error", (e) => { setReading(false); status(String(e.payload), "err"); });
+listen("ocr:error", (e) => {
+  // the read ended by the engine's release in the background: no error — it starts again on return
+  const released = restartOnReturn && away;
+  setReading(false);
+  status(released ? "Stopped: the app went to the background — the read starts again when you return" : String(e.payload), released ? "ok" : "err");
+});
 
 // ── copy / save ───────────────────────────────────────────────────────
 $("copyBtn").onclick = () => navigator.clipboard.writeText(currentMarkup()).then(() => status("Markup copied", "ok"));
@@ -1270,6 +1282,10 @@ placeRead();
   await showModelNote();
   await checkModel();
   showCrashNote(crash);
+  if (closedAway && !crash) {
+    crumb("closed by the system in the background");
+    status("iOS closed OCR Lite while it was in the background — the page was loaded again", "ok");
+  }
   // the setup opens by itself while the model is not in this browser's storage or the browser has no WebGPU (its
   // device check says why)
   if (host.setup.noWebGpu || await host.setup.modelMissing()) {
