@@ -680,10 +680,12 @@ const MODEL_ROOM = 1.5e9; // the two files (1.4 GB) + headroom: less free storag
 // retry without it — nothing to warm up)
 const RANK = { reject: 0, pending: 1, slow: 2, ok: 3 };
 const facts = () => NO_WEBGPU === null;
-// the device check's memory test (iPhone / iPad): what the engine holds on the GPU from its first read on — the fixed
-// memory pool (ocr-wgpu gpu.rs Pool::fix: 24 × 64 MiB + the largest tensor's 157.6 MiB block = 1693.6 MiB) + the 32 MiB
-// upload buffer + the 32 MiB readback ≈ 1758 MiB (GPU_NEED "about 1.8 GB"); the crash marker's step while it runs
-const MEMORY_TEST_BYTES = 1760 * 2 ** 20;
+// the device check's memory test (iPhone / iPad): the GPU memory a read WRITES at its peak — the largest page (1540 ×
+// 1540) uses 1533 MiB of the pool in the prefill (native, F16 path) + the 32 MiB upload buffer + the 32 MiB readback ≈
+// 1600 MiB. The test writes every byte it holds; the pool's untouched rest (1694 MiB reserved) is not counted that way:
+// a test of the whole 1760 MiB was killed on an iPhone 16 Pro that reads the largest page. The crash marker's step while
+// it runs
+const MEMORY_TEST_BYTES = 1600 * 2 ** 20;
 const MEMORY_TEST_STEP = "device check: memory test";
 // the last device check's result — a per-viewer convenience (shown while the next check runs), never a gate: the check
 // runs again whenever the setup opens
@@ -717,7 +719,7 @@ export const setup = {
       setMarker(MEMORY_TEST_STEP);
       try {
         const m = await work("memoryTest", { bytes: MEMORY_TEST_BYTES });
-        r.notes.push(`Memory test passed: ${(m.bytes / 2 ** 30).toFixed(1)} GB of GPU memory held (the larger half of a read, with room to spare) in ${(m.ms / 1000).toFixed(1)} s.`);
+        r.notes.push(`Memory test passed: ${(m.bytes / 1e9).toFixed(1)} GB of GPU memory written and held (what a read of the largest page uses) in ${(m.ms / 1000).toFixed(1)} s.`);
       } catch (e) {
         r.notes.push(`Memory test failed: ${e instanceof Error ? e.message : e}`);
       } finally {

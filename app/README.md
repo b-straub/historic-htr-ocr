@@ -155,7 +155,7 @@ prefill ≈ 1.8 s, decode ≈ 84 tokens/s; native wgpu (F16Coop) ≈ 5.9 s · 1.
   (not software) adapter, the limits the kernels need, and a short bandwidth benchmark → an estimated reading speed
   with hints (e.g. a laptop running the browser on its integrated GPU). A run that is not green repeats once by
   itself (the first after a fresh install often came out cold). On iPhone / iPad also a **memory test**
-  (`worker.js` memoryTest: 1.8 GB of GPU memory — what the engine's pool and buffers hold — written and held in the engine worker, which is ended after it); a
+  (`worker.js` memoryTest: 1.7 GB of GPU memory — what a read of the largest page writes — written and held in the engine worker, which is ended after it); a
   kill there → "not enough memory" at the next start, before the model's download.
 - **Phones and tablets**: side by side in landscape (one column only for a narrow screen held upright; on a low
   screen Read moves beside the zoom); **Fit** (every line as written, the font scaled to the widest line); a read
