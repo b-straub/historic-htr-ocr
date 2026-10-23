@@ -78,12 +78,12 @@ source; otherwise the setup downloads the model again.
 the model on the Hub): `web/dist.sh --model-base <path>` (or `OCR_LITE_MODEL_BASE=<path> app/ci.sh build`) takes the
 model from a folder on the app's own web space — a path relative to the app (`../model/`, `./model/`) or absolute
 (`/ocrlite-model/`), never another origin (the CSP allows only the app's own origin and Hugging Face). Put
-`text-q8_0.gguf` + `mmproj-bf16.gguf` there by hand, outside the app's folder (the next deploy replaces that) — or inside
-it with a deploy that keeps that folder. Optionally `web/model.htaccess` as `.htaccess` beside them (Apache): only the
-app's own pages may fetch the files (`Sec-Fetch-Site: same-origin`) — it keeps other sites and direct links off your
-bandwidth, it is no protection (anyone can send the header). The setup then says "this server (test build)", the build
-stamp (`<meta name="ocrlite-build">`) names the folder, and Verify model checks the same MD5s. The GitHub Pages build
-never gets this option: it downloads from Hugging Face.
+`text-q8_0.gguf` + `mmproj-bf16.gguf` there by hand, outside the app's folder (the next deploy replaces that) — or
+inside it with a deploy that keeps that folder. Optionally `web/model.htaccess` as `.htaccess` beside them (Apache):
+only the app's own pages may fetch the files (`Sec-Fetch-Site: same-origin`) — it keeps other sites and direct links
+off your bandwidth, it is no protection (anyone can send the header); on the server the folder 755, the files 644. The
+setup then says "this server (test build)", the build stamp (`<meta name="ocrlite-build">`) names the folder, and
+Verify model checks the same MD5s. The GitHub Pages build never gets this option: it downloads from Hugging Face.
 
 ## Test
 

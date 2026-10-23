@@ -6,6 +6,8 @@
 # does not count as a download on the Hub; this file keeps other sites and direct links from using the web space's
 # bandwidth for it. Not a secret: anyone can send the header by hand.
 # Needs Apache 2.4 with AllowOverride AuthConfig; a host that answers 500 does not allow Options here: drop that line.
+# Modes on the server: the folder 755, the two .gguf files and this file 644 (750 / 640 where the web server runs in
+# your group) — never writable by others (777 / 666).
 
 # only the app's own pages may fetch it (browsers send Sec-Fetch-Site on every request): a link, the address bar or
 # another site gets 403; range requests work
