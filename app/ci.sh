@@ -7,7 +7,9 @@
 #   test     cargo test: ocr-decode, ocr-core, ocr-gguf; ocr-wgpu's GPU tests only where a GPU adapter exists (the
 #            adapter example decides; without one only its CPU tests run and the log says SKIPPED); the tests that need
 #            the model only with OCR_LITE_MODEL_DIR. Then the Node unit tests (tests/: editor round trip, device check)
-#   build    the web app: web/dist.sh → app/dist/ (wasm32 + wasm-bindgen-cli, hashed files)
+#   build    the web app: web/dist.sh → app/dist/ (wasm32 + wasm-bindgen-cli, hashed files); OCR_LITE_MODEL_BASE=<path>
+#            makes it a TEST build that downloads the model from that folder on its own web space (dist.py
+#            --model-base) instead of Hugging Face — never set in the GitHub workflows
 #   site     the Pages artifact → <repo>/_site/: site/ at /, app/dist/ at /app/, the examples generated from
 #            site/examples/ by hf/convert_output.py at /examples/; then every local link of the site is checked
 #   browser  the browser tests on _site/ (headless Chrome, tests/browser/*.cjs; npm ci in tests/ first) — the parts that
@@ -44,7 +46,11 @@ step_test() {
 
 step_build() {
   echo "── build: the web app → app/dist/"
-  web/dist.sh
+  if [ -n "${OCR_LITE_MODEL_BASE:-}" ]; then
+    web/dist.sh --model-base "$OCR_LITE_MODEL_BASE"
+  else
+    web/dist.sh
+  fi
 }
 
 step_site() {
