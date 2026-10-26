@@ -191,6 +191,7 @@ async function openPath(src) {
   }
   S.stem = o.stem;
   S.ops = [];
+  setTab("image");
   zoom = 1;
   crumb(`open ${o.stem} ${o.w}×${o.h}`);
   status(`${o.stem} · ${o.w} × ${o.h}`);
@@ -203,6 +204,7 @@ async function openPath(src) {
 let previewSeq = 0;
 async function refresh() {
   cancelCrop();
+  gaugeShown = false; // a new image / step: the gauge goes (measured again below)
   const seq = ++previewSeq;
   const old = S.prev;
   const sharp = S.sharp && zoom > 1; // zoomed in on a sharp preview: ask for the sharp one straight away
@@ -253,6 +255,15 @@ host.onDrop({
 // pill, scan overlay) is kept in prepared-image pixels and drawn × D, so a crop is exact at every zoom.
 const PANE_PAD = 18;    // .imgwrap padding
 const ZOOM_MAX = 8;
+// the zoomed image's longest side at most this many DEVICE px: an iPhone ended the page in a read while a small crop
+// was zoomed to 800 % (~7900 × 9500 device px, ~300 MB of layer beside the read's GPU memory) — the cap a guess,
+// UNMEASURED; beyond the image's own pixels a zoom only magnifies anyway
+const ZOOM_LAYER_MAX = 6144;
+function zoomMax() {
+  if (!S.prev) return ZOOM_MAX;
+  const fit = fitScale() * Math.max(S.prev.w, S.prev.h) * (window.devicePixelRatio || 1);
+  return Math.max(1, Math.min(ZOOM_MAX, ZOOM_LAYER_MAX / fit));
+}
 const ZOOM_STEP = 1.25;
 let zoom = 1;
 let D = 1;              // CSS px per prepared-image px
@@ -266,6 +277,9 @@ function fitScale() {
 function layout(anchor = null) {
   if (!S.prev) return;
   const pane = $("imgPane"), img = $("img");
+  if (pane.offsetWidth === 0) {
+    return; // the image tab is away: its zoom and scroll stay for its return
+  }
   let fx = 0, fy = 0;
   if (anchor) {
     const r = img.getBoundingClientRect();
@@ -289,9 +303,10 @@ function layout(anchor = null) {
 }
 function zoomTo(z, from, to = from) {
   if (!S.prev || $("stage").hidden) return;
-  z = Math.min(ZOOM_MAX, Math.max(1, z));
+  z = Math.min(zoomMax(), Math.max(1, z));
   if (z < 1.005) z = 1;
   zoom = z;
+  gaugeShown = false; // an image action: the gauge goes
   crumb(`zoom ${Math.round(z * 100)} %`, true);
   layout({ from, to });
 }
@@ -332,7 +347,43 @@ $("img").addEventListener("load", () => sharpen());
 let cropMode = false;
 let pending = null; // { x, y, w, h } in prepared-image pixels
 let drag = null;    // the rectangle being drawn: { id, start, cur, prev } (points in prepared-image pixels)
-const dragBox = (d) => ({ x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y), w: Math.abs(d.cur.x - d.start.x), h: Math.abs(d.cur.y - d.start.y) });
+// the rectangle a drag gives: a new one from where it began (mode "new"), or the drawn one (d.base) with the grabbed
+// edges moved ("l" / "r" / "t" / "b", a corner = two) or all of it ("move"); kept on the image
+function dragBox(d) {
+  if (d.mode === "new") {
+    return { x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y), w: Math.abs(d.cur.x - d.start.x), h: Math.abs(d.cur.y - d.start.y) };
+  }
+  const b = d.base, W = S.prev.w, H = S.prev.h;
+  let dx = d.cur.x - d.start.x, dy = d.cur.y - d.start.y;
+  if (d.mode === "move") {
+    dx = Math.min(Math.max(dx, -b.x), W - b.x - b.w);
+    dy = Math.min(Math.max(dy, -b.y), H - b.y - b.h);
+    return { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h };
+  }
+  let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+  if (d.mode.includes("l")) x0 += dx;
+  if (d.mode.includes("r")) x1 += dx;
+  if (d.mode.includes("t")) y0 += dy;
+  if (d.mode.includes("b")) y1 += dy;
+  [x0, x1] = [Math.max(0, Math.min(x0, x1)), Math.min(W, Math.max(x0, x1))];
+  [y0, y1] = [Math.max(0, Math.min(y0, y1)), Math.min(H, Math.max(y0, y1))];
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+// where a pointer lands on the drawn rectangle (image px): its edges / corners within reach of a finger, inside = move,
+// else null (a new rectangle)
+const GRAB_PX = 22;
+function grabOf(b, p) {
+  const r = GRAB_PX / D;
+  const inX = p.x > b.x - r && p.x < b.x + b.w + r, inY = p.y > b.y - r && p.y < b.y + b.h + r;
+  if (!inX || !inY) return null;
+  let m = "";
+  if (Math.abs(p.x - b.x) < r) m += "l";
+  else if (Math.abs(p.x - (b.x + b.w)) < r) m += "r";
+  if (Math.abs(p.y - b.y) < r) m += "t";
+  else if (Math.abs(p.y - (b.y + b.h)) < r) m += "b";
+  if (m !== "") return m;
+  return p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h ? "move" : null;
+}
 // the Crop / Cancel pill sits INSIDE the rectangle's lower right corner (a rect reaching the image bottom pushed it below
 // the image → scrolling); a rect too small for it gets the pill above its top edge — kept on the
 // VISIBLE part of the image (zoomed in, the image is larger than the pane)
@@ -354,9 +405,92 @@ function placePill(b) {
   Object.assign(pill.style, { left: `${left}px`, top: `${top}px` });
 }
 // the rect (drawing or pending) and the pill at the current zoom
+// ── Image / Text tabs: upright on a narrow screen one card at a time (style.css); each keeps its zoom, scroll and
+// fit while away — the hidden pane is neither laid out nor fitted (layout / fitText), its scroll put back on return
+// tab mode (body.stacked): a narrow screen upright, and a phone on its side (too little width for two panes) — there
+// the tabs sit in the title bar (one row), upright in a bar at the bottom; Read beside the zoom on the phone's side
+// when the image shows (the title bar keeps one row), else in the title bar
+const STACKED = matchMedia("(max-width: 820px) and (orientation: portrait), (orientation: landscape) and (max-height: 500px)");
+const COMPACT = matchMedia("(orientation: landscape) and (max-height: 500px)");
+const readHome = { parent: $("readBtn").parentNode, next: $("readBtn").nextSibling };
+const tabsHome = { parent: $("paneTabs").parentNode, next: $("paneTabs").nextSibling };
+function placeRead() {
+  if (COMPACT.matches && document.body.dataset.tab !== "text") {
+    $("zoomSeg").after($("readBtn"));
+  } else {
+    readHome.parent.insertBefore($("readBtn"), readHome.next);
+  }
+}
+function placeTabs() {
+  document.body.classList.toggle("stacked", STACKED.matches);
+  if (COMPACT.matches) {
+    $("aboutBtn").after($("paneTabs"));
+  } else {
+    tabsHome.parent.insertBefore($("paneTabs"), tabsHome.next);
+  }
+  placeRead();
+}
+const tabScroll = { image: { left: 0, top: 0 }, text: { left: 0, top: 0 } };
+const tabScroller = (t) => (t === "image" ? $("imgPane") : markupView ? $("src") : $("editor"));
+function setTab(t) {
+  const now = document.body.dataset.tab;
+  if (now === t) {
+    return;
+  }
+  if (now === "image" || now === "text") {
+    const el = tabScroller(now);
+    tabScroll[now] = { left: el.scrollLeft, top: el.scrollTop };
+  }
+  document.body.dataset.tab = t;
+  for (const b of document.querySelectorAll("#paneTabs [data-tab]")) {
+    b.classList.toggle("on", b.dataset.tab === t);
+    b.setAttribute("aria-selected", String(b.dataset.tab === t));
+  }
+  crumb(`tab ${t}`);
+  placeRead();
+  if (!STACKED.matches) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (t === "image") {
+      layout();
+    } else {
+      fitText();
+    }
+    const el = tabScroller(t);
+    el.scrollLeft = tabScroll[t].left;
+    el.scrollTop = tabScroll[t].top;
+  });
+}
+for (const b of document.querySelectorAll("#paneTabs [data-tab]")) {
+  b.onclick = () => setTab(b.dataset.tab);
+}
+placeTabs();
+setTab("image");
+// into / out of tab mode: the tabs placed, both panes laid out again
+const retab = () => {
+  placeTabs();
+  requestAnimationFrame(() => {
+    layout();
+    fitText();
+  });
+};
+STACKED.addEventListener("change", retab);
+COMPACT.addEventListener("change", retab);
+
 // ── Text size gauge: the page's glyph height (a sample blob outlined) beside the chosen target, at the image's scale ──
 const SIZE_NAME = { smaller: "smaller", average: "average page", larger: "larger" };
 let glyphSeq = 0;
+// shown when the text size changes and when a read starts with one; any image action (a touch on the image, a zoom, a
+// step, a crop, a new image) or its × hides it — the measure stays for the next showing
+let gaugeShown = false;
+function showGauge(on) {
+  gaugeShown = on;
+  drawGauge();
+}
+$("gaugeClose").onclick = () => showGauge(false);
+// a tap on the label is its own: the pane under it would take the pointer for a pan / crop
+$("gaugeLabel").addEventListener("pointerdown", (e) => e.stopPropagation());
 async function measureGlyphs() {
   const seq = ++glyphSeq;
   S.glyphs = null;
@@ -377,7 +511,7 @@ async function measureGlyphs() {
 function drawGauge() {
   const g = S.glyphs, size = S.settings === null ? null : S.settings.textSize;
   const el = $("gauge");
-  if (g === null || size === null || g.none !== undefined) {
+  if (g === null || size === null || g.none !== undefined || !gaugeShown) {
     el.hidden = true;
     if (g !== null && g.none !== undefined) {
       status(`Text size: ${g.none} — the image is read as is`, "err");
@@ -388,12 +522,28 @@ function drawGauge() {
   const [x, y, w, h] = g.sample;
   const t = g.targets[size];
   const base = (y + h) * k;
-  Object.assign($("gaugeSample").style, { left: `${x * k - 2}px`, top: `${y * k - 2}px`, width: `${w * k + 4}px`, height: `${h * k + 4}px` });
-  Object.assign($("gaugeTarget").style, { left: `${(x + w) * k + 6}px`, top: `${base - t * k}px`, height: `${t * k}px` });
-  const f = t / g.xh;
-  $("gaugeLabel").innerHTML = `<b>this page ${Math.round(g.xh)}</b> · <i>${SIZE_NAME[size]} ${t}</i> → ×${f.toFixed(2)}`;
-  Object.assign($("gaugeLabel").style, { left: `${x * k - 2}px`, top: `${base + 6}px` });
+  // both at their exact heights (the borders inside): the blob's and the target's compare as they are
+  Object.assign($("gaugeSample").style, { left: `${x * k}px`, top: `${y * k}px`, width: `${w * k}px`, height: `${h * k}px` });
+  // the factor the read applies: capped where the page reaches the model's 1540 px edge — the bar = the height the
+  // read gets, the dashed rest = the target it cannot reach
+  const f = Math.min(t / g.xh, g.cap);
+  const got = g.xh * f;
+  Object.assign($("gaugeTarget").style, { left: `${(x + w) * k + 6}px`, top: `${base - got * k}px`, height: `${got * k}px` });
+  const short = t - got > 0.5;
+  $("gaugeMissing").hidden = !short;
+  if (short) {
+    Object.assign($("gaugeMissing").style, { left: `${(x + w) * k + 6}px`, top: `${base - t * k}px`, height: `${(t - got) * k}px` });
+  }
+  // the label names the three marks: blue = the letters now, solid orange = what the read gets, dashed = the target the
+  // read cannot reach — the page already fills the model's 1540 px input; only a tighter crop leaves room to enlarge
+  const by = Math.abs(f - 1) < 0.005 ? "as is" : `×${f.toFixed(2)}`;
+  const tail = !short ? "" : `<span class="dash">${SIZE_NAME[size]} ${t}: full size — crop tighter for more</span>`;
+  $("gaugeText").innerHTML = `<b>now ${Math.round(g.xh)}</b><span class="sep"> · </span><i>read ${Math.round(got)} (${short ? by : `${SIZE_NAME[size]}, ${by}`})</i>${tail}`;
   el.hidden = false;
+  // under the blob, kept inside the image (its × in reach)
+  const label = $("gaugeLabel"), room = S.prev.w * D;
+  label.style.left = "0px"; // measured at the left edge: placed further right it would wrap before it is moved back
+  Object.assign(label.style, { left: `${Math.max(0, Math.min(x * k, room - label.offsetWidth - 2))}px`, top: `${base + 6}px` });
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -479,6 +629,9 @@ $("cropCancel").onclick = cancelCrop;
   };
   pane.addEventListener("pointerdown", (ev) => {
     if (!S.prev || stage.hidden || ev.target.closest(".pill")) return;
+    if (gaugeShown) {
+      showGauge(false); // a touch on the image: the gauge goes
+    }
     if (ev.pointerType === "touch") {
       touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       if (touches.size >= 2) {
@@ -491,7 +644,8 @@ $("cropCancel").onclick = cancelCrop;
         return;
       }
     }
-    if (ev.button !== 0 || pinch || !stage.contains(ev.target)) return;
+    // the crop mode takes the whole pane (a rectangle may begin beside the image — kept on it); a pan only the image
+    if (ev.button !== 0 || pinch || (!cropMode && !stage.contains(ev.target))) return;
     ev.preventDefault();
     pane.setPointerCapture(ev.pointerId);
     if (!cropMode) {
@@ -499,7 +653,8 @@ $("cropCancel").onclick = cancelCrop;
       return;
     }
     const p = imgPos(ev);
-    drag = { id: ev.pointerId, start: p, cur: p, prev: pending, t: performance.now(), x: ev.clientX, y: ev.clientY };
+    const grab = pending === null ? null : grabOf(pending, p);
+    drag = { id: ev.pointerId, mode: grab === null ? "new" : grab, base: pending, start: p, cur: p, prev: pending, t: performance.now(), x: ev.clientX, y: ev.clientY };
     pending = null;
     $("rect").classList.remove("auto");
     drawOverlay();
@@ -536,6 +691,11 @@ $("cropCancel").onclick = cancelCrop;
     drag.cur = imgPos(ev);
     const d = drag, b = dragBox(d);
     drag = null;
+    if (d.mode !== "new" && (b.w * D < 8 || b.h * D < 8)) {
+      pending = d.base; // squeezed to nothing: the rectangle as it was
+      drawOverlay();
+      return;
+    }
     if (b.w * D < 8 || b.h * D < 8) {
       // a tap in the crop mode drops the rect drawn so far, the mode stays
       pending = null;
@@ -696,31 +856,101 @@ document.addEventListener("selectionchange", () => {
 // setting (remembered in this browser), the text is not changed. Refitted whenever the text or the panel changes. On
 // by default (it fits on every device); off only once turned off in this browser
 const FIT_KEY = "ocrlite.fit";
-const FIT_MIN_PX = 8; // below this a line is unreadable: the panel scrolls instead
+const FIT_MIN_PX = 3; // Fit shows every line whole, however small — a pinch (the text zoom) makes it readable
 let fitOn = true;
 try { fitOn = localStorage.getItem(FIT_KEY) !== "0"; } catch {}
 let fitFrame = 0;
+// the text zoom: × the fitted (or the normal) size; a pinch / ⌘ + wheel on the text, kept across tabs; Fit resets it
+const TEXT_ZOOM = [0.5, 6];
+let textZoom = 1;
+let srcBase = 0; // the markup view's own font size (px), read once
 function fitText() {
   const ed = $("editor");
+  if (ed.offsetWidth === 0 && $("src").offsetWidth === 0) {
+    return; // the text tab is away: its fit stays for its return
+  }
+  if (srcBase === 0 && $("src").offsetWidth > 0) {
+    srcBase = parseFloat(getComputedStyle($("src")).fontSize);
+  }
+  if (srcBase > 0) {
+    $("src").style.fontSize = `${srcBase * textZoom}px`;
+  }
   ed.classList.toggle("fit", fitOn);
   ed.style.fontSize = "";
-  if (!fitOn || ed.hidden) {
+  if (ed.hidden) {
     return;
   }
   const cs = getComputedStyle(ed);
-  const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-  const avail = ed.clientWidth - pad;
   const base = parseFloat(cs.fontSize);
   let size = base;
-  // the width scales with the font size except borders and cell padding: two passes come close enough
-  for (let i = 0; i < 2; i++) {
-    const need = ed.scrollWidth - pad;
-    if (need <= avail + 0.5) {
-      break;
+  if (fitOn) {
+    const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const avail = ed.clientWidth - pad - 2; // a little margin: the last glyph clear of the edge
+    // the width scales with the font size except borders and cell padding: three passes come close enough
+    for (let i = 0; i < 3; i++) {
+      const need = ed.scrollWidth - pad;
+      if (need <= avail + 0.5) {
+        break;
+      }
+      size = Math.max(FIT_MIN_PX, Math.min(base, (size * avail) / need));
+      ed.style.fontSize = `${size}px`;
     }
-    size = Math.max(FIT_MIN_PX, Math.min(base, (size * avail) / need));
-    ed.style.fontSize = `${size}px`;
   }
+  if (textZoom !== 1) {
+    ed.style.fontSize = `${size * textZoom}px`;
+  }
+}
+/// the text zoom to `z`, the text under the client point `at` kept in place
+function zoomText(z, at) {
+  const el = markupView ? $("src") : $("editor");
+  const z1 = Math.min(TEXT_ZOOM[1], Math.max(TEXT_ZOOM[0], z));
+  if (Math.abs(z1 - textZoom) < 0.001) {
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  const cx = el.scrollLeft + at.x - r.left, cy = el.scrollTop + at.y - r.top;
+  const k = z1 / textZoom;
+  textZoom = z1;
+  fitText();
+  el.scrollLeft = cx * k - (at.x - r.left);
+  el.scrollTop = cy * k - (at.y - r.top);
+}
+// two fingers on the text pinch it (touch events: the browser's own one-finger pan stays; the second finger's moves are
+// taken from it), ⌘ / ctrl + wheel zooms it
+for (const el of [$("editor"), $("src")]) {
+  let pinch = null;
+  const two = (e) => {
+    const [a, b] = [e.touches[0], e.touches[1]];
+    return { d: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)), mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 } };
+  };
+  el.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) {
+      pinch = { d0: two(e).d, z0: textZoom };
+    }
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (pinch === null || e.touches.length !== 2) {
+      return;
+    }
+    e.preventDefault();
+    const t = two(e);
+    zoomText(pinch.z0 * (t.d / pinch.d0), t.mid);
+  }, { passive: false });
+  const done = (e) => {
+    if (e.touches.length < 2) {
+      pinch = null;
+    }
+  };
+  el.addEventListener("touchend", done);
+  el.addEventListener("touchcancel", done);
+  el.addEventListener("wheel", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) {
+      return;
+    }
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    zoomText(textZoom * ZOOM_STEP ** (-dy / 100), { x: e.clientX, y: e.clientY });
+  }, { passive: false });
 }
 function refit() {
   cancelAnimationFrame(fitFrame);
@@ -731,6 +961,7 @@ new MutationObserver(refit).observe($("editor"), { childList: true, subtree: tru
 $("fitBtn").classList.toggle("on", fitOn);
 $("fitBtn").onclick = () => {
   fitOn = !fitOn;
+  textZoom = 1; // Fit / not: the zoom starts again from it
   $("fitBtn").classList.toggle("on", fitOn);
   try { localStorage.setItem(FIT_KEY, fitOn ? "1" : "0"); } catch {}
   refit();
@@ -907,6 +1138,14 @@ $("readBtn").onclick = async () => {
   await S.editor.show("");
   $("src").value = "";
   S.starting = false; // straight into reading: Read never shows enabled in between
+  // the image back to fit: a zoomed image's large layer is given back before the read takes its GPU memory
+  if (zoom > 1) {
+    crumb("zoom to fit for the read");
+    zoomTo(1, paneCentre());
+  }
+  if (S.settings.textSize !== null) {
+    showGauge(true); // the read's text size shown as it starts
+  }
   setReading(true);
   status("Starting…", "busy");
   try {
@@ -1000,6 +1239,9 @@ listen("ocr:input", (e) => {
 listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the vision weights' load
 listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
 listen("ocr:text", (e) => {
+  if (S.streamed === "") {
+    setTab("text"); // the text begins: it streams in view (stacked: the Text tab)
+  }
   S.streamed += e.payload;
   showStream();
 });
@@ -1082,6 +1324,7 @@ $("scaleSel").onchange = async () => {
   const next = { ...S.settings, textSize: v === "" ? null : v };
   try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("scaleSel").value = S.settings.textSize === null ? "" : S.settings.textSize; }
   crumb(`text size ${v === "" ? "as is" : v}`);
+  gaugeShown = v !== "";
   measureGlyphs();
 };
 $("presetSel").onchange = async () => {
@@ -1272,7 +1515,7 @@ function applyState() {
   // the image card
   enable($("zoomOutBtn"), img && zoom > 1);
   enable($("zoomFitBtn"), img && zoom > 1);
-  enable($("zoomInBtn"), img && zoom < ZOOM_MAX);
+  enable($("zoomInBtn"), img && zoom < zoomMax() - 0.005);
   // the text card
   for (const b of $("fmtSeg").children) {
     enable(b, editing && !busy, BUSY_WHY);
@@ -1375,20 +1618,6 @@ document.addEventListener("focusout", () => {
     }
   }, 300);
 });
-
-// a phone on its side (style.css: landscape, ≤ 500 px high): Read moves from the title bar into the image card's head
-// beside the zoom, so the title bar keeps one row — the same button, only its place changes
-const COMPACT = matchMedia("(orientation: landscape) and (max-height: 500px)");
-const readHome = { parent: $("readBtn").parentNode, next: $("readBtn").nextSibling };
-function placeRead() {
-  if (COMPACT.matches) {
-    $("zoomSeg").after($("readBtn"));
-  } else {
-    readHome.parent.insertBefore($("readBtn"), readHome.next);
-  }
-}
-COMPACT.addEventListener("change", placeRead);
-placeRead();
 
 // ── start ─────────────────────────────────────────────────────────────
 (async () => {

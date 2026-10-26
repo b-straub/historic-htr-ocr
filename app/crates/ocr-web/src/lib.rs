@@ -229,7 +229,8 @@ pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
 }
 
 /// the page's writing size for the Text size gauge: { xh, pitch, sample: [x, y, w, h] — bake px; scale: bake px per
-/// page px; targets: { smaller, average, larger } — the glyph heights Text size scales to }; { none: why } without ink
+/// page px; cap: the largest factor the bake's edge allows; targets: { smaller, average, larger } — the glyph heights
+/// Text size scales to }; { none: why } without ink
 #[wasm_bindgen]
 pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
@@ -237,7 +238,8 @@ pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
         let small = at_bake_scale(&img);
         let targets = serde_json::json!({ "smaller": ocr_layout::scale::XH_SMALLER, "average": ocr_layout::scale::XH_AVERAGE, "larger": ocr_layout::scale::XH_LARGER });
         Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), small.width() as usize, small.height() as usize) {
-            Ok(g) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": small.width() as f64 / img.width() as f64, "targets": targets }),
+            Ok(g) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": small.width() as f64 / img.width() as f64,
+                "cap": ocr_layout::scale::LONGEST / small.width().max(small.height()) as f64, "targets": targets }),
             Err(e) => serde_json::json!({ "none": e.to_string() }),
         }
         .to_string())

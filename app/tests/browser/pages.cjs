@@ -140,7 +140,7 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
 
     // a read with the real model: must equal the native read
     if (!real) {
-      R.skip("a real read (4 checks: it runs, its text equals the native read, a Text size average read, Read ready after it) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
+      R.skip("a real read (5 checks: it runs, its text equals the native read, fit for the read, a Text size average read, Read ready after it) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
     } else {
     const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await chooser.accept([IMG]);
@@ -161,11 +161,14 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     // Text size average page (glyph height 23): the page measured, the decision beside the image, the read on the scaled input
     await page.select("#scaleSel", "average");
     await page.evaluate(() => { window.__text = ""; });
+    await page.click("#zoomInBtn"); await page.click("#zoomInBtn"); // a zoomed image goes back to fit for the read
     await page.click("#readBtn");
     await page.waitForFunction(() => document.getElementById("readBtn").classList.contains("stop"), { timeout: 10000 });
     await page.waitForFunction(() => !document.getElementById("readBtn").classList.contains("stop"), { timeout: 300000, polling: 200 });
     // the status line follows the button (ocr:done awaits the editor first)
     await page.waitForFunction(() => /tok\/s|stopped|token limit/.test(document.getElementById("status").textContent), { timeout: 10000, polling: 100 });
+    const fitForRead = await page.evaluate(() => document.getElementById("zoomVal").textContent);
+    ok(fitForRead === "100 %", `the zoomed image back to fit for the read: ${fitForRead}`);
     const scaled = await page.evaluate(() => ({ info: document.getElementById("bakeInfo").textContent, why: document.getElementById("bakeInfo").title, st: document.getElementById("status").textContent, text: window.__text }));
     // a page at the 1540 edge cannot be enlarged: native, the same input — the same text
     const native = /^native/.test(scaled.why);

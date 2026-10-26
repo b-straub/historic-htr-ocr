@@ -4,7 +4,8 @@
 // UI check (no GPU, no model): zoom (buttons, ctrl + wheel, pinch, double tap), the crop mapping at any zoom (mouse and
 // touch), the pencil filter, the sharp preview, About and Settings, the phone layout — on the built site.
 //   node tests/browser/ui.cjs
-const { launch, serve, outDir, results, testImages } = require("./lib.cjs");
+const path = require("path");
+const { launch, serve, outDir, results, testImages, REPO } = require("./lib.cjs");
 const R = results("ui");
 const ok = R.ok;
 (async () => {
@@ -103,6 +104,15 @@ const ok = R.ok;
   await page.evaluate(() => { document.getElementById("imgPane").scrollTop += 120; document.getElementById("imgPane").dispatchEvent(new Event("scroll")); });
   const pill2 = await page.evaluate(() => { const p = document.getElementById("cropPill").getBoundingClientRect(), q = document.getElementById("imgPane").getBoundingClientRect(); return p.top >= q.top && p.bottom <= q.bottom; });
   ok(pill2, "pill follows a scroll");
+  // adjust it: its right edge dragged 40 px left
+  {
+    const r = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
+    const y = r.top + r.height / 3;
+    await page.mouse.move(r.right, y); await page.mouse.down(); await page.mouse.move(r.right - 40, y, { steps: 4 }); await page.mouse.up();
+    const r2 = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
+    ok(Math.abs(r2.left - r.left) < 1 && Math.abs(r.width - r2.width - 40) < 1.5, `crop adjusted by its right edge: width ${r.width.toFixed(0)} → ${r2.width.toFixed(0)}, left kept`);
+    expect.w = Math.round(ex1 - 40 / D) - ex0;
+  }
   await page.evaluate(() => { window.__ops = []; });
   await page.click("#cropApply");
   await page.waitForFunction(() => window.__ops.some((o) => o.includes("crop")));
@@ -244,6 +254,116 @@ const ok = R.ok;
     await page.setViewport({ width: w, height: h, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     await new Promise((r) => setTimeout(r, 400));
     await page.screenshot({ path: `${OUT}/${n}.png` });
+  }
+  // the phone upright: Image / Text tabs — one card at a time, the image steps only with the image, zoom + scroll kept
+  {
+    // the viewport change reloaded the page: the setup closed, the image opened again
+    await page.waitForFunction(() => document.getElementById("setupDlg").open, { timeout: 10000 });
+    await page.click("#suClose");
+    const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
+    await ch.accept([IMG]);
+    await page.waitForFunction(() => !document.getElementById("stage").hidden);
+    await new Promise((r) => setTimeout(r, 500));
+    const st = () => page.evaluate(() => ({
+      img: getComputedStyle(document.getElementById("imgCard")).display !== "none",
+      text: getComputedStyle(document.getElementById("textCard")).display !== "none",
+      steps: getComputedStyle(document.getElementById("imgSteps")).display !== "none",
+      zoom: document.getElementById("zoomVal").textContent,
+      left: document.getElementById("imgPane").scrollLeft,
+    }));
+    await page.click("#zoomInBtn"); await page.click("#zoomInBtn");
+    await new Promise((r) => setTimeout(r, 200));
+    await page.evaluate(() => { document.getElementById("imgPane").scrollLeft = 150; });
+    const a = await st();
+    const tabAt = () => page.evaluate(() => { const r = document.getElementById("paneTabs").getBoundingClientRect(); return Math.round(r.y); });
+    const y0 = await tabAt();
+    await page.click("#paneTabs [data-tab=text]");
+    await new Promise((r) => setTimeout(r, 300));
+    const b = await st();
+    await page.screenshot({ path: `${OUT}/11b_phone_text_tab.png` });
+    const y1 = await tabAt();
+    await page.click("#paneTabs [data-tab=image]");
+    await new Promise((r) => setTimeout(r, 300));
+    const c = await st();
+    ok(a.img && !a.text && a.steps && !b.img && b.text && !b.steps && c.img && c.zoom === a.zoom && a.left > 100 && Math.abs(c.left - a.left) < 2 && y0 === y1,
+      `phone tabs (bar at y ${y0} / ${y1}): image ${JSON.stringify(a)} → text ${JSON.stringify(b)} → image ${JSON.stringify(c)}`);
+    // Draw crop begun beside the image (the pane's margin above it): the rectangle starts at the image's corner
+    await page.click("#zoomFitBtn");
+    await new Promise((r) => setTimeout(r, 300));
+    await page.click("#autoCropBtn"); await page.click("#drawCropBtn");
+    const geo = await page.evaluate(() => ({ p: document.getElementById("imgPane").getBoundingClientRect().toJSON(), i: document.getElementById("img").getBoundingClientRect().toJSON() }));
+    const from = { x: geo.p.left + 4, y: geo.p.top + 4 }, to = { x: geo.i.left + geo.i.width / 2, y: geo.i.top + geo.i.height / 2 };
+    await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 5 }); await page.mouse.up();
+    const [rc, ic] = await page.evaluate(() => ["rect", "img"].map((id) => document.getElementById(id).getBoundingClientRect().toJSON()));
+    ok(geo.i.top > geo.p.top + 8 && Math.abs(rc.left - ic.left) < 1.5 && Math.abs(rc.top - ic.top) < 1.5, `crop begun beside the image: rect at ${rc.left.toFixed(0)},${rc.top.toFixed(0)}, image at ${ic.left.toFixed(0)},${ic.top.toFixed(0)}`);
+    await page.click("#cropModeCancel");
+    // the Text size gauge upright (a real page: the synthetic image has no measurable writing): its label in two
+    // lines, closed by its ×
+    const [ch2] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
+    await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
+    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").textContent.startsWith("1176"));
+    // the zoom stops where the image's layer would pass 6144 device px (a phone ended its page with a larger one)
+    const fitPx = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return Math.max(r.width, r.height) * devicePixelRatio; });
+    for (let k = 0; k < 14; k++) await page.evaluate(() => document.getElementById("zoomInBtn").click());
+    await new Promise((r) => setTimeout(r, 300));
+    const layer = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { px: Math.round(Math.max(r.width, r.height) * devicePixelRatio), zoom: document.getElementById("zoomVal").textContent }; });
+    const capPx = Math.min(6144, fitPx * 8);
+    ok(Math.abs(layer.px - capPx) < 3, `phone zoom capped: ${layer.zoom}, the image ${layer.px} device px (fit ${Math.round(fitPx)}, cap ${Math.round(capPx)})`);
+    await page.click("#zoomFitBtn");
+    await page.select("#scaleSel", "average");
+    await page.waitForFunction(() => !document.getElementById("gauge").hidden, { timeout: 20000 });
+    await new Promise((r) => setTimeout(r, 500));
+    const lines = await page.evaluate(() => { const t = document.getElementById("gaugeText"); return Math.round(t.getBoundingClientRect().height / parseFloat(getComputedStyle(t).lineHeight)); });
+    await page.screenshot({ path: `${OUT}/11c_phone_gauge.png` });
+    await page.click("#gaugeClose");
+    const closed = await page.evaluate(() => document.getElementById("gauge").hidden);
+    await page.select("#scaleSel", "larger");
+    await page.waitForFunction(() => !document.getElementById("gauge").hidden, { timeout: 20000 });
+    await page.click("#zoomInBtn");
+    const byZoom = await page.evaluate(() => document.getElementById("gauge").hidden);
+    await page.click("#zoomFitBtn");
+    ok(lines >= 2 && lines <= 3 && closed && byZoom, `phone gauge: label in ${lines} lines (now · read · full size), closed by × → hidden ${closed}; shown again by a text size, hidden by a zoom ${byZoom}`);
+    await page.select("#scaleSel", "");
+    // the text: Fit takes every line whole, two fingers zoom it
+    await page.click("#paneTabs [data-tab=text]");
+    await page.click("#markupBtn");
+    const long = "Agreement between British traders at Cape Coast Castle and Fante leaders about the exclusion of the French";
+    await page.evaluate((t) => { document.getElementById("src").value = t; }, [long, "short line", long].join("\n"));
+    await page.click("#markupBtn");
+    await new Promise((r) => setTimeout(r, 400));
+    const fit = await page.evaluate(() => { const e = document.getElementById("editor"); return { sw: e.scrollWidth, cw: e.clientWidth, fs: parseFloat(e.style.fontSize) }; });
+    const er = await page.evaluate(() => document.getElementById("editor").getBoundingClientRect().toJSON());
+    const cx = er.left + er.width / 2, cy = er.top + 120;
+    const pcdp = await page.target().createCDPSession();
+    await pcdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx - 30, y: cy, id: 21 }, { x: cx + 30, y: cy, id: 22 }] });
+    for (let k = 1; k <= 6; k++) await pcdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx - 30 - 15 * k, y: cy, id: 21 }, { x: cx + 30 + 15 * k, y: cy, id: 22 }] });
+    await pcdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await new Promise((r) => setTimeout(r, 300));
+    const zoomed = await page.evaluate(() => parseFloat(document.getElementById("editor").style.fontSize));
+    ok(fit.sw <= fit.cw + 1 && zoomed > fit.fs * 2, `text: Fit ${fit.fs.toFixed(1)} px, content ${fit.sw} ≤ ${fit.cw}; pinched → ${zoomed.toFixed(1)} px`);
+    await page.click("#fitBtn"); await page.click("#fitBtn"); // Fit off and on: the zoom from the start again
+    await page.click("#paneTabs [data-tab=image]");
+  }
+  // a phone on its side: tab mode too — the tabs in the title bar, Read with the image beside the zoom, else in the bar
+  {
+    await page.setViewport({ width: 844, height: 390, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    await new Promise((r) => setTimeout(r, 600));
+    if (await page.evaluate(() => document.getElementById("setupDlg").open)) await page.click("#suClose");
+    const where = () => page.evaluate(() => ({
+      stacked: document.body.classList.contains("stacked"),
+      tabsInBar: document.getElementById("paneTabs").parentElement.classList.contains("titlebar"),
+      readBeside: document.getElementById("readBtn").previousElementSibling === document.getElementById("zoomSeg"),
+      oneRow: document.querySelector(".titlebar").getBoundingClientRect().height < 60,
+    }));
+    const a = await where();
+    await page.screenshot({ path: `${OUT}/13_phone_landscape.png` });
+    await page.click("#paneTabs [data-tab=text]");
+    await new Promise((r) => setTimeout(r, 200));
+    const b = await where();
+    await page.screenshot({ path: `${OUT}/13b_phone_landscape_text.png` });
+    ok(a.stacked && a.tabsInBar && a.readBeside && a.oneRow && !b.readBeside && b.oneRow, `phone on its side: image ${JSON.stringify(a)} · text ${JSON.stringify(b)}`);
+    await page.click("#paneTabs [data-tab=image]");
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   }
   await page.click("#aboutBtn");
   await new Promise((r) => setTimeout(r, 300));
