@@ -434,6 +434,7 @@ body.stacked[data-tab="text"] #imgSteps, body.stacked[data-tab="text"] #openBtn 
 /* Reset at the line's right end (upright line 1: the rectangle's part follows on line 2) */
 #resetBtn { margin-left: auto; padding: 2px 8px; }
 #resetBtn i { width: 14px; height: 14px; }
+.cropbar.tight #resetBtn span { display: none; }
 .cropbar .seg .ib { padding: 0 9px; font-size: 12px; height: 26px; }
 .cropact { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; }
 /* the rectangle's size line gives way (an ellipsis) before anything wraps: one line beside the head's other controls */

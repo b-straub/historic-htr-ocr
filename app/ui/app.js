@@ -579,6 +579,20 @@ function showCropBar(on) {
   }
   applyState();
 }
+// Reset keeps Draw's line: where its label does not fit beside Draw and the page modes (a narrow phone, a wider system
+// font — Linux / Android) it shows its icon only; measured, not guessed from the width
+function fitCropBar() {
+  const bar = $("cropBar");
+  if (bar.hidden) {
+    return;
+  }
+  bar.classList.remove("tight");
+  const line = (id) => $(id).getBoundingClientRect().top;
+  if (Math.abs(line("resetBtn") - line("drawCropBtn")) > 2) {
+    bar.classList.add("tight");
+  }
+}
+new ResizeObserver(() => fitCropBar()).observe($("cropBar"));
 function drawCropBar(cropping, cropped) {
   $("cropBar").hidden = !cropBarOpen || S.prev === null;
   $("autoCropBtn").classList.toggle("on", cropBarOpen);
