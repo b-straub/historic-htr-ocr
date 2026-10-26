@@ -23,7 +23,7 @@ cd "$APP"
 
 step_test() {
   echo "── test: cargo (CPU crates)"
-  cargo test --locked -p ocr-decode -p ocr-core -p ocr-gguf
+  cargo test --locked -p ocr-decode -p ocr-core -p ocr-gguf -p ocr-layout
   echo "── test: cargo (ocr-wgpu)"
   cargo test --locked -p ocr-wgpu --no-run
   if cargo run --locked -q -p ocr-wgpu --example adapter; then

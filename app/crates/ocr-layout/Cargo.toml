@@ -1,0 +1,22 @@
+[package]
+name = "ocr-layout"
+description = "The layout tools' geometry and ink: region polygons (simplify, merge, split, straighten, sides, clear of others, give way), snap to ink, line pitch, reading order — pure Rust, no image or browser dependencies (the editor reaches it through ocr-web; native apps can link it)"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# the editor's layout worker (src/web.rs): JSON in / out
+wasm-bindgen = "=0.2.129"
+serde_json = "1"
+
+[dev-dependencies]
+# examples/inkprobe: any image the app opens (jxl, heic … via ocr-core's loader) → the grey the ink analysis reads
+ocr-core = { path = "../ocr-core" }
+image = { version = "0.25", default-features = false, features = ["png"] }

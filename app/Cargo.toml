@@ -5,9 +5,10 @@
 #   crates/ocr-wgpu    the purpose-built LightOnOCR engine on wgpu (WGSL kernels): WebGPU in the browser, Metal / Vulkan /
 #                      DX12 natively
 #   crates/ocr-web     the browser build: ocr-core + ocr-wgpu on WebGPU behind wasm-bindgen (web/, wasm32 only)
+#   crates/ocr-layout  the layout tools: region geometry, snap to ink, line pitch, reading order — pure Rust
 [workspace]
 resolver = "3"
-members = ["crates/ocr-decode", "crates/ocr-core", "crates/ocr-gguf", "crates/ocr-wgpu", "crates/ocr-web"]
+members = ["crates/ocr-decode", "crates/ocr-core", "crates/ocr-gguf", "crates/ocr-wgpu", "crates/ocr-web", "crates/ocr-layout"]
 
 # a placeholder: the crates are never published, and the app's version is the release tag (web/dist.py → About)
 [workspace.package]

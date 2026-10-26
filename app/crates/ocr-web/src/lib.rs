@@ -180,6 +180,50 @@ pub fn bake(ops_json: &str) -> Result<Object, JsError> {
     .map_err(js_err)
 }
 
+/// a region's baked model input (imageops::bake_region: the page's bake scale, its box; the region input's contrast
+/// inside the polygon, white / paper tone outside, scale, quarter turns; the bake): { rgb, w, h, plan, seed } as bake —
+/// `polygon_json` = [[x, y], …] in the prepared page's pixels, `input_json` = RegionInput (the editor)
+#[wasm_bindgen]
+pub fn bake_region(ops_json: &str, polygon_json: &str, input_json: &str) -> Result<Object, JsError> {
+    (|| -> Result<Object> {
+        let (img, stem) = prepared(ops_json)?;
+        let poly: Vec<(f64, f64)> = serde_json::from_str::<Vec<[f64; 2]>>(polygon_json).context("region polygon")?.into_iter().map(|p| (p[0], p[1])).collect();
+        let input: imageops::RegionInput = serde_json::from_str(input_json).context("region input")?;
+        let (baked, plan) = imageops::bake_region(&img, &poly, Bake::PIXTRAL, &input)?;
+        let o = Object::new();
+        set(&o, "w", baked.width())?;
+        set(&o, "h", baked.height())?;
+        set(&o, "rgb", Uint8Array::from(baked.as_raw().as_slice()))?;
+        set(&o, "plan", serde_json::to_string(&plan)?)?;
+        set(&o, "seed", seed_for_stem(&stem) as f64)?;
+        Ok(o)
+    })()
+    .map_err(js_err)
+}
+
+/// the prepared page at its bake scale, unpadded (what a region is cut from — the editor's ink analysis reads it): {
+/// rgb, w, h, scale } — `scale` = scaled px per page px
+#[wasm_bindgen]
+pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
+    (|| -> Result<Object> {
+        let (img, _) = prepared(ops_json)?;
+        let p = imageops::plan(Bake::PIXTRAL, img.width(), img.height());
+        let scale = p.scaled_w as f64 / img.width() as f64;
+        let small = if (p.scaled_w, p.scaled_h) != img.dimensions() {
+            image::imageops::resize(&img, p.scaled_w, p.scaled_h, image::imageops::FilterType::Lanczos3)
+        } else {
+            img
+        };
+        let o = Object::new();
+        set(&o, "w", small.width())?;
+        set(&o, "h", small.height())?;
+        set(&o, "rgb", Uint8Array::from(small.as_raw().as_slice()))?;
+        set(&o, "scale", scale)?;
+        Ok(o)
+    })()
+    .map_err(js_err)
+}
+
 /// the auto crop: CropRect
 #[wasm_bindgen]
 pub fn auto_crop(ops_json: &str, opts_json: &str) -> Result<String, JsError> {

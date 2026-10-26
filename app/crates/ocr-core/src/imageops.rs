@@ -331,6 +331,182 @@ pub fn bake(img: &RgbImage, b: Bake) -> (RgbImage, BakePlan) {
     (out, p)
 }
 
+/// how a region's model input is made beyond its cut (the desktop GT tools' region read): AutoContrast with the levels
+/// from INSIDE the polygon, the outside in the paper tone instead of white, the cut scaled (the region's line-pitch
+/// decision), quarter turns clockwise
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionInput {
+    pub contrast: bool,
+    pub paper_fill: bool,
+    pub scale: f64,
+    pub quarters: u8,
+}
+
+impl RegionInput {
+    /// the cut as it is: white outside, no contrast, no scale, upright
+    pub const PLAIN: RegionInput = RegionInput { contrast: false, paper_fill: false, scale: 1.0, quarters: 0 };
+}
+
+/// a region's luminance levels: below this share of the paper tone = scanner background, not ink …
+const BORDER_SHARE: f64 = 0.3;
+/// … above this share of it = a white pad / patch, not paper
+const PAD_SHARE: f64 = 1.25;
+
+/// AutoContrast with the levels from the pixels `inside` only (the LUT maps every pixel): the paper = the inside's 75th
+/// luminance percentile, pixels darker than BORDER_SHARE × it or brighter than PAD_SHARE × it left out, then the 0.5 /
+/// 99.5 % levels; unchanged when hi ≤ lo or nothing is left
+fn auto_contrast_inside(img: &mut RgbImage, inside: &[bool]) {
+    let mut hist = [0u64; 256];
+    let mut n = 0u64;
+    for (p, &i) in img.pixels().zip(inside) {
+        if i {
+            hist[luma(p) as usize] += 1;
+            n += 1;
+        }
+    }
+    let pct = |hist: &[u64; 256], n: u64, q: f64| -> f64 {
+        let target = (q * n as f64) as u64;
+        let mut acc = 0u64;
+        for (v, c) in hist.iter().enumerate() {
+            acc += c;
+            if acc > target {
+                return v as f64;
+            }
+        }
+        255.0
+    };
+    if n == 0 {
+        return;
+    }
+    // the brighter half's median (the 75th percentile, n / 2 + n / 4 as the desktop counts it)
+    let target = n / 2 + n / 4;
+    let mut acc = 0u64;
+    let mut paper = 255usize;
+    for (v, c) in hist.iter().enumerate() {
+        acc += c;
+        if acc > target {
+            paper = v;
+            break;
+        }
+    }
+    let (floor, ceil) = ((BORDER_SHARE * paper as f64) as usize, (PAD_SHARE * paper as f64) as usize);
+    for (v, c) in hist.iter_mut().enumerate() {
+        if v < floor || v > ceil {
+            n -= *c;
+            *c = 0;
+        }
+    }
+    if n == 0 {
+        return;
+    }
+    let (lo, hi) = (pct(&hist, n, 0.005), pct(&hist, n, 0.995));
+    if hi <= lo {
+        return;
+    }
+    let lut: Vec<u8> = (0..256).map(|v| (((v as f64 - lo) * 255.0 / (hi - lo)).clamp(0.0, 255.0)).round() as u8).collect();
+    for p in img.pixels_mut() {
+        for c in p.0.iter_mut() {
+            *c = lut[*c as usize];
+        }
+    }
+}
+
+/// the paper tone of the pixels `inside`: per channel the median of those in the inside's brighter half by luminance
+/// (sampled to ≤ ~200 k pixels); None = no pixel inside
+fn paper_tone(img: &RgbImage, inside: &[bool]) -> Option<Rgb<u8>> {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let step = ((w * h) as f64 / 200_000.0).sqrt().max(1.0) as usize;
+    let mut lum: Vec<(u32, [u8; 3])> = Vec::new();
+    for y in (0..h).step_by(step) {
+        for x in (0..w).step_by(step) {
+            if inside[y * w + x] {
+                let p = img.get_pixel(x as u32, y as u32).0;
+                lum.push((299 * p[0] as u32 + 587 * p[1] as u32 + 114 * p[2] as u32, p));
+            }
+        }
+    }
+    if lum.is_empty() {
+        return None;
+    }
+    lum.sort_by_key(|l| l.0);
+    let bright = &lum[lum.len() / 2..];
+    let med = |c: usize| {
+        let mut v: Vec<u8> = bright.iter().map(|l| l.1[c]).collect();
+        v.sort();
+        v[v.len() / 2]
+    };
+    Some(Rgb([med(0), med(1), med(2)]))
+}
+
+/// a region's model input: the page (after its steps) at the PAGE's bake scale — the writing keeps the size it has in a
+/// whole-page read — the region's bounding box cut; then as the desktop GT tools read a region: AutoContrast with the
+/// levels from inside the polygon (`input.contrast`), the outside painted white or in the inside's paper tone (even-odd,
+/// row by row), the cut scaled by `input.scale` (the region's line-pitch decision; Lanczos), turned, baked (pad only
+/// unless the scale passed the bake's edge). `polygon` in the page's pixels.
+pub fn bake_region(page: &RgbImage, polygon: &[(f64, f64)], b: Bake, input: &RegionInput) -> Result<(RgbImage, BakePlan)> {
+    if polygon.len() < 3 {
+        bail!("a region needs at least 3 corners, got {}", polygon.len());
+    }
+    if !(input.scale > 0.0) {
+        bail!("a region's scale must be positive, got {}", input.scale);
+    }
+    let (pw, ph) = page.dimensions();
+    let page_plan = plan(b, pw, ph);
+    // the page's scale per axis exactly as its bake rounds it: a whole-page region is pixel for pixel the page's bake
+    let (fx, fy) = (page_plan.scaled_w as f64 / pw as f64, page_plan.scaled_h as f64 / ph as f64);
+    let xs = polygon.iter().map(|p| p.0);
+    let ys = polygon.iter().map(|p| p.1);
+    let x0 = xs.clone().fold(f64::INFINITY, f64::min).floor().max(0.0) as u32;
+    let y0 = ys.clone().fold(f64::INFINITY, f64::min).floor().max(0.0) as u32;
+    let x1 = (xs.fold(f64::NEG_INFINITY, f64::max).ceil() as u32).min(pw);
+    let y1 = (ys.fold(f64::NEG_INFINITY, f64::max).ceil() as u32).min(ph);
+    if x1 <= x0 || y1 <= y0 {
+        bail!("the region lies outside the page ({pw} × {ph})");
+    }
+    let cut = imageops::crop_imm(page, x0, y0, x1 - x0, y1 - y0).to_image();
+    let (cw, ch) = (((x1 - x0) as f64 * fx).round().max(1.0) as u32, ((y1 - y0) as f64 * fy).round().max(1.0) as u32);
+    let mut region = if (cw, ch) != cut.dimensions() { imageops::resize(&cut, cw, ch, imageops::FilterType::Lanczos3) } else { cut };
+    // inside the polygon: per row of the scaled cut, the polygon's crossings at the row's centre (in page pixels)
+    let (sx, sy) = ((x1 - x0) as f64 / cw as f64, (y1 - y0) as f64 / ch as f64);
+    let mut inside = vec![false; (cw * ch) as usize];
+    for row in 0..ch {
+        let y = y0 as f64 + (row as f64 + 0.5) * sy;
+        let mut xs: Vec<f64> = Vec::new();
+        for i in 0..polygon.len() {
+            let (a, c) = (polygon[i], polygon[(i + 1) % polygon.len()]);
+            if (a.1 <= y) != (c.1 <= y) {
+                xs.push(a.0 + (y - a.1) / (c.1 - a.1) * (c.0 - a.0));
+            }
+        }
+        for col in 0..cw {
+            let x = x0 as f64 + (col as f64 + 0.5) * sx;
+            inside[(row * cw + col) as usize] = xs.iter().filter(|&&c| c < x).count() % 2 == 1;
+        }
+    }
+    if input.contrast {
+        auto_contrast_inside(&mut region, &inside);
+    }
+    let fill = if input.paper_fill { paper_tone(&region, &inside).unwrap_or(Rgb([255, 255, 255])) } else { Rgb([255, 255, 255]) };
+    for (p, &i) in region.pixels_mut().zip(&inside) {
+        if !i {
+            *p = fill;
+        }
+    }
+    if (input.scale - 1.0).abs() > 1e-4 {
+        let (w, h) = region.dimensions();
+        let (nw, nh) = (((w as f64 * input.scale).round() as u32).max(1), ((h as f64 * input.scale).round() as u32).max(1));
+        region = imageops::resize(&region, nw, nh, imageops::FilterType::Lanczos3);
+    }
+    region = match input.quarters % 4 {
+        1 => imageops::rotate90(&region),
+        2 => imageops::rotate180(&region),
+        3 => imageops::rotate270(&region),
+        _ => region,
+    };
+    Ok(bake(&region, b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,5 +580,70 @@ mod tests {
         assert!(apply(&img, &[Op::Crop { x: 5, y: 5, w: 6, h: 2 }]).is_err());
         let r = apply(&img, &[Op::RotateRight, Op::Crop { x: 1, y: 1, w: 4, h: 3 }]).unwrap();
         assert_eq!(r.dimensions(), (4, 3));
+    }
+
+    /// a rectangle region = its box, at the page's scale; a triangle whitens the corners outside it
+    #[test]
+    fn bake_region_cuts_at_the_page_scale_and_whitens_outside() {
+        // a 3080 × 1540 grey page: the page bakes at scale 0.5
+        let page = RgbImage::from_pixel(3080, 1540, Rgb([100, 100, 100]));
+        let rect = [(400.0, 200.0), (1000.0, 200.0), (1000.0, 600.0), (400.0, 600.0)];
+        let (img, p) = bake_region(&page, &rect, Bake::PIXTRAL, &RegionInput::PLAIN).unwrap();
+        assert_eq!((p.scaled_w, p.scaled_h), (300, 200));
+        assert_eq!(img.width() % 28, 0);
+        assert_eq!(*img.get_pixel(p.left + 150, p.top + 100), Rgb([100, 100, 100]));
+        let tri = [(400.0, 200.0), (1000.0, 200.0), (400.0, 600.0)];
+        let (img, p) = bake_region(&page, &tri, Bake::PIXTRAL, &RegionInput::PLAIN).unwrap();
+        assert_eq!(*img.get_pixel(p.left + 5, p.top + 5), Rgb([100, 100, 100]), "inside, near the right angle");
+        assert_eq!(*img.get_pixel(p.left + 295, p.top + 195), Rgb([255, 255, 255]), "outside, the far corner");
+    }
+
+    /// a region over the whole page is the page's bake, pixel for pixel (the per-axis rounding of a large page too)
+    #[test]
+    fn bake_region_of_the_whole_page_is_the_page_bake() {
+        let page = RgbImage::from_fn(2001, 3003, |x, y| Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8]));
+        let whole = [(0.0, 0.0), (2001.0, 0.0), (2001.0, 3003.0), (0.0, 3003.0)];
+        let (region, rp) = bake_region(&page, &whole, Bake::PIXTRAL, &RegionInput::PLAIN).unwrap();
+        let (baked, bp) = bake(&page, Bake::PIXTRAL);
+        assert_eq!(rp, bp);
+        assert!(region == baked, "the whole-page region differs from the page bake");
+    }
+
+    #[test]
+    fn bake_region_refuses_too_few_corners_and_an_outside_region() {
+        let page = RgbImage::from_pixel(200, 100, Rgb([0, 0, 0]));
+        assert!(bake_region(&page, &[(0.0, 0.0), (10.0, 10.0)], Bake::PIXTRAL, &RegionInput::PLAIN).is_err());
+        assert!(bake_region(&page, &[(300.0, 10.0), (400.0, 10.0), (400.0, 50.0)], Bake::PIXTRAL, &RegionInput::PLAIN).is_err());
+    }
+
+    /// contrast from inside the polygon (a dark border outside does not set the levels), the paper tone outside, the
+    /// scale and a quarter turn
+    #[test]
+    fn bake_region_contrast_paper_scale_turn() {
+        // paper 180 with ink strokes 90 inside x < 600; a black scanner border right of it (outside the polygon)
+        let page = RgbImage::from_fn(800, 400, |x, y| {
+            if x >= 600 {
+                Rgb([0, 0, 0])
+            } else if y % 20 < 3 {
+                Rgb([90, 90, 90])
+            } else {
+                Rgb([180, 180, 180])
+            }
+        });
+        let poly = [(0.0, 0.0), (590.0, 0.0), (590.0, 400.0), (0.0, 400.0), (0.0, 0.0)];
+        let wide = [(0.0, 0.0), (800.0, 0.0), (800.0, 400.0), (0.0, 400.0)];
+        let input = RegionInput { contrast: true, paper_fill: false, scale: 1.0, quarters: 0 };
+        let (img, p) = bake_region(&page, &poly, Bake::PIXTRAL, &input).unwrap();
+        assert_eq!(img.get_pixel(p.left + 10, p.top + 10).0, [255, 255, 255], "the paper stretched to white");
+        assert_eq!(img.get_pixel(p.left + 10, p.top + 1).0, [0, 0, 0], "the ink to black");
+        // the paper fill: the outside in the paper tone (here no contrast: 180)
+        let paper = RegionInput { contrast: false, paper_fill: true, scale: 1.0, quarters: 0 };
+        let tri = [(0.0, 0.0), (590.0, 0.0), (0.0, 390.0)];
+        let (img, p) = bake_region(&page, &tri, Bake::PIXTRAL, &paper).unwrap();
+        assert_eq!(img.get_pixel(p.left + 580, p.top + 380).0, [180, 180, 180], "outside in the paper tone");
+        // scale ×0.5 and a quarter turn: 800 × 400 → 200 × 400
+        let turned = RegionInput { contrast: false, paper_fill: false, scale: 0.5, quarters: 1 };
+        let (_, p) = bake_region(&page, &wide, Bake::PIXTRAL, &turned).unwrap();
+        assert_eq!((p.scaled_w, p.scaled_h), (200, 400));
     }
 }

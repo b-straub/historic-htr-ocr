@@ -51,6 +51,16 @@ const commands = {
     const b = ocr.bake(JSON.stringify(ops));
     return [{ rgb: b.rgb, w: b.w, h: b.h, plan: b.plan, seed: b.seed }, [b.rgb.buffer]];
   },
+  /// a region's baked model input (the editor: per-region reads; `input` = its contrast / paper fill / scale / turns)
+  bakeRegion({ ops, polygon, input }) {
+    const b = ocr.bake_region(JSON.stringify(ops), JSON.stringify(polygon), JSON.stringify(input));
+    return [{ rgb: b.rgb, w: b.w, h: b.h, plan: b.plan, seed: b.seed }, [b.rgb.buffer]];
+  },
+  /// the page at its bake scale, unpadded (the editor's ink analysis)
+  scaled({ ops }) {
+    const s = ocr.scaled(JSON.stringify(ops));
+    return [{ rgb: s.rgb, w: s.w, h: s.h }, [s.rgb.buffer]];
+  },
   autoCrop({ ops, opts }) {
     return [JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts))), []];
   },

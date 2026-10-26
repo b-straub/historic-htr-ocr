@@ -973,6 +973,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocr-layout"
+version = "0.0.0"
+dependencies = [
+ "image",
+ "ocr-core",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "ocr-web"
 version = "0.0.0"
 dependencies = [
