@@ -175,6 +175,15 @@ const ok = R.ok;
   await page.click("#autoCropBtn"); await page.click("#drawCropBtn");
   await page.keyboard.press("Escape");
   ok(!(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping"))), "Esc leaves the crop mode");
+  // without a keyboard: the crop mode's bar says what to do and has the way out; a tap on the waiting Read says why
+  await page.click("#autoCropBtn"); await page.click("#drawCropBtn");
+  const bar = await page.evaluate(() => !document.getElementById("cropModeBar").hidden);
+  const rb = await page.evaluate(() => { const r = document.getElementById("readBtn").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.touchscreen.tap(rb.x, rb.y);
+  const why = await page.evaluate(() => document.getElementById("status").textContent);
+  await page.click("#cropModeCancel");
+  const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropModeBar").hidden);
+  ok(bar && /^Read waits: /.test(why) && left, `crop mode bar shown, a tap on Read: "${why}", Cancel leaves the mode`);
   await page.click("#autoCropBtn"); await page.click("#drawCropBtn");
   // one finger draws a crop
   await page.evaluate(() => { window.__ops = []; });

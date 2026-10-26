@@ -62,6 +62,12 @@
           <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
         </span>
         <span class="meta" id="bakeInfo"></span>
+        <label class="select"><select id="scaleSel" title="Text size: how large the letters come to the model. As is = the image unchanged. Average page = the image scaled so its letters are as tall as on an average page the model learned from (a whole page read at full size); smaller / larger = as on the pages with smaller / larger letters. For photos and close-ups.">
+          <option value="">Text size: as is</option>
+          <option value="smaller">Text size: smaller</option>
+          <option value="average">Text size: average page</option>
+          <option value="larger">Text size: larger</option>
+        </select></label>
       </div>
       <div class="hintbar" id="cropHint" role="status" hidden>
         <span class="hinttext">Tip: crop to the page — the model reads best on the paper alone.</span>
@@ -72,10 +78,22 @@
           <button class="linkbtn" id="cropHintNever" title="Hide this tip for good in this browser">Don't show again</button>
         </span>
       </div>
+      <div class="hintbar" id="cropModeBar" role="status" hidden>
+        <span class="hinttext" id="cropModeText">Draw crop: drag a rectangle over the text — Read waits until the crop is applied or cancelled.</span>
+        <span class="hintbtns">
+          <button class="btn small primary" id="cropModeApply" hidden>Crop</button>
+          <button class="btn small" id="cropModeCancel">Cancel</button>
+        </span>
+      </div>
       <div class="imgwrap" id="imgPane">
         <div id="stage" hidden>
           <img id="img" alt="page" draggable="false">
           <div id="rect" hidden></div>
+          <div id="gauge" hidden title="Text size: the outlined blob has this page's glyph height (the median of its writing), the bar beside it the height the chosen text size scales it to">
+            <div id="gaugeSample"></div>
+            <div id="gaugeTarget"></div>
+            <span id="gaugeLabel"></span>
+          </div>
           <div class="pill" id="cropPill" hidden>
             <button class="btn small primary" id="cropApply">Crop</button>
             <button class="btn small" id="cropCancel">Cancel</button>
@@ -324,12 +342,13 @@
           <li><b>Open</b> an image, or drop it on the image pane.</li>
           <li><b>Crop</b> to the text: the crop button → <b>Find crop</b> (Page: Auto, Left, Right, Double, Leaf) or <b>Draw crop</b>, then Crop.</li>
           <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper. Undo / back to the original beside them.</li>
+          <li><b>Text size</b> (above the image) for photos and close-ups: <b>average page</b> scales the image so its letters are as tall as on an average whole page the model learned from — a close-up of a few lines is made smaller. <b>Smaller</b> / <b>larger</b> try a bit less or more if a read is poor; <b>as is</b> reads the image unchanged. On the image, one word of the page's typical letter height is outlined, and a bar beside it shows the height the text size scales it to — compare them with the letters. When the read starts, what was done shows above the image (e.g. "text ×0.64 smaller"; tap it for the measure).</li>
           <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
           <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
           <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
         </ol>
         <h3>Zoom</h3>
-        <p>− / + / fit above the image; ⌘ / ctrl + wheel or a trackpad pinch; two fingers on a touch screen. A drag pans; a double-click or double-tap fits.</p>
+        <p>− / + / fit above the image<span class="kbd">; ⌘ / ctrl + wheel or a trackpad pinch</span>; two fingers on a touch screen. A drag pans; a <span class="kbd">double-click or </span>double-tap fits.</p>
         <h3>Status line</h3>
         <p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset. "stopped: the app went to the background" = switching apps stops a read; read again.</p>
         <h3>Offline</h3>

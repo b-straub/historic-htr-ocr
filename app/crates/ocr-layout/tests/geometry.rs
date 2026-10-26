@@ -176,3 +176,35 @@ fn clear_of_others_cuts_a_neighbour_out() {
     // the neighbour (x 70…120, y 0…50) is cut out: an L — the region below it stays
     assert!(!contains(&r, p(85., 25.)) && contains(&r, p(85., 75.)) && contains(&r, p(25., 25.)), "{r:?}");
 }
+
+/// Text size of a whole page: words 30 px high at a pitch of 100 px → their glyph height brought to the average
+#[test]
+fn page_scale_brings_the_glyph_height_to_the_target() {
+    let (w, h) = (1000usize, 1400usize);
+    let mut rgb = vec![255u8; w * h * 3];
+    for line in 0..12 {
+        let y0 = 100 + line * 100;
+        let mut x = 80;
+        while x < 900 {
+            // a word: down strokes 3 px wide, 30 px high, joined at the foot (one component, like cursive)
+            for sx in (x..x + 60).step_by(9) {
+                for y in y0..y0 + 30 {
+                    for dx in 0..3 {
+                        let i = (y * w + sx + dx) * 3;
+                        rgb[i..i + 3].copy_from_slice(&[20, 20, 20]);
+                    }
+                }
+            }
+            for y in y0 + 27..y0 + 30 {
+                for sx in x..x + 60 {
+                    let i = (y * w + sx) * 3;
+                    rgb[i..i + 3].copy_from_slice(&[20, 20, 20]);
+                }
+            }
+            x += 90;
+        }
+    }
+    let d = ocr_layout::tools::page_scale(&rgb, w, h, ocr_layout::scale::XH_AVERAGE);
+    assert!(d.warning.is_none(), "{:?}", d);
+    assert!((d.factor - 23.0 / 30.0).abs() < 0.05, "{:?}", d);
+}

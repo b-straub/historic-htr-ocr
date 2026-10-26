@@ -30,6 +30,24 @@ pub const TARGET_LOW: f64 = 43.0;
 pub const TARGET_MID: f64 = 50.5;
 pub const TARGET_HIGH: f64 = 59.5;
 
+/// the WHOLE-PAGE targets (OCR Lite's Text size): the glyph height (ink::Page::xh — the median height of the page's
+/// text blobs, bake px) of the trained pages, weighted by each corpus' training pages: p25 18 · median 23 · p75 29
+/// (p5 11 · p95 43; the same pages and measure as the pitch quartiles). A page is scaled by its glyph height, not its
+/// line pitch: a dense hand (textura) has large letters at an ordinary pitch
+pub const XH_SMALLER: f64 = 18.0;
+pub const XH_AVERAGE: f64 = 23.0;
+pub const XH_LARGER: f64 = 29.0;
+
+/// Text size by name ("smaller" / "average" / "larger") → its glyph height target
+pub fn xh_target(name: &str) -> Option<f64> {
+    match name {
+        "smaller" => Some(XH_SMALLER),
+        "average" => Some(XH_AVERAGE),
+        "larger" => Some(XH_LARGER),
+        _ => None,
+    }
+}
+
 /// a scale decision
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decision {

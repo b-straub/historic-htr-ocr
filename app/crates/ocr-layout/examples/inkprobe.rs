@@ -41,7 +41,7 @@ fn main() {
     let t0 = std::time::Instant::now();
     let pg = ink::page_from_gray(g).expect("page");
     let text = ink::page::text_blobs(&pg);
-    eprintln!("page {} ms, pitch {:.2}", t0.elapsed().as_millis(), pg.pitch);
+    eprintln!("page {} ms, pitch {:.2}, x-height {:.2} (image px)", t0.elapsed().as_millis(), pg.pitch / pg.f, pg.xh / pg.f);
     let polys: Vec<Vec<[f64; 2]>> = {
         let raw = std::fs::read_to_string(arg(&args, "--polys")).expect("polys");
         parse(&raw)

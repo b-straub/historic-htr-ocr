@@ -7,6 +7,7 @@
 
 use crate::geom::{self, Failed, Pt, Rect, bounds, is_simple, simplify_outward};
 use crate::ink::{self, Page};
+use crate::scale::{self, Decision};
 use crate::shape::{self, Side};
 
 /// the simplify tolerance in crop px at the bake's scale `bake_scale` (bake px per crop px)
@@ -125,4 +126,81 @@ pub fn snap(pg: &Page, text: &[bool], drawn: &[Pt], others: &[Vec<Pt>], fx: f64,
 pub fn region_box(poly: &[Pt]) -> [f64; 4] {
     let b = bounds(poly);
     [b.x, b.y, b.max_x(), b.max_y()]
+}
+
+/// a page's writing size (bake px): its glyph height (ink::Page::xh — the median height of its text blobs), its line
+/// pitch, and the box [x, y, w, h] of one text blob of that height, the one nearest the page's centre (shown beside the
+/// target, so the measure can be checked against the letters)
+pub struct Glyphs {
+    pub xh: f64,
+    pub pitch: f64,
+    pub sample: [f64; 4],
+}
+
+/// a plausible measure: the glyph height at most this share of the line pitch (pages: 0.38 – 0.64; a sticky note's
+/// letters, far beyond the pitch search's range: 1.05) … — UNMEASURED beyond four test images
+const XH_PITCH_MAX: f64 = 0.9;
+/// … and at least this share of the ink in the text blobs (pages ≥ 0.94; the note: 0.44 — its letters dropped as too
+/// large) — UNMEASURED likewise
+const KEPT_INK_MIN: f64 = 0.8;
+
+/// `rgb` = the page at its bake scale (w × h, unpadded) → its writing size. The ink analysis finds line pitches of
+/// 12 … 90 px; much larger writing (a few lines filling a photo) is measured on the page halved, then quartered —
+/// the first plausible measure counts (XH_PITCH_MAX, KEPT_INK_MIN). Err = no ink / no plausible measure
+pub fn page_glyphs(rgb: &[u8], w: usize, h: usize) -> Result<Glyphs, ink::page::NoInk> {
+    let full = ink::img::luma_pil_rgb(rgb, w, h);
+    let mut why = Vec::new();
+    for k in [1.0, 0.5, 0.25] {
+        let g = if k == 1.0 { full.clone() } else { ink::img::resize_area(&full, ((w as f64) * k).round() as usize, ((h as f64) * k).round() as usize) };
+        let pg = match ink::page_from_gray(g) {
+            Ok(pg) => pg,
+            Err(e) => {
+                why.push(format!("×{k}: {e}"));
+                continue;
+            }
+        };
+        let kept = (1..pg.n).filter(|&c| pg.keep[c]).map(|c| pg.st[c].area).sum::<usize>() as f64;
+        let ink = pg.ink.px.iter().filter(|&&b| b).count() as f64;
+        let (ratio, share) = (pg.xh / pg.pitch, kept / ink.max(1.0));
+        if ratio > XH_PITCH_MAX || share < KEPT_INK_MIN {
+            why.push(format!("×{k}: glyph / pitch {ratio:.2}, text ink {share:.2}"));
+            continue;
+        }
+        // px of this measure → bake px
+        let to_bake = 1.0 / (pg.f * k);
+        let (mx, my) = (pg.w() as f64 / 2.0, pg.h() as f64 / 2.0);
+        let near = |c: usize| (pg.cx[c] - mx).powi(2) + (pg.cy[c] - my).powi(2);
+        let sample = (1..pg.n)
+            .filter(|&c| pg.keep[c] && (pg.st[c].h as f64 - pg.xh).abs() < 0.5)
+            .min_by(|&a, &b| near(a).total_cmp(&near(b)))
+            .map(|c| {
+                let s = &pg.st[c];
+                [s.x as f64 * to_bake, s.y as f64 * to_bake, s.w as f64 * to_bake, s.h as f64 * to_bake]
+            })
+            .ok_or_else(|| ink::page::NoInk("no text blob of the median height".into()))?;
+        return Ok(Glyphs { xh: pg.xh * to_bake, pitch: pg.pitch * to_bake, sample });
+    }
+    Err(ink::page::NoInk(format!("no plausible writing size ({})", why.join("; "))))
+}
+
+/// NORMALIZE a whole page (OCR Lite's Text size: a photo, a close-up): `rgb` = the page at its bake scale (w × h,
+/// unpadded), its GLYPH HEIGHT (page_glyphs) brought to `target_xh` (scale::XH_*), capped by the bake's edge; no ink =
+/// no scale (a warning)
+pub fn page_scale(rgb: &[u8], w: usize, h: usize, target_xh: f64) -> Decision {
+    let g = match page_glyphs(rgb, w, h) {
+        Ok(g) => g,
+        Err(e) => {
+            return Decision { factor: 1.0, reason: "normalize: no ink".into(), warning: Some(format!("{e} — no scale derived")), own_pitch: None, lines: 0 };
+        }
+    };
+    let cap = scale::LONGEST / (w.max(h) as f64);
+    let factor = (target_xh / g.xh).min(cap);
+    let capped = if cap < target_xh / g.xh { format!(" (capped: the page reaches the {} px edge)", scale::LONGEST as i64) } else { String::new() };
+    Decision {
+        factor,
+        reason: format!("glyph height {} → {} (target {}; line pitch {}){capped}", g.xh.round() as i64, (g.xh * factor).round() as i64, target_xh, g.pitch.round() as i64),
+        warning: None,
+        own_pitch: Some(g.pitch),
+        lines: 0,
+    }
 }

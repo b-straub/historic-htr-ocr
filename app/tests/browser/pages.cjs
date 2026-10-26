@@ -140,7 +140,7 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
 
     // a read with the real model: must equal the native read
     if (!real) {
-      R.skip("a real read (2 checks: it runs, its text equals the native read) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
+      R.skip("a real read (4 checks: it runs, its text equals the native read, a Text size average read, Read ready after it) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
     } else {
     const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await chooser.accept([IMG]);
@@ -148,6 +148,8 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     await page.click("#readBtn");
     await page.waitForFunction(() => document.getElementById("readBtn").classList.contains("stop"), { timeout: 10000 });
     await page.waitForFunction(() => !document.getElementById("readBtn").classList.contains("stop"), { timeout: 300000, polling: 200 });
+    // the status line follows the button (ocr:done awaits the editor first)
+    await page.waitForFunction(() => /tok\/s|stopped|token limit/.test(document.getElementById("status").textContent), { timeout: 10000, polling: 100 });
     const st = await page.evaluate(() => document.getElementById("status").textContent);
     const text = await page.evaluate(() => window.__text);
     const want = fs.readFileSync(EXPECT, "utf8");
@@ -156,6 +158,36 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     ok(norm(text) === norm(want), `read == ${path.basename(EXPECT)} (line ends trimmed): ${text.length} chars, first line "${text.split("\n")[0]}"`);
     fs.writeFileSync(path.join(DIR, "out", "read.txt"), text);
     await page.screenshot({ path: path.join(DIR, "out", "3_read.png") });
+    // Text size average page (glyph height 23): the page measured, the decision beside the image, the read on the scaled input
+    await page.select("#scaleSel", "average");
+    await page.evaluate(() => { window.__text = ""; });
+    await page.click("#readBtn");
+    await page.waitForFunction(() => document.getElementById("readBtn").classList.contains("stop"), { timeout: 10000 });
+    await page.waitForFunction(() => !document.getElementById("readBtn").classList.contains("stop"), { timeout: 300000, polling: 200 });
+    // the status line follows the button (ocr:done awaits the editor first)
+    await page.waitForFunction(() => /tok\/s|stopped|token limit/.test(document.getElementById("status").textContent), { timeout: 10000, polling: 100 });
+    const scaled = await page.evaluate(() => ({ info: document.getElementById("bakeInfo").textContent, why: document.getElementById("bakeInfo").title, st: document.getElementById("status").textContent, text: window.__text }));
+    // a page at the 1540 edge cannot be enlarged: native, the same input — the same text
+    const native = /^native/.test(scaled.why);
+    const same = !native || norm(scaled.text) === norm(want);
+    ok(/text /.test(scaled.info) && /target 23/.test(scaled.why) && /tok\/s/.test(scaled.st) && same, `Text size average read: ${scaled.info} (${scaled.why}) · ${scaled.text.length} chars${native ? ", == the native read" : ""}`);
+    fs.writeFileSync(path.join(DIR, "out", "read_scaled.txt"), scaled.text);
+    await page.screenshot({ path: path.join(DIR, "out", "3b_read_scaled.png") });
+    // after it Read is ready for the next image — and after a reload (the text size kept)
+    const readState = () => page.evaluate(() => ({ disabled: document.getElementById("readBtn").disabled, why: document.getElementById("readBtn").title, status: document.getElementById("status").textContent }));
+    const reopen = async () => {
+      const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
+      await ch.accept([IMG]);
+      await sleep(1500);
+    };
+    await reopen();
+    const next = await readState();
+    await page.reload({ waitUntil: "networkidle0" });
+    await sleep(1500);
+    await reopen();
+    const reloaded = await readState();
+    ok(!next.disabled && !reloaded.disabled, `Read after a text size read: next image ${JSON.stringify(next)} · after a reload ${JSON.stringify(reloaded)}`);
+    await page.select("#scaleSel", "");
     }
 
     // About / Help / Settings: the open model, no key or preview text

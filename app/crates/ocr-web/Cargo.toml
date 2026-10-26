@@ -18,6 +18,8 @@ js-sys = "=0.3.106"
 md-5 = "=0.10.6"
 ocr-core = { path = "../ocr-core", default-features = false }
 ocr-decode = { path = "../ocr-decode" }
+# Normalize (bake_normalized): the page's line pitch → its scale
+ocr-layout = { path = "../ocr-layout" }
 ocr-wgpu = { path = "../ocr-wgpu" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

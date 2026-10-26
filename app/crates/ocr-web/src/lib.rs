@@ -201,24 +201,72 @@ pub fn bake_region(ops_json: &str, polygon_json: &str, input_json: &str) -> Resu
     .map_err(js_err)
 }
 
-/// the prepared page at its bake scale, unpadded (what a region is cut from — the editor's ink analysis reads it): {
-/// rgb, w, h, scale } — `scale` = scaled px per page px
+/// the prepared page at its bake scale, unpadded (what a region is cut from, what Normalize measures)
+fn at_bake_scale(img: &RgbImage) -> RgbImage {
+    let p = imageops::plan(Bake::PIXTRAL, img.width(), img.height());
+    if (p.scaled_w, p.scaled_h) != img.dimensions() {
+        image::imageops::resize(img, p.scaled_w, p.scaled_h, image::imageops::FilterType::Lanczos3)
+    } else {
+        img.clone()
+    }
+}
+
+/// the prepared page at its bake scale, unpadded (the editor's ink analysis reads it): { rgb, w, h, scale } — `scale` =
+/// scaled px per page px
 #[wasm_bindgen]
 pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
     (|| -> Result<Object> {
         let (img, _) = prepared(ops_json)?;
-        let p = imageops::plan(Bake::PIXTRAL, img.width(), img.height());
-        let scale = p.scaled_w as f64 / img.width() as f64;
-        let small = if (p.scaled_w, p.scaled_h) != img.dimensions() {
-            image::imageops::resize(&img, p.scaled_w, p.scaled_h, image::imageops::FilterType::Lanczos3)
-        } else {
-            img
-        };
+        let small = at_bake_scale(&img);
         let o = Object::new();
         set(&o, "w", small.width())?;
         set(&o, "h", small.height())?;
+        set(&o, "scale", small.width() as f64 / img.width() as f64)?;
         set(&o, "rgb", Uint8Array::from(small.as_raw().as_slice()))?;
-        set(&o, "scale", scale)?;
+        Ok(o)
+    })()
+    .map_err(js_err)
+}
+
+/// the page's writing size for the Text size gauge: { xh, pitch, sample: [x, y, w, h] — bake px; scale: bake px per
+/// page px; targets: { smaller, average, larger } — the glyph heights Text size scales to }; { none: why } without ink
+#[wasm_bindgen]
+pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
+    (|| -> Result<String> {
+        let (img, _) = prepared(ops_json)?;
+        let small = at_bake_scale(&img);
+        let targets = serde_json::json!({ "smaller": ocr_layout::scale::XH_SMALLER, "average": ocr_layout::scale::XH_AVERAGE, "larger": ocr_layout::scale::XH_LARGER });
+        Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), small.width() as usize, small.height() as usize) {
+            Ok(g) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": small.width() as f64 / img.width() as f64, "targets": targets }),
+            Err(e) => serde_json::json!({ "none": e.to_string() }),
+        }
+        .to_string())
+    })()
+    .map_err(js_err)
+}
+
+/// a read's preparation with the page's TEXT SIZE `size` ("smaller" / "average" / "larger": the trained pages' glyph
+/// heights, ocr-layout scale::xh_target — photos, close-ups) — the glyph height measured on the page at its bake scale
+/// (ocr-layout tools::page_scale), the page then scaled by the
+/// decision's factor (imageops::bake_region over the whole page): as bake + `scale` = { factor, summary, reason, warning }
+#[wasm_bindgen]
+pub fn bake_normalized(ops_json: &str, size: &str) -> Result<Object, JsError> {
+    (|| -> Result<Object> {
+        let target = ocr_layout::scale::xh_target(size).ok_or_else(|| anyhow!("no text size '{size}'"))?;
+        let (img, stem) = prepared(ops_json)?;
+        let small = at_bake_scale(&img);
+        let d = ocr_layout::tools::page_scale(small.as_raw(), small.width() as usize, small.height() as usize, target);
+        drop(small);
+        let (w, h) = (img.width() as f64, img.height() as f64);
+        let page = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
+        let (baked, plan) = imageops::bake_region(&img, &page, Bake::PIXTRAL, &imageops::RegionInput { scale: d.factor, ..imageops::RegionInput::PLAIN })?;
+        let o = Object::new();
+        set(&o, "w", baked.width())?;
+        set(&o, "h", baked.height())?;
+        set(&o, "rgb", Uint8Array::from(baked.as_raw().as_slice()))?;
+        set(&o, "plan", serde_json::to_string(&plan)?)?;
+        set(&o, "seed", seed_for_stem(&stem) as f64)?;
+        set(&o, "scale", serde_json::json!({ "factor": d.factor, "summary": d.summary(), "reason": d.reason, "warning": d.warning }).to_string())?;
         Ok(o)
     })()
     .map_err(js_err)

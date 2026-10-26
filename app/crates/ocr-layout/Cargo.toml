@@ -11,10 +11,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 
+[features]
+# the editor's layout worker (src/web.rs): its wasm-bindgen exports — off when ocr-web links the crate
+web = ["dep:wasm-bindgen", "dep:serde_json"]
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# the editor's layout worker (src/web.rs): JSON in / out
-wasm-bindgen = "=0.2.129"
-serde_json = "1"
+wasm-bindgen = { version = "=0.2.129", optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 # examples/inkprobe: any image the app opens (jxl, heic … via ocr-core's loader) → the grey the ink analysis reads

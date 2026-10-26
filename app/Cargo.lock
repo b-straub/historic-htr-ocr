@@ -992,6 +992,7 @@ dependencies = [
  "md-5",
  "ocr-core",
  "ocr-decode",
+ "ocr-layout",
  "ocr-wgpu",
  "serde",
  "serde_json",

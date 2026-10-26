@@ -17,5 +17,5 @@ pub mod tools;
 
 pub use geom::{Failed, Pt, Rect};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
 mod web;

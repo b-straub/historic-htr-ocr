@@ -51,6 +51,16 @@ const commands = {
     const b = ocr.bake(JSON.stringify(ops));
     return [{ rgb: b.rgb, w: b.w, h: b.h, plan: b.plan, seed: b.seed }, [b.rgb.buffer]];
   },
+  /// the baked model input at the Text size `size` ("smaller" / "average" / "larger": the page's glyph height scaled to
+  /// the trained pages') — as bake + `scale` (JSON: the decision { factor, summary, reason, warning })
+  bakeNormalized({ ops, size }) {
+    const b = ocr.bake_normalized(JSON.stringify(ops), size);
+    return [{ rgb: b.rgb, w: b.w, h: b.h, plan: b.plan, seed: b.seed, scale: b.scale }, [b.rgb.buffer]];
+  },
+  /// the page's writing size for the Text size gauge (glyph height, a sample blob, the targets)
+  glyphHeight({ ops }) {
+    return [JSON.parse(ocr.glyph_height(JSON.stringify(ops))), []];
+  },
   /// a region's baked model input (the editor: per-region reads; `input` = its contrast / paper fill / scale / turns)
   bakeRegion({ ops, polygon, input }) {
     const b = ocr.bake_region(JSON.stringify(ops), JSON.stringify(polygon), JSON.stringify(input));

@@ -10,6 +10,8 @@ import { setupDialog } from "./setup.js";
 import * as host from "./bridge-web.js";
 const { invoke, listen } = host;
 const $ = (id) => document.getElementById(id);
+// a mouse / keyboard device (else a touch screen: no key hints)
+const KEYS = !matchMedia("(hover: none) and (pointer: coarse)").matches;
 
 // ── icons (24 px grid, stroke) ────────────────────────────────────────
 const ICONS = {
@@ -45,6 +47,8 @@ function paintIcons(scope = document) {
 const S = {
   ops: [],          // the prep chain (imageops::Op), applied in order to the opened image
   prev: null,       // the last preview: { url, w, h, bake }
+  readBake: null,   // the bake plan of the read's model input (Scale may differ from the preview's)
+  glyphs: null,     // the page's writing size for the Text size gauge (glyph_height), null = not measured / as is
   sharp: false,     // the shown preview is the sharp (zoomed-in) one
   stem: "",
   reading: false,
@@ -217,6 +221,7 @@ async function refresh() {
   $("bakeInfo").title = b.scaledW === p.w ? "kept at its size, white pad to the 28 px grid" : `scaled to ${b.scaledW} × ${b.scaledH}, white pad to the 28 px grid`;
   $("opsChips").innerHTML = S.ops.map((o) => `<span class="chip">${o.op === "crop" ? `crop ${o.w}×${o.h}` : OP_LABEL[o.op]}</span>`).join("");
   applyState();
+  measureGlyphs(); // a new image / step: the gauge measured again (Text size set)
 }
 function pushOp(op) {
   if (!S.prev) return;
@@ -349,6 +354,47 @@ function placePill(b) {
   Object.assign(pill.style, { left: `${left}px`, top: `${top}px` });
 }
 // the rect (drawing or pending) and the pill at the current zoom
+// ── Text size gauge: the page's glyph height (a sample blob outlined) beside the chosen target, at the image's scale ──
+const SIZE_NAME = { smaller: "smaller", average: "average page", larger: "larger" };
+let glyphSeq = 0;
+async function measureGlyphs() {
+  const seq = ++glyphSeq;
+  S.glyphs = null;
+  drawGauge();
+  if (S.settings.textSize === null || !S.prev) {
+    return;
+  }
+  let g;
+  try {
+    g = await call("glyph_height", { ops: S.ops });
+  } catch {
+    return; // call() put the error in the status line
+  }
+  if (seq !== glyphSeq) return;
+  S.glyphs = g;
+  drawGauge();
+}
+function drawGauge() {
+  const g = S.glyphs, size = S.settings === null ? null : S.settings.textSize;
+  const el = $("gauge");
+  if (g === null || size === null || g.none !== undefined) {
+    el.hidden = true;
+    if (g !== null && g.none !== undefined) {
+      status(`Text size: ${g.none} — the image is read as is`, "err");
+    }
+    return;
+  }
+  const k = D / g.scale; // CSS px per bake px
+  const [x, y, w, h] = g.sample;
+  const t = g.targets[size];
+  const base = (y + h) * k;
+  Object.assign($("gaugeSample").style, { left: `${x * k - 2}px`, top: `${y * k - 2}px`, width: `${w * k + 4}px`, height: `${h * k + 4}px` });
+  Object.assign($("gaugeTarget").style, { left: `${(x + w) * k + 6}px`, top: `${base - t * k}px`, height: `${t * k}px` });
+  const f = t / g.xh;
+  $("gaugeLabel").innerHTML = `<b>this page ${Math.round(g.xh)}</b> · <i>${SIZE_NAME[size]} ${t}</i> → ×${f.toFixed(2)}`;
+  Object.assign($("gaugeLabel").style, { left: `${x * k - 2}px`, top: `${base + 6}px` });
+  el.hidden = false;
+}
 function drawOverlay() {
   const rect = $("rect");
   const b = drag ? dragBox(drag) : pending;
@@ -365,6 +411,7 @@ function drawOverlay() {
       placePill(c);
     }
   }
+  drawGauge();
   applyState(); // every change of the crop rect (and of the zoom, via layout) passes here
 }
 $("imgPane").addEventListener("scroll", () => { if (pending && !drag) placePill({ x: pending.x * D, y: pending.y * D, w: pending.w * D, h: pending.h * D }); });
@@ -374,6 +421,14 @@ function setCropMode(on) {
   $("autoCropBtn").classList.toggle("on", on);
   applyState();
 }
+// the crop mode's bar: what to do, the way out (a touch screen has no Esc), Crop once a rectangle is drawn
+function drawCropBar() {
+  const bar = $("cropModeBar");
+  bar.hidden = !cropMode;
+  $("cropModeApply").hidden = pending === null;
+}
+$("cropModeApply").onclick = () => applyCrop();
+$("cropModeCancel").onclick = () => cancelCrop();
 function cancelCrop() {
   pending = null;
   drag = null;
@@ -541,7 +596,7 @@ function drawCrop() {
   $("autoCropMenu").hidden = true;
   cropHint.hide();
   setCropMode(true);
-  status("Draw crop: drag on the image — Crop / Enter applies, Cancel / Esc leaves", "ok");
+  status(KEYS ? "Draw crop: drag on the image — Crop / Enter applies, Cancel / Esc leaves" : "Draw crop: drag on the image — Crop applies, Cancel leaves", "ok");
 }
 async function findCrop() {
   $("autoCropMenu").hidden = true;
@@ -855,7 +910,8 @@ $("readBtn").onclick = async () => {
   setReading(true);
   status("Starting…", "busy");
   try {
-    await call("read", { ops: S.ops, preset: $("presetSel").value });
+    S.readBake = null;
+    await call("read", { ops: S.ops, preset: $("presetSel").value, textSize: S.settings.textSize });
   } catch { setReading(false); }
 };
 // the checks before a read → true: it may start; false: refused, the status says why
@@ -910,7 +966,37 @@ function phaseTimes(r) {
 }
 const PHASES = { encodingImage: "Encoding image…", loadingText: "Loading the text model…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
 const scan = scanOverlay($("stage"), $("img"));
-listen("ocr:phase", (e) => scan.phase(e.payload, S.prev ? S.prev.bake : null));
+listen("ocr:phase", (e) => scan.phase(e.payload, S.readBake));
+/// the Text size decision in a few plain words (Rust's tools::page_scale: reason / warning) — the measure in the tooltip
+function textSize(d) {
+  if (d.warning !== null) {
+    return "⚠ no text found: as is";
+  }
+  if (d.factor > 1.0001) {
+    return `text ×${d.factor.toFixed(1)} larger`;
+  }
+  if (d.factor < 0.9999) {
+    return `text ×${d.factor.toFixed(2)} smaller`;
+  }
+  return /capped/.test(d.reason) ? "text as is (full size)" : "text already fits";
+}
+// a tap on the model size line: its detail (the tooltip) in the status line — a touch screen shows no tooltip
+$("bakeInfo").onclick = () => {
+  if ($("bakeInfo").title !== "") {
+    status($("bakeInfo").title, "ok");
+  }
+};
+// the read's model input: its plan (the scan sweeps it), its size and the Scale decision beside the image
+listen("ocr:input", (e) => {
+  const { plan, w, h, scale } = e.payload;
+  S.readBake = plan;
+  const p = S.prev;
+  const size = p ? `${p.w} × ${p.h} → model ${w} × ${h}` : `model ${w} × ${h}`;
+  $("bakeInfo").textContent = scale === null ? size : `${size} · ${textSize(scale)}`;
+  // the measure behind it (pitch → target) in the tooltip
+  $("bakeInfo").title = scale === null ? "" : scale.warning === null ? scale.summary : `${scale.summary} — ${scale.warning}`;
+  crumb(`input ${w}×${h}${scale === null ? "" : ` ${scale.summary}${scale.warning === null ? "" : ` ⚠ ${scale.warning}`}`}`);
+});
 listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the vision weights' load
 listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
 listen("ocr:text", (e) => {
@@ -989,7 +1075,15 @@ function fillPresetSel() {
     sel.append(o);
   }
   sel.value = S.settings.preset;
+  $("scaleSel").value = S.settings.textSize === null ? "" : S.settings.textSize;
 }
+$("scaleSel").onchange = async () => {
+  const v = $("scaleSel").value;
+  const next = { ...S.settings, textSize: v === "" ? null : v };
+  try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("scaleSel").value = S.settings.textSize === null ? "" : S.settings.textSize; }
+  crumb(`text size ${v === "" ? "as is" : v}`);
+  measureGlyphs();
+};
 $("presetSel").onchange = async () => {
   const next = { ...S.settings, preset: $("presetSel").value };
   try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("presetSel").value = S.settings.preset; }
@@ -1150,6 +1244,7 @@ function applyState() {
   const busy = isBusy();
   const img = S.prev !== null;
   const cropping = cropMode || pending !== null || drag !== null;
+  drawCropBar();
   const editing = S.editor !== null && !markupView;
   const text = S.editor !== null && currentMarkup().trim() !== "";
   const noImg = "Open an image first";
@@ -1171,6 +1266,7 @@ function applyState() {
   enable($("imgUndoBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("resetBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("presetSel"), !busy, BUSY_WHY);
+  enable($("scaleSel"), !busy, BUSY_WHY);
   enable($("settingsBtn"), !busy, BUSY_WHY);
   drawReadBtn(img, cropping);
   // the image card
@@ -1199,6 +1295,22 @@ function applyState() {
     }
   }
 }
+// a tap on a disabled Read (it lets taps through, style.css): the why in the status line, the control it waits for
+// pointed at — a touch screen shows no tooltip
+document.addEventListener("click", (e) => {
+  const btn = $("readBtn");
+  const r = btn.getBoundingClientRect();
+  if (!btn.disabled || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+    return;
+  }
+  status(`Read waits: ${btn.title}`, "err");
+  const at = cropMode || pending !== null ? (pending !== null ? $("cropPill") : $("cropModeBar")) : null;
+  if (at !== null) {
+    at.classList.remove("attn");
+    void at.offsetWidth;
+    at.classList.add("attn");
+  }
+});
 // the Read button: Read / Stop / Stopping… (the label is rebuilt only when it changes) + enabled + the why
 function drawReadBtn(img, cropping) {
   const btn = $("readBtn");
