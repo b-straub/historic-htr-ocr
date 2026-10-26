@@ -395,14 +395,23 @@ const ok = R.ok;
         tight: document.getElementById("cropBar").classList.contains("tight") }; });
     // its label where it fits (the fonts decide: a Linux font is wider), else the icon alone — never a line of its own
     ok(rs.row < 2 && rs.end <= 12 && rs.label !== rs.tight, `phone: Reset on Draw's line, at the right end (${rs.end} px in), ${rs.label ? "with its label" : "its icon only"}`);
-    // less room (as a wider font gives): the icon alone, still on Draw's line
-    await page.evaluate(() => { document.getElementById("cropBar").style.right = "40px"; });
-    await new Promise((r) => setTimeout(r, 200));
-    const rs2 = await page.evaluate(() => { const r = document.getElementById("resetBtn").getBoundingClientRect(), d = document.getElementById("drawCropBtn").getBoundingClientRect();
-      const out = { row: Math.abs((r.top + r.bottom) / 2 - (d.top + d.bottom) / 2), tight: document.getElementById("cropBar").classList.contains("tight") };
-      document.getElementById("cropBar").style.right = ""; return out; });
-    await new Promise((r) => setTimeout(r, 200));
-    ok(rs2.row < 2 && rs2.tight, `phone, 40 px less room: Reset its icon only, still on Draw's line (${rs2.row.toFixed(1)} px apart)`);
+    if (rs.tight) {
+      R.skip("phone, less room → Reset's icon only: this font shows the icon at full width already (the check above holds)");
+    } else {
+      // just too little room for the label (the free space beside Reset + 2 px, as a wider font gives): the icon alone,
+      // still on Draw's line — measured, so it holds for any font
+      const cut = await page.evaluate(() => {
+        const free = document.getElementById("resetBtn").getBoundingClientRect().left - document.getElementById("pageSideSeg").getBoundingClientRect().right - 6;
+        document.getElementById("cropBar").style.right = `${Math.ceil(free) + 2}px`;
+        return Math.ceil(free) + 2;
+      });
+      await new Promise((r) => setTimeout(r, 200));
+      const rs2 = await page.evaluate(() => { const r = document.getElementById("resetBtn").getBoundingClientRect(), d = document.getElementById("drawCropBtn").getBoundingClientRect();
+        const out = { row: Math.abs((r.top + r.bottom) / 2 - (d.top + d.bottom) / 2), tight: document.getElementById("cropBar").classList.contains("tight") };
+        document.getElementById("cropBar").style.right = ""; return out; });
+      await new Promise((r) => setTimeout(r, 200));
+      ok(rs2.row < 2 && rs2.tight, `phone, ${cut} px less room: Reset its icon only, still on Draw's line (${rs2.row.toFixed(1)} px apart)`);
+    }
     const bar2 = await page.evaluate(() => ({ crop: document.getElementById("cropApplyBtn").getBoundingClientRect().right, vw: innerWidth, sw: document.documentElement.scrollWidth, shown: !document.getElementById("cropApplyBtn").hidden }));
     await page.screenshot({ path: `${OUT}/11d_phone_crop.png` });
     ok(bar2.shown && bar2.crop <= bar2.vw && bar2.sw <= bar2.vw && Math.abs(ic.top - top0) < 0.5, `phone crop: Crop at ${bar2.crop.toFixed(0)} of ${bar2.vw}, page ${bar2.sw} wide, the image stayed (top ${top0.toFixed(1)} → ${ic.top.toFixed(1)})`);
