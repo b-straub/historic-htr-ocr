@@ -15,17 +15,22 @@ The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the ou
 trained and scored. Questions, problems and reading errors worth reporting:
 [issues](https://github.com/b-straub/historic-htr-ocr/issues).
 
-## What's new in v1.2.0
+## What's new in v1.3.0
 
-- **Camera photos on the iPhone**: a 24 MP photo reads (iPhone 18 Pro) — the image and every step on it now live in
-  their own worker, which is ended before the read, so only the model's input goes on. HEIC / HEIF, WebP and AVIF open
-  too.
-- **Nothing held between reads**: OCR Lite gives back its GPU memory after each read and when you switch to another
-  app — iOS no longer closes it right away in the background, and if it does, that is no crash message.
-- **Stop works at once**, also while the image is encoded or the prompt read (before, only once text came).
-- **Phones**: Fit on by default, the crop menu and Settings (buttons, presets as cards) fit a phone held upright.
-- **Device check**: its memory test matches what a read uses (the 1.8 GB test ended iPhones that read fine), and a
-  cold first run is repeated by itself after a short pause.
+- **Text size** for photos and close-ups: a select in the image head scales the page so its letters reach the model as
+  tall as on the pages it learned from (smaller / average page / larger; *as is* leaves the image unchanged). A gauge
+  on the image shows a word's letter height now and the height the read gets — and says when only a tighter crop can
+  enlarge it further. The model size beside the image follows the choice at once.
+- **One crop bar**, open when an image loads, over the image head (never over the image): **Draw** a rectangle by hand,
+  or tap a page mode (**Auto, Left, Right, Double, Leaf**) to find the paper. Any rectangle can be adjusted by its edges
+  and corners, then **Crop** or **Cancel**; **Reset** goes back to the original.
+- **Gestures that stay put**: drawing a crop no longer zooms or moves the image when a second finger touches; two
+  fingers zoom, also while cropping; on a computer the cursor shows where a rectangle can be resized or moved.
+- **Phones and tablets**: Image / Text tabs where the two panes do not fit side by side, each keeping its zoom and
+  scroll; pinch to zoom the text; a compact two-line image head held upright, Help and Settings beside the image on a
+  phone's side.
+- **Steadier reads**: a read starts from the fitted image and the zoom is capped — a strongly zoomed image no longer
+  holds graphics memory beside the read (on an iPhone it likely ended the page).
 
 ## This repository
 
