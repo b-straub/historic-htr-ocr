@@ -230,16 +230,29 @@ pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
 
 /// the page's writing size for the Text size gauge: { xh, pitch, sample: [x, y, w, h] — bake px; scale: bake px per
 /// page px; cap: the largest factor the bake's edge allows; targets: { smaller, average, larger } — the glyph heights
-/// Text size scales to }; { none: why } without ink
+/// Text size scales to; sizes: { smaller, average, larger } — each the read's decision { factor, summary, reason, warning } and
+/// its model input { w, h }, as bake_normalized makes them }; { none: why } without ink
 #[wasm_bindgen]
 pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
         let (img, _) = prepared(ops_json)?;
         let small = at_bake_scale(&img);
+        let (sw, sh) = small.dimensions();
         let targets = serde_json::json!({ "smaller": ocr_layout::scale::XH_SMALLER, "average": ocr_layout::scale::XH_AVERAGE, "larger": ocr_layout::scale::XH_LARGER });
-        Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), small.width() as usize, small.height() as usize) {
-            Ok(g) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": small.width() as f64 / img.width() as f64,
-                "cap": ocr_layout::scale::LONGEST / small.width().max(small.height()) as f64, "targets": targets }),
+        Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), sw as usize, sh as usize) {
+            Ok(g) => {
+                let mut sizes = serde_json::Map::new();
+                for size in ["smaller", "average", "larger"] {
+                    let target = ocr_layout::scale::xh_target(size).ok_or_else(|| anyhow!("no text size '{size}'"))?;
+                    let d = ocr_layout::tools::glyph_scale(&g, sw as usize, sh as usize, target);
+                    // the whole page scaled as bake_region scales it, then baked
+                    let (nw, nh) = if (d.factor - 1.0).abs() > 1e-4 { (((sw as f64 * d.factor).round() as u32).max(1), ((sh as f64 * d.factor).round() as u32).max(1)) } else { (sw, sh) };
+                    let p = imageops::plan(Bake::PIXTRAL, nw, nh);
+                    sizes.insert(size.into(), serde_json::json!({ "factor": d.factor, "summary": d.summary(), "reason": d.reason, "warning": d.warning, "w": p.final_w(), "h": p.final_h() }));
+                }
+                serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": sw as f64 / img.width() as f64,
+                    "cap": ocr_layout::scale::LONGEST / sw.max(sh) as f64, "targets": targets, "sizes": sizes })
+            }
             Err(e) => serde_json::json!({ "none": e.to_string() }),
         }
         .to_string())

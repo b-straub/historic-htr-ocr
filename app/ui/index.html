@@ -21,26 +21,8 @@
       <button class="ib" data-op="autoContrast" title="Auto contrast (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
       <button class="ib" data-op="pencil" title="Pencil preset: flatten paper · green channel"><i data-icon="pencil"></i></button>
       <span class="div"></span>
-      <div class="menuwrap">
-        <button class="ib" id="autoCropBtn" title="Crop: auto crop to the paper (built-in algorithm) or draw one by hand"><i data-icon="autocrop"></i></button>
-        <div class="menu pop" id="autoCropMenu" hidden>
-          <div class="poprow"><span>Page</span>
-            <span class="seg" id="pageSideSeg">
-              <button class="ib on" data-side="" title="the algorithm decides (a spread may be split)">Auto</button>
-              <button class="ib" data-side="left" title="the left page of a spread">Left</button>
-              <button class="ib" data-side="right" title="the right page of a spread">Right</button>
-              <button class="ib" data-side="double" title="keep both pages of a spread">Double</button>
-              <button class="ib" data-side="leaf" title="one loose sheet — card, postcard, letter: keep the whole leaf, trim a facing-leaf sliver at a fold">Leaf</button>
-            </span>
-          </div>
-          <div class="poprow">
-            <button class="btn small" id="drawCropBtn" title="drag a rectangle on the image by hand">Draw crop</button>
-            <button class="btn primary small" id="autoCropGo">Find crop</button>
-          </div>
-        </div>
-      </div>
+      <button class="ib" id="autoCropBtn" title="Crop: open / close the crop bar over the image"><i data-icon="autocrop"></i></button>
       <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
-      <button class="ib" id="resetBtn" title="Back to the original"><i data-icon="reset"></i></button>
     </div>
     <div class="grow"></div>
     <label class="select"><select id="presetSel" title="decoding preset"></select></label>
@@ -62,28 +44,32 @@
           <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
         </span>
         <span class="meta" id="bakeInfo"></span>
-        <label class="select"><select id="scaleSel" title="Text size: how large the letters come to the model. As is = the image unchanged. Average page = the image scaled so its letters are as tall as on an average page the model learned from (a whole page read at full size); smaller / larger = as on the pages with smaller / larger letters. For photos and close-ups.">
-          <option value="">Text size: as is</option>
-          <option value="smaller">Text size: smaller</option>
-          <option value="average">Text size: average page</option>
-          <option value="larger">Text size: larger</option>
+        <label class="select iconsel"><i data-icon="textsize"></i><select id="scaleSel" aria-label="Text size" title="Text size: how large the letters come to the model. As is = the image unchanged. Average page = the image scaled so its letters are as tall as on an average page the model learned from (a whole page read at full size); smaller / larger = as on the pages with smaller / larger letters. For photos and close-ups.">
+          <option value="">as is</option>
+          <option value="smaller">smaller</option>
+          <option value="average">average page</option>
+          <option value="larger">larger</option>
         </select></label>
-      </div>
-      <div class="hintbar" id="cropHint" role="status" hidden>
-        <span class="hinttext">Tip: crop to the page — the model reads best on the paper alone.</span>
-        <span class="hintbtns">
-          <button class="btn small primary" id="cropHintFind" title="Find the paper (the crop menu's page setting) — Crop applies it">Find crop</button>
-          <button class="btn small" id="cropHintDraw" title="Drag a rectangle on the image by hand">Draw crop</button>
-          <button class="btn small" id="cropHintWhole" title="Read the whole image — hide this tip">Use whole page</button>
-          <button class="linkbtn" id="cropHintNever" title="Hide this tip for good in this browser">Don't show again</button>
-        </span>
-      </div>
-      <div class="hintbar" id="cropModeBar" role="status" hidden>
-        <span class="hinttext" id="cropModeText">Draw crop: drag a rectangle over the text — Read waits until the crop is applied or cancelled.</span>
-        <span class="hintbtns">
-          <button class="btn small primary" id="cropModeApply" hidden>Crop</button>
-          <button class="btn small" id="cropModeCancel">Cancel</button>
-        </span>
+        <!-- the crop bar (app.js cropBar): over this head (never over the image, never moving it) — open after an image
+             loads; Draw + the page modes, a rectangle's size + Cancel / Crop (upright a second line) -->
+        <div class="cropbar" id="cropBar" hidden>
+          <button class="btn small toggle" id="drawCropBtn" title="Drag a rectangle on the image by hand">Draw</button>
+          <span class="croplabel">Page</span>
+          <span class="seg" id="pageSideSeg">
+            <button class="ib" data-side="" title="the algorithm decides (a spread may be split)">Auto</button>
+            <button class="ib" data-side="left" title="the left page of a spread">Left</button>
+            <button class="ib" data-side="right" title="the right page of a spread">Right</button>
+            <button class="ib" data-side="double" title="keep both pages of a spread">Double</button>
+            <button class="ib" data-side="leaf" title="one loose sheet — card, postcard, letter: keep the whole leaf, trim a facing-leaf sliver at a fold">Leaf</button>
+          </span>
+          <span class="cropdone" id="cropDone" hidden>Cropped</span>
+          <span class="cropact" id="cropAct" hidden>
+            <span class="croptext" id="cropText"></span>
+            <button class="btn small" id="cropCancelBtn" title="Drop the rectangle — the image stays as it is">Cancel</button>
+            <button class="btn small primary" id="cropApplyBtn" title="Crop the image to the rectangle" hidden>Crop</button>
+          </span>
+          <button class="btn small" id="resetBtn" title="Back to the original — every image step undone"><i data-icon="reset"></i><span>Reset</span></button>
+        </div>
       </div>
       <div class="imgwrap" id="imgPane">
         <div id="stage" hidden>
@@ -94,10 +80,6 @@
             <div id="gaugeTarget"></div>
             <div id="gaugeMissing" hidden></div>
             <span id="gaugeLabel"><span id="gaugeText"></span><button class="ib" id="gaugeClose" title="Hide the text size gauge (it shows again for the next image or text size)" aria-label="Hide the gauge"><i data-icon="close"></i></button></span>
-          </div>
-          <div class="pill" id="cropPill" hidden>
-            <button class="btn small primary" id="cropApply">Crop</button>
-            <button class="btn small" id="cropCancel">Cancel</button>
           </div>
         </div>
         <div class="empty" id="drop">
@@ -308,7 +290,7 @@
       </section>
       <section data-step="done" hidden>
         <p><b>Ready — open an image and press Read.</b></p>
-        <p class="hint">Crop to the text first (crop button → Find crop or Draw crop); Contrast or Pencil help with faint ink or uneven paper.</p>
+        <p class="hint">Crop to the text first (the crop bar under the image: a Page mode finds the paper, Draw takes a rectangle by hand); Contrast or Pencil help with faint ink or uneven paper.</p>
         <div class="dlgfoot">
           <button type="button" class="btn" id="suDone">Close</button>
           <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i>Open an image</button>

@@ -187,12 +187,14 @@ pub fn page_glyphs(rgb: &[u8], w: usize, h: usize) -> Result<Glyphs, ink::page::
 /// unpadded), its GLYPH HEIGHT (page_glyphs) brought to `target_xh` (scale::XH_*), capped by the bake's edge; no ink =
 /// no scale (a warning)
 pub fn page_scale(rgb: &[u8], w: usize, h: usize, target_xh: f64) -> Decision {
-    let g = match page_glyphs(rgb, w, h) {
-        Ok(g) => g,
-        Err(e) => {
-            return Decision { factor: 1.0, reason: "normalize: no ink".into(), warning: Some(format!("{e} — no scale derived")), own_pitch: None, lines: 0 };
-        }
-    };
+    match page_glyphs(rgb, w, h) {
+        Ok(g) => glyph_scale(&g, w, h, target_xh),
+        Err(e) => Decision { factor: 1.0, reason: "normalize: no ink".into(), warning: Some(format!("{e} — no scale derived")), own_pitch: None, lines: 0 },
+    }
+}
+
+/// page_scale's decision from a measure already taken (`g` of the w × h page at its bake scale)
+pub fn glyph_scale(g: &Glyphs, w: usize, h: usize, target_xh: f64) -> Decision {
     let cap = scale::LONGEST / (w.max(h) as f64);
     let factor = (target_xh / g.xh).min(cap);
     let capped = if cap < target_xh / g.xh { format!(" (capped: the page reaches the {} px edge)", scale::LONGEST as i64) } else { String::new() };

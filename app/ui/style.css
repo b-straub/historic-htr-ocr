@@ -46,7 +46,7 @@
 }
 
 * { box-sizing: border-box; }
-/* `hidden` must win over every component display rule (.empty / .pill / .menu.pop set display: flex — they stayed visible) */
+/* `hidden` must win over every component display rule (.empty / .menu.pop set display: flex — they stayed visible) */
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
@@ -174,7 +174,6 @@ body.stacked main { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 #img { display: block; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18); -webkit-user-drag: none; pointer-events: none; }
 #stage.zoomed #img { border-radius: 0; box-shadow: none; }
 #rect { position: absolute; border: 1.5px solid var(--accent); border-radius: 2px; box-shadow: 0 0 0 9999px rgba(10, 14, 22, 0.45); pointer-events: none; }
-.pill { position: absolute; display: flex; gap: 6px; padding: 6px; border-radius: 10px; background: var(--card); box-shadow: var(--shadow); line-height: 1.4; }
 .empty { margin: auto; text-align: center; color: var(--muted); font-size: 15px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .empty i[data-icon] { width: 44px; height: 44px; color: var(--faint); margin-bottom: 6px; }
 .empty .sub { font-size: 12px; color: var(--faint); }
@@ -272,12 +271,6 @@ input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent)
 .menu.pop .switch { color: var(--fg); }
 .poprow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #rect.auto { border-style: dashed; }
-/* the crop tip under the image card's head (app.js cropHint): non-modal, wraps on a phone */
-.hintbar { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; padding: 7px 10px 7px 16px;
-  background: var(--accent-soft); border-bottom: 1px solid var(--line); font-size: 12px; }
-.hinttext { flex: 1 1 220px; }
-.hintbtns { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.linkbtn { border: 0; background: transparent; padding: 0 4px; color: var(--accent); font-size: 12px; text-decoration: underline; }
 /* the model storage (Settings) */
 #modelProgress { width: 100%; }
 
@@ -415,6 +408,45 @@ body.stacked[data-tab="text"] #imgSteps, body.stacked[data-tab="text"] #openBtn 
 @media (orientation: portrait) {
   #gaugeText .sep { display: none; }
   #gaugeText i { display: block; }
+}
+/* the Text size select: its icon (two A's) in place of a "Text size:" label */
+.iconsel { position: relative; }
+.iconsel i { position: absolute; left: 9px; top: 7px; color: var(--muted); pointer-events: none; }
+.iconsel select { padding-left: 31px; }
+/* upright (tab mode): the image head in two lines — Text size and the zoom, then the steps and the model size; the
+   "Image" label goes (the tab names it) */
+@media (max-width: 820px) and (orientation: portrait) {
+  #imgCard .cardhead { row-gap: 2px; }
+  #imgCard .cardhead .label { display: none; }
+  #imgCard .cardhead .iconsel { order: -4; }
+  #imgCard .cardhead .grow { order: -3; }
+  #zoomSeg { order: -2; }
+  #imgCard .cardhead::before { content: ""; order: -1; flex-basis: 100%; height: 0; }
+  #bakeInfo { flex: 1 1 0; font-size: 12px; }
+}
+/* the crop bar (app.js cropBar): over the image head, edge to edge — the head keeps its height, the image never moves;
+   upright the rectangle's part takes the head's second line */
+#imgCard .cardhead { position: relative; }
+.cropbar { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; align-content: center; flex-wrap: wrap;
+  gap: 6px 8px; padding: 4px 10px 4px 16px; font-size: 12px; background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--card); }
+.croplabel { color: var(--muted); }
+.cropdone { color: var(--muted); }
+/* Reset at the line's right end (upright line 1: the rectangle's part follows on line 2) */
+#resetBtn { margin-left: auto; padding: 2px 8px; }
+#resetBtn i { width: 14px; height: 14px; }
+.cropbar .seg .ib { padding: 0 9px; font-size: 12px; height: 26px; }
+.cropact { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; }
+/* the rectangle's size line gives way (an ellipsis) before anything wraps: one line beside the head's other controls */
+.croptext { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 820px) and (orientation: portrait) {
+  .cropact, .cropdone { flex-basis: 100%; order: 1; }
+}
+@media (max-width: 480px) and (orientation: portrait) {
+  .cropbar { padding-left: 10px; }
+  .cropbar .seg .ib { padding: 0 6px; }
+  /* Draw, the page modes and Reset on the first line: the "Page" word goes */
+  .croplabel { display: none; }
+  .cropbar { gap: 6px; }
 }
 /* the crop rectangle's corners: where a finger adjusts it (any edge works too) */
 #rect .hd { position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); background: #fff; border-radius: 3px; box-sizing: border-box; }

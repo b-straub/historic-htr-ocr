@@ -1,7 +1,7 @@
 // OCR Lite — Copyright (c) 2026 Bernhard Straub
 // SPDX-License-Identifier: MIT
 //
-// The control states (app.js applyState, the state table) + the crop tip, on the built site. The model comes from
+// The control states (app.js applyState, the state table) + the crop flows, on the built site. The model comes from
 // web/serve.py's /model/ (?modelBase=/model/): the real one with OCR_LITE_MODEL_DIR (its profile is kept in
 // test-output/state-profile, so it is downloaded once), else a stand-in (lib.cjs fakeModel) — then the Read → Stop
 // states, which need a read that really runs, are reported as SKIP.
@@ -17,7 +17,7 @@ const OUT = require("./lib.cjs").outDir("state");
 const C = {
   open: "#openBtn", rotL: '[data-op="rotateLeft"]', rotR: '[data-op="rotateRight"]', rot180: '[data-op="rotate180"]',
   contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', crop: "#autoCropBtn", draw: "#drawCropBtn",
-  find: "#autoCropGo", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
+  find: '#pageSideSeg [data-side=""]', imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
   settings: "#settingsBtn", about: "#aboutBtn", read: "#readBtn", zoomOut: "#zoomOutBtn", zoomIn: "#zoomInBtn",
   fit: "#zoomFitBtn", fmt: "#fmtSeg button", gap: "#gapBtn", tab: "#tabBtn", undo: "#undoBtn", redo: "#redoBtn",
   markup: "#markupBtn", copy: "#copyBtn", save: "#saveBtn", saveTxt: '[data-save="txt"]', saveHtml: '[data-save="html"]',
@@ -35,7 +35,9 @@ const E = {
   img: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read"],
   imgZoomed: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "zoomOut", "fit", "save", "savePng", "read"],
   crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "zoomIn", "save", "savePng"],
-  cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
+  stepped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
+  // cropped: the crop bar's Draw and page modes off (Reset goes back to the original)
+  cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, "crop", "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
   // a read: About off (its re-layout during a read ended in crashes on the iPhone), Help stays
   starting: ["help", "zoomIn"],
   reading: ["help", "zoomIn", "read"],
@@ -49,7 +51,6 @@ let srv = null;
 let browser = null;
 let BASE = null;
 let BIG = null;
-let SMALL = null;
 
 (async () => {
   const real = MODEL_DIR !== null;
@@ -58,7 +59,7 @@ let SMALL = null;
   // the real model's profile is kept (a 1.4 GB download once); the stand-in's is fresh every run
   const profile = real ? path.join(REPO, "test-output", "state-profile") : fs.mkdtempSync(path.join(require("os").tmpdir(), "ocrlite-state-"));
   browser = await launch({ userDataDir: profile });
-  ({ big: BIG, small: SMALL } = await testImages(browser));
+  ({ big: BIG } = await testImages(browser));
   const errors = [];
   const prep = async (page) => {
     await page.setViewport({ width: 1440, height: 920, deviceScaleFactor: 1 });
@@ -117,7 +118,8 @@ let SMALL = null;
     }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
-  const hintShown = (page) => page.evaluate(() => !document.getElementById("cropHint").hidden);
+  // the crop bar: open, its rectangle line (Cancel), Crop
+  const cropCtl = (page) => page.evaluate(() => ["cropBar", "cropAct", "cropApplyBtn"].filter((id) => !document.getElementById(id).hidden).join(" "));
 
   // ── no model (a fresh context: its own empty storage) ──
   {
@@ -143,7 +145,6 @@ let SMALL = null;
     const had = localStorage.getItem("ocrlite.unsupported") !== null;
     localStorage.removeItem("ocrlite.unsupported");
     localStorage.removeItem("ocrlite.crashMarker");
-    localStorage.removeItem("ocrlite.cropHint.off");
     return had;
   });
   if (stale) {
@@ -171,11 +172,12 @@ let SMALL = null;
   }
   await check(page, "no image", E.noImg, /^Open an image first$/);
 
-  // ── a fresh large image: the tip; Use whole page ──
+  // ── a fresh large image: no tip over it (the crop is the title bar's crop button) ──
   await open(page, BIG);
-  ok(await hintShown(page), "crop tip shown on a fresh large image (3000 × 2000 → scaled)");
+  ok(await cropCtl(page) === "cropBar", `a fresh image: the crop bar open (${await cropCtl(page)})`);
+  await page.click("#autoCropBtn"); // closed: the zoom buttons lie under it
   await check(page, "image", E.img, /^Read the image/);
-  await page.screenshot({ path: `${OUT}/hint_desktop_light.png` });
+  await page.screenshot({ path: `${OUT}/image_desktop_light.png` });
   // dialogs: modal — nothing changes behind them
   await page.click("#settingsBtn");
   await page.waitForFunction(() => document.getElementById("settingsDlg").open);
@@ -184,19 +186,15 @@ let SMALL = null;
   await page.click("#zoomInBtn");
   await check(page, "image · zoomed", E.imgZoomed);
   await page.click("#zoomFitBtn");
-  await page.click("#cropHintWhole");
-  ok(!(await hintShown(page)), "Use whole page → tip gone");
   await page.click('[data-op="rotateLeft"]');
   await page.waitForFunction(() => document.getElementById("bakeInfo").textContent.startsWith("2000 ×"));
-  ok(!(await hintShown(page)), "the tip stays gone for this image (a rotation does not bring it back)");
-  await check(page, "image · one step", E.cropped);
+  await check(page, "image · one step", E.stepped);
 
-  // ── reopen: the tip again; Draw crop → crop mode → pending → Cancel ──
+  // ── reopen: Draw crop → crop mode → pending → Cancel ──
   await open(page, BIG);
-  ok(await hintShown(page), "reopened large image → the tip again (its own decision)");
   await check(page, "image (reopened, steps cleared)", E.img);
-  await page.click("#cropHintDraw");
-  ok(!(await hintShown(page)) && await page.evaluate(() => document.getElementById("stage").classList.contains("cropping")), "tip Draw crop → crop mode, tip gone");
+  await page.click("#drawCropBtn");
+  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping")) && await cropCtl(page) === "cropBar cropAct", `Draw → crop mode, Cancel (${await cropCtl(page)})`);
   await check(page, "crop mode", E.crop, /^Apply or cancel the crop first/);
   {
     const r = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
@@ -205,34 +203,30 @@ let SMALL = null;
     await page.mouse.move(r.left + r.width * 0.7, r.top + r.height * 0.8, { steps: 5 });
     await page.mouse.up();
   }
-  ok(await page.evaluate(() => !document.getElementById("cropPill").hidden), "a drawn rect is pending");
+  ok(await cropCtl(page) === "cropBar cropAct cropApplyBtn", `a drawn rect is pending: Cancel + Crop (${await cropCtl(page)})`);
   await check(page, "pending crop", E.crop, /^Apply or cancel the crop first/);
-  await page.click("#cropCancel");
+  await page.click("#cropCancelBtn");
+  ok(await cropCtl(page) === "cropBar", "Cancel → the rectangle gone, the bar stays");
   await check(page, "crop cancelled", E.img);
 
-  // ── reopen: Find crop from the tip → a proposal (or nothing to trim) → Crop ──
+  // ── reopen: Find crop → a proposal (or nothing to trim) → Crop ──
   await open(page, BIG);
-  ok(await hintShown(page), "reopened → tip");
-  await page.click("#cropHintFind");
+  await page.click('#pageSideSeg [data-side=""]');
   await page.waitForFunction(() => /^Auto crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-  const found = await page.evaluate(() => ({ st: document.getElementById("status").textContent, pending: !document.getElementById("cropPill").hidden, auto: document.getElementById("rect").classList.contains("auto") }));
-  ok(!(await hintShown(page)), `tip Find crop → tip gone (${found.st})`);
+  const found = await page.evaluate(() => ({ st: document.getElementById("status").textContent, pending: !document.getElementById("cropApplyBtn").hidden, auto: document.getElementById("rect").classList.contains("auto") }));
   if (found.pending) {
     ok(found.auto, "Find crop → a dashed proposal");
     await check(page, "found crop pending", E.crop, /^Apply or cancel the crop first/);
-    await page.click("#cropApply");
+    await page.click("#cropApplyBtn");
     await page.waitForFunction(() => document.getElementById("opsChips").textContent.includes("crop"));
     await check(page, "cropped", E.cropped);
   } else {
     ok(/nothing to trim/.test(found.st), `Find crop: ${found.st}`);
   }
 
-  // ── reopen: a crop by hand from the menu → tip gone ──
+  // ── reopen: a crop by hand ──
   await open(page, BIG);
-  ok(await hintShown(page), "reopened → tip");
-  await page.click("#autoCropBtn");
   await page.click("#drawCropBtn");
-  ok(!(await hintShown(page)), "menu Draw crop → tip gone");
   {
     const r = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
     await page.mouse.move(r.left + r.width * 0.1, r.top + r.height * 0.1);
@@ -240,20 +234,18 @@ let SMALL = null;
     await page.mouse.move(r.left + r.width * 0.6, r.top + r.height * 0.7, { steps: 5 });
     await page.mouse.up();
   }
-  await page.click("#cropApply");
+  await page.click("#cropApplyBtn");
   await page.waitForFunction(() => document.getElementById("opsChips").textContent.includes("crop"));
-  ok(!(await hintShown(page)), "after a crop: no tip");
+  ok(await cropCtl(page) === "", "after a crop: the crop bar closed");
   await check(page, "cropped by hand", E.cropped);
 
-  // ── reopen: Read → the tip goes; starting → reading → Stop → stopping → idle ──
+  // ── reopen: Read → starting → reading → Stop → stopping → idle ──
   await open(page, BIG);
-  ok(await hintShown(page), "reopened → tip");
   if (!real) {
-    R.skip("Read → Stop: the tip on Read, the starting / reading / stopping states and the Read labels (6 checks) need a read that runs — set OCR_LITE_MODEL_DIR");
+    R.skip("Read → Stop: the starting / reading / stopping states and the Read labels (5 checks) need a read that runs — set OCR_LITE_MODEL_DIR");
   } else {
   await page.evaluate(() => { window.__rec = []; });
   await page.click("#readBtn");
-  ok(!(await hintShown(page)), "Read → tip gone");
   await page.waitForFunction(() => document.getElementById("readBtn").dataset.state === "reading", { timeout: 60000, polling: 50 }).catch(async (e) => {
     console.log("no reading state:", await page.evaluate(() => JSON.stringify({ st: document.getElementById("status").textContent, rec: window.__rec.map((r) => r.read) })));
     throw e;
@@ -342,30 +334,16 @@ let SMALL = null;
   await page.click("#markupBtn");
   await sleep(200);
 
-  // ── a small image: no tip; Don't show again persists ──
-  await open(page, SMALL);
-  ok(!(await hintShown(page)), "small image (700 × 168, read at its size) → no tip");
-  await open(page, BIG);
-  ok(await hintShown(page), "large again → tip");
-  await page.click("#cropHintNever");
-  ok(!(await hintShown(page)), "Don't show again → tip gone");
-  await open(page, BIG);
-  ok(!(await hintShown(page)), "Don't show again: no tip on the next large image");
-  await load(page);
-  await open(page, BIG);
-  ok(!(await hintShown(page)), "Don't show again: still none after a reload");
-  await page.evaluate(() => { try { localStorage.removeItem("ocrlite.cropHint.off"); } catch {} });
   // screenshots: phone width (isMobile reloads the page), light + dark
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await load(page);
   await open(page, BIG);
-  ok(await hintShown(page), "phone: tip on a fresh large image");
-  const fit = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth, bar: document.getElementById("cropHint").getBoundingClientRect().toJSON() }));
-  ok(fit.sw <= fit.vw && fit.bar.right <= fit.vw, `phone: the tip fits, no horizontal scroll (${fit.sw} / ${fit.vw})`);
-  await page.screenshot({ path: `${OUT}/hint_phone_light.png` });
+  const fit = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth }));
+  ok(fit.sw <= fit.vw, `phone: no horizontal scroll (${fit.sw} / ${fit.vw})`);
+  await page.screenshot({ path: `${OUT}/image_phone_light.png` });
   await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "dark" }]);
   await sleep(300);
-  await page.screenshot({ path: `${OUT}/hint_phone_dark.png` });
+  await page.screenshot({ path: `${OUT}/image_phone_dark.png` });
   ok(errors.length === 0, `no page errors (${errors.length})`);
   await browser.close();
   srv.kill();
