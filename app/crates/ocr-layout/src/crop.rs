@@ -1,8 +1,9 @@
 // OCR Lite — Copyright (c) 2026 Bernhard Straub
 // SPDX-License-Identifier: MIT
 //
-//! THE TEXT CROP: the page's main text block from its text ink — the crop OCR Lite's Auto proposes. The text blobs
-//! (ink::page::text_blobs) summed per column: the runs of ink, the heaviest run is the main block; every other run on
+//! THE TEXT CROP: the page's main text block from its text ink — the crop OCR Lite's Auto proposes. On a photo of a
+//! sheet against a darker background only the writing on the sheet counts (seals, colour charts, rulers beside it lie
+//! outside; see sheet). The text blobs (ink::page::text_blobs) summed per column: the runs of ink, the heaviest run is the main block; every other run on
 //! the page joins it (headings, margin columns, notes — however far) unless it is FOREIGN or TINY:
 //!   • foreign: a neighbour page (≥ EDGE_CUT of its blobs cut by the image edge — its lines run off the scan) or a
 //!     book edge (≥ TALL_INK of its ink in tall thin strokes — the leaves' edges); a foreign run ends the block on its
@@ -12,9 +13,11 @@
 //! The block's ends are trimmed while their ink is mostly tall strokes (a book edge grown into the text). Then the rows
 //! inside the block's columns, the same way without the foreign / blob rules (a one-word heading or a date line stays),
 //! and PAD pitch around. A 200-page sample over the training corpora: as large as the sealed training crops (median),
-//! GT text cut on 7 of 126 pages (sparse pencil notes, a signature) — as often as the paper crop.
+//! 86 of 124 pages fit the GT text (≤ 1 line pitch of it cut, ≤ 2 pitches beyond it; paper crop: 57); photographed charters with seals and colour
+//! charts: 26 of 44 (paper crop: 0).
 
 use crate::ink::{self, Page, img};
+use crate::raster::Mask;
 
 /// a run: the profile above RUN_LEVEL of its peak, gaps under RUN_JOIN pitch joined (rows: ROW_JOIN)
 const RUN_LEVEL: f64 = 0.03;
@@ -33,6 +36,13 @@ const TINY_BLOBS_DIV: usize = 20;
 const TINY_MASS: f64 = 0.005;
 /// the margin around the block (pitch)
 const PAD: f64 = 0.5;
+/// the sheet: blur sigma (px), closing and opening (pitch), the image share above which there is no background, how
+/// much denser the text ink must be on it than off it
+const SHEET_BLUR: f64 = 3.0;
+const SHEET_CLOSE: f64 = 0.5;
+const SHEET_OPEN: f64 = 3.0;
+const SHEET_ALL: f64 = 0.97;
+const SHEET_DENSER: f64 = 1.5;
 
 /// a run of a profile: [start, end) and its ink
 struct Run {
@@ -92,9 +102,66 @@ fn block(r: &[Run], blobs: &[usize], foreign: &[bool]) -> (usize, usize) {
     (s, e)
 }
 
+/// the largest region brighter than `t` (closed, holes filled), its thin attachments cut off (a seal's tag or cord, a
+/// ruler touching it: opened, the largest piece again) → (mask, its share of the image)
+fn bright_region(pg: &Page, blur: &img::Gray, t: u8) -> Option<(Mask, f64)> {
+    let (w, h) = (pg.w(), pg.h());
+    let bright = Mask { w, h, px: blur.px.iter().map(|&v| v > t).collect() };
+    let k = (SHEET_CLOSE * pg.pitch) as usize | 1;
+    let (n, lab, st) = img::components(&img::close_rect(&bright, k, k));
+    let big = (1..n).max_by_key(|&c| st[c].area)?;
+    let filled = img::fill_holes(&Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() });
+    let o = (SHEET_OPEN * pg.pitch) as usize | 1;
+    let (n, lab, st) = img::components(&img::open_rect(&filled, o, o));
+    let big = (1..n).max_by_key(|&c| st[c].area)?;
+    let share = st[big].area as f64 / (w * h) as f64;
+    Some((Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() }, share))
+}
+
+/// THE SHEET on a photo: the parchment or paper against a darker background — seals, colour charts and rulers beside
+/// it lie outside. The largest bright region (Otsu on the blurred grey); when that is (almost) the whole image, the
+/// split was dark objects against the rest (seals on a grey background): Otsu again on the bright part. None = no such
+/// sheet (it covers the whole image), or the text ink is not denser on it than off it (a bright background, a dark page)
+fn sheet(pg: &Page, text: &[bool]) -> Option<Mask> {
+    let (w, h) = (pg.w(), pg.h());
+    let blur = img::blur(&pg.grey, SHEET_BLUR);
+    let t = img::otsu(&blur);
+    let (mut m, mut share) = bright_region(pg, &blur, t)?;
+    if share >= SHEET_ALL {
+        let px: Vec<u8> = blur.px.iter().copied().filter(|&v| v > t).collect();
+        let t2 = img::otsu(&img::Gray { w: px.len(), h: 1, px });
+        (m, share) = bright_region(pg, &blur, t2)?;
+    }
+    if share >= SHEET_ALL {
+        return None;
+    }
+    let (mut on, mut off) = (0usize, 0usize);
+    for i in 0..w * h {
+        let l = pg.lab[i] as usize;
+        if l > 0 && text[l] {
+            if m.px[i] {
+                on += 1;
+            } else {
+                off += 1;
+            }
+        }
+    }
+    let (den_on, den_off) = (on as f64 / share, off as f64 / (1.0 - share));
+    if den_on < SHEET_DENSER * den_off {
+        return None;
+    }
+    Some(m)
+}
+
 /// the text crop of an analysed page → [x0, y0, x1, y1] in the page's image px; None = no text ink
 pub fn text_block(pg: &Page, text: &[bool]) -> Option<[f64; 4]> {
     let (w, h) = (pg.w(), pg.h());
+    // only the writing on the sheet
+    let text: Vec<bool> = match sheet(pg, text) {
+        Some(m) => (0..pg.n).map(|c| text[c] && m.px[(pg.cy[c] as usize).min(h - 1) * w + (pg.cx[c] as usize).min(w - 1)]).collect(),
+        None => text.to_vec(),
+    };
+    let text = &text[..];
     let is_text = |i: usize| pg.lab[i] > 0 && text[pg.lab[i] as usize];
     let tall = |c: usize| pg.st[c].h >= TALL * pg.st[c].w;
     let sigma = PROFILE_SIGMA * pg.pitch;
