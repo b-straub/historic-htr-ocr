@@ -14,7 +14,7 @@
 //! inside the block's columns, the same way without the foreign / blob rules (a one-word heading or a date line stays),
 //! and PAD pitch around. A 200-page sample over the training corpora: as large as the sealed training crops (median),
 //! 86 of 124 pages fit the GT text (≤ 1 line pitch of it cut, ≤ 2 pitches beyond it; paper crop: 57); photographed charters with seals and colour
-//! charts: 26 of 44 (paper crop: 0).
+//! charts: 28 of 44 (paper crop: 0).
 
 use crate::ink::{self, Page, img};
 use crate::raster::Mask;
@@ -43,6 +43,11 @@ const SHEET_CLOSE: f64 = 0.5;
 const SHEET_OPEN: f64 = 3.0;
 const SHEET_ALL: f64 = 0.97;
 const SHEET_DENSER: f64 = 1.5;
+/// the writing counts from this far inside the sheet's edge (pitch) — its torn edge and the specks along it do not
+const SHEET_EDGE: f64 = 0.5;
+/// the colour phase: a sheet fills this much of its box, and covers this much of the image
+const SHEET_FILL: f64 = 0.9;
+const SHEET_MIN: f64 = 0.45;
 
 /// a run of a profile: [start, end) and its ink
 struct Run {
@@ -118,13 +123,13 @@ fn bright_region(pg: &Page, blur: &img::Gray, t: u8) -> Option<(Mask, f64)> {
     Some((Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() }, share))
 }
 
-/// THE SHEET on a photo: the parchment or paper against a darker background — seals, colour charts and rulers beside
-/// it lie outside. The largest bright region (Otsu on the blurred grey); when that is (almost) the whole image, the
-/// split was dark objects against the rest (seals on a grey background): Otsu again on the bright part. None = no such
-/// sheet (it covers the whole image), or the text ink is not denser on it than off it (a bright background, a dark page)
-fn sheet(pg: &Page, text: &[bool]) -> Option<Mask> {
+/// the sheet in one feature image (`feat`, brighter = sheet): the largest bright region (Otsu on it blurred); when that
+/// is (almost) the whole image, the split was dark objects against the rest (seals on a grey background): Otsu again on
+/// the bright part. None = no such region (it covers the whole image), or the text ink is not denser on it than off it
+/// (a bright background, a dark page)
+fn sheet_in(pg: &Page, text: &[bool], feat: &img::Gray) -> Option<Mask> {
     let (w, h) = (pg.w(), pg.h());
-    let blur = img::blur(&pg.grey, SHEET_BLUR);
+    let blur = img::blur(feat, SHEET_BLUR);
     let t = img::otsu(&blur);
     let (mut m, mut share) = bright_region(pg, &blur, t)?;
     if share >= SHEET_ALL {
@@ -153,12 +158,44 @@ fn sheet(pg: &Page, text: &[bool]) -> Option<Mask> {
     Some(m)
 }
 
+/// a sheet lying inside the photo: a rectangle (it fills ≥ SHEET_FILL of its box) of ≥ SHEET_MIN of the image, the
+/// background on all four sides — not a tinted patch of a paper that fills the scan
+fn framed(pg: &Page, m: &Mask) -> bool {
+    let (w, h) = (m.w, m.h);
+    let (mut x0, mut y0, mut x1, mut y1, mut area) = (w, h, 0, 0, 0usize);
+    for i in 0..w * h {
+        if m.px[i] {
+            let (x, y) = (i % w, i / w);
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+            area += 1;
+        }
+    }
+    let e = (SHEET_CLOSE * pg.pitch) as usize;
+    let inside = x0 > e && y0 > e && x1 + e < w - 1 && y1 + e < h - 1;
+    inside && area as f64 >= SHEET_FILL * ((x1 - x0 + 1) * (y1 - y0 + 1)) as f64 && area as f64 >= SHEET_MIN * (w * h) as f64
+}
+
+/// THE SHEET on a photo: the parchment or paper against its background — seals, colour charts and rulers beside it lie
+/// outside. First by brightness (a sheet on a darker background); then by colour (`chroma`, the RGB spread at the
+/// page's work px: a tinted parchment on a neutral grey background as bright as it), only a framed one
+fn sheet(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<Mask> {
+    sheet_in(pg, text, &pg.grey).or_else(|| sheet_in(pg, text, chroma).filter(|m| framed(pg, m)))
+}
+
 /// the text crop of an analysed page → [x0, y0, x1, y1] in the page's image px; None = no text ink
-pub fn text_block(pg: &Page, text: &[bool]) -> Option<[f64; 4]> {
+pub fn text_block(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<[f64; 4]> {
     let (w, h) = (pg.w(), pg.h());
     // only the writing on the sheet
-    let text: Vec<bool> = match sheet(pg, text) {
-        Some(m) => (0..pg.n).map(|c| text[c] && m.px[(pg.cy[c] as usize).min(h - 1) * w + (pg.cx[c] as usize).min(w - 1)]).collect(),
+    let text: Vec<bool> = match sheet(pg, text, chroma) {
+        Some(m) => {
+            let e = (SHEET_EDGE * pg.pitch) as usize | 1;
+            let m = img::erode_rect(&m, e, e);
+            let keep: Vec<bool> = (0..pg.n).map(|c| text[c] && m.px[(pg.cy[c] as usize).min(h - 1) * w + (pg.cx[c] as usize).min(w - 1)]).collect();
+            keep
+        }
         None => text.to_vec(),
     };
     let text = &text[..];
@@ -231,5 +268,7 @@ pub fn text_block(pg: &Page, text: &[bool]) -> Option<[f64; 4]> {
 pub fn text_crop(rgb: &[u8], w: usize, h: usize) -> Result<[f64; 4], ink::page::NoInk> {
     let pg = ink::page_from_gray(img::luma_pil_rgb(rgb, w, h))?;
     let text = ink::page::text_blobs(&pg);
-    text_block(&pg, &text).ok_or_else(|| ink::page::NoInk("no text ink on the page".into()))
+    let spread = img::Gray { w, h, px: rgb.chunks_exact(3).map(|p| p.iter().max().expect("rgb") - p.iter().min().expect("rgb")).collect() };
+    let chroma = if (pg.w(), pg.h()) == (w, h) { spread } else { img::resize_area(&spread, pg.w(), pg.h()) };
+    text_block(&pg, &text, &chroma).ok_or_else(|| ink::page::NoInk("no text ink on the page".into()))
 }
