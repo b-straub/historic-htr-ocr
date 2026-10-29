@@ -211,7 +211,7 @@ let BIG = null;
 
   // ── reopen: Find crop → a proposal (or nothing to trim) → Crop ──
   await open(page, BIG);
-  await page.click('#pageSideSeg [data-side=""]');
+  await page.click('#pageSideSeg [data-side="right"]'); // the paper crop (Auto's text crop finds no writing here)
   await page.waitForFunction(() => /^Auto crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
   const found = await page.evaluate(() => ({ st: document.getElementById("status").textContent, pending: !document.getElementById("cropApplyBtn").hidden, auto: document.getElementById("rect").classList.contains("auto") }));
   if (found.pending) {

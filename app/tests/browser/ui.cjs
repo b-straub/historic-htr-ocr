@@ -98,10 +98,15 @@ const ok = R.ok;
     await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft -= 60; p.scrollTop -= 40; });
   }
   // the crop bar is open after the load; a page mode finds the paper at once (a dashed, adjustable rectangle) or says
-  // there is nothing to trim; the crop button closes the bar and drops the rectangle
+  // there is nothing to trim; the crop button closes the bar and drops the rectangle. Auto (the text crop) finds no
+  // writing on the synthetic image and says so (a real page: below)
   await page.click("#autoCropBtn"); // the crop button opens the bar again
   const marked0 = await page.evaluate(() => document.querySelectorAll("#pageSideSeg .on").length);
   await page.click('#pageSideSeg [data-side=""]');
+  await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+  const none = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden }));
+  ok(/no writing found/.test(none.st) && !none.rect, `Auto on the synthetic image: ${none.st}`);
+  await page.click('#pageSideSeg [data-side="right"]');
   await page.waitForFunction(() => /^Auto crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
   const auto = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, act: !document.getElementById("cropAct").hidden,
     crop: !document.getElementById("cropApplyBtn").hidden, text: document.getElementById("cropText").textContent, mode: document.getElementById("stage").classList.contains("cropping"),
@@ -111,8 +116,8 @@ const ok = R.ok;
   ok(swap.marked === 0 && swap.draw && !swap.rect, `Draw after a found rectangle: page mode unmarked, Draw marked, the found rectangle gone ${JSON.stringify(swap)}`);
   await page.click("#autoCropBtn");
   const closed = await page.evaluate(() => document.getElementById("cropBar").hidden && document.getElementById("rect").hidden);
-  ok(bar0 && closed && marked0 === 0 && (/nothing to trim/.test(auto.st) || (auto.rect && auto.act && auto.crop && auto.mode && /^Found /.test(auto.text) && auto.marked === "Auto")),
-    `crop bar open after the load, no page mode marked before a find (${marked0}); Auto → ${auto.st} (${auto.text}, marked ${auto.marked}); the crop button closes the bar`);
+  ok(bar0 && closed && marked0 === 0 && (/nothing to trim/.test(auto.st) || (auto.rect && auto.act && auto.crop && auto.mode && /^Found /.test(auto.text) && auto.marked === "Right")),
+    `crop bar open after the load, no page mode marked before a find (${marked0}); Double →${auto.st} (${auto.text}, marked ${auto.marked}); the crop button closes the bar`);
   await drawMode();
   const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), draw: document.getElementById("drawCropBtn").classList.contains("on"),
     act: !document.getElementById("cropAct").hidden, crop: !document.getElementById("cropApplyBtn").hidden, text: document.getElementById("cropText").textContent }));
@@ -421,6 +426,13 @@ const ok = R.ok;
     const [ch2] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
     await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").textContent.startsWith("1176"));
+    // Auto on a real page: a text block inside the image (this example is cropped tight already: almost all of it)
+    await page.click('#pageSideSeg [data-side=""]');
+    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+    const tc = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, nat: [document.getElementById("img").naturalWidth, document.getElementById("img").naturalHeight] }));
+    const m = /^Text crop: (\d+) × (\d+) at \((\d+), (\d+)\)/.exec(tc.st);
+    ok(m && tc.rect && +m[1] <= tc.nat[0] && +m[2] <= tc.nat[1], `Auto on humboldt_17r: ${tc.st}`);
+    await page.click("#cropCancelBtn");
     // the zoom stops where the image's layer would pass 6144 device px (a phone ended its page with a larger one)
     const fitPx = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return Math.max(r.width, r.height) * devicePixelRatio; });
     for (let k = 0; k < 14; k++) await page.evaluate(() => document.getElementById("zoomInBtn").click());

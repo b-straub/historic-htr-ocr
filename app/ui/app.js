@@ -798,8 +798,9 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   });
   pane.addEventListener("gestureend", (ev) => ev.preventDefault());
 })();
-// auto crop (the built-in algorithm, ocr-core autocrop.rs): the page mode tapped → a proposed rect (dashed), in the crop
-// mode like a drawn one — its edges adjust it, Crop applies it
+// auto crop: the page mode tapped → a proposed rect (dashed), in the crop mode like a drawn one — its edges adjust it,
+// Crop applies it. Auto = the text crop (the page's main text block, ocr-layout crop.rs); Left / Right / Double / Leaf
+// = the paper crop (ocr-core autocrop.rs)
 function showPending(r) {
   drag = null;
   pending = { ...r };
@@ -841,23 +842,30 @@ async function findCrop() {
     pageSide: pageSide === "left" || pageSide === "right" ? pageSide : null,
     singleLeaf: pageSide === "leaf",
   };
-  status("Finding the paper…", "busy");
+  const text = pageSide === "";
+  status(text ? "Finding the text…" : "Finding the paper…", "busy");
   S.finding = true;
   applyState();
   let r;
   try {
-    r = await call("auto_crop", { ops: S.ops, opts });
+    r = text ? await call("text_crop", { ops: S.ops }) : await call("auto_crop", { ops: S.ops, opts });
   } finally {
     S.finding = false;
     applyState();
   }
+  const what = text ? "Text crop" : "Auto crop";
+  if (r.none !== undefined) {
+    cancelCrop();
+    status(`${what}: no writing found (${r.none}) — draw the crop, or pick a page mode`, "ok");
+    return;
+  }
   if (r.x === 0 && r.y === 0 && r.w === S.prev.w && r.h === S.prev.h) {
     cancelCrop();
-    status("Auto crop: nothing to trim", "ok");
+    status(`${what}: nothing to trim`, "ok");
     return;
   }
   showPending(r);
-  status(`Auto crop: ${r.w} × ${r.h} at (${r.x}, ${r.y}) — Crop to apply, Cancel to drop`, "ok");
+  status(`${what}: ${r.w} × ${r.h} at (${r.x}, ${r.y}) — Crop to apply, Cancel to drop`, "ok");
 }
 $("drawCropBtn").onclick = drawCrop;
 

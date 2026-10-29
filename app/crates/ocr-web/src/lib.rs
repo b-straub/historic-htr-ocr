@@ -298,6 +298,27 @@ pub fn auto_crop(ops_json: &str, opts_json: &str) -> Result<String, JsError> {
     .map_err(js_err)
 }
 
+/// the text crop (Auto): the page's main text block (ocr-layout crop::text_crop on the page at its bake scale) →
+/// CropRect in the prepared image's px, or { none: why } when the page has no measurable writing
+#[wasm_bindgen]
+pub fn text_crop(ops_json: &str) -> Result<String, JsError> {
+    (|| -> Result<String> {
+        let (img, _) = prepared(ops_json)?;
+        let small = at_bake_scale(&img);
+        let s = small.width() as f64 / img.width() as f64;
+        let b = match ocr_layout::crop::text_crop(small.as_raw(), small.width() as usize, small.height() as usize) {
+            Ok(b) => b,
+            Err(e) => return Ok(serde_json::json!({ "none": e.to_string() }).to_string()),
+        };
+        let x0 = ((b[0] / s).floor() as u32).min(img.width() - 1);
+        let y0 = ((b[1] / s).floor() as u32).min(img.height() - 1);
+        let x1 = ((b[2] / s).ceil() as u32).clamp(x0 + 1, img.width());
+        let y1 = ((b[3] / s).ceil() as u32).clamp(y0 + 1, img.height());
+        Ok(serde_json::to_string(&autocrop::CropRect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })?)
+    })()
+    .map_err(js_err)
+}
+
 /// the markup → HTML
 #[wasm_bindgen]
 pub fn render(text: &str) -> Result<String, JsError> {

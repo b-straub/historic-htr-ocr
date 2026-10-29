@@ -74,6 +74,10 @@ const commands = {
   autoCrop({ ops, opts }) {
     return [JSON.parse(ocr.auto_crop(JSON.stringify(ops), JSON.stringify(opts))), []];
   },
+  /// Auto: the page's main text block
+  textCrop({ ops }) {
+    return [JSON.parse(ocr.text_crop(JSON.stringify(ops))), []];
+  },
   bakedPng({ ops }) {
     const png = ocr.baked_png(JSON.stringify(ops));
     return [png, [png.buffer]];

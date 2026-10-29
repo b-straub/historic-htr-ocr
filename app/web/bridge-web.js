@@ -339,6 +339,9 @@ const commands = {
   auto_crop({ ops, opts }) {
     return imageWork("autoCrop", { ops, opts });
   },
+  text_crop({ ops }) {
+    return imageWork("textCrop", { ops });
+  },
   glyph_height({ ops }) {
     return imageWork("glyphHeight", { ops });
   },
