@@ -455,7 +455,8 @@ const ok = R.ok;
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
     const s1 = await scale();
     const px = (i) => +/· (\d+) px$/.exec(i)[1];
-    ok(s0.off && s0.manual && !/px$/.test(s0.info) && !s1.off && s1.auto && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max, `Scale: off without a crop ("${s0.info}"); Auto crops, then "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
+    // (the crop bar's Auto above set the Scale to Auto already: Cancel drops the rect, not the mode)
+    ok(s0.off && s0.auto && !/px$/.test(s0.info) && !s1.off && s1.auto && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max, `Scale: off without a crop ("${s0.info}"); Auto crops, then "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
     // upright the image head is two lines: the Scale + zoom, then the size line
     const head = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
@@ -478,6 +479,12 @@ const ok = R.ok;
     await page.waitForFunction(() => !document.getElementById("cropBar").hidden && document.getElementById("opsChips").textContent === "");
     const s4 = await scale();
     ok(s4.off && s4.manual && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
+    await page.click('#pageSideSeg [data-side=""]');
+    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+    await page.click("#cropApplyBtn");
+    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
+    const s5 = await scale();
+    ok(s5.auto && /px$/.test(s5.info), `the crop bar's Auto on a new image: crop and scale — "${s5.info}"`);
     // the text: Fit takes every line whole, two fingers zoom it
     await page.click("#paneTabs [data-tab=text]");
     await page.click("#markupBtn");

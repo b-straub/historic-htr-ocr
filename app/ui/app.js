@@ -522,7 +522,8 @@ $("scaleManualBtn").onclick = () => {
   crumb("scale manual");
   drawScale();
 };
-// Auto: not yet cropped → the text crop proposed (the crop bar's Auto; Crop applies it, the factor follows its measure)
+// Auto (here or the crop bar's): not yet cropped → the text crop proposed (Crop applies it, the factor follows its
+// measure); cropped → the factor at once. Auto stays for the image: every new crop is scaled by it again
 $("scaleAutoBtn").onclick = () => {
   S.size.mode = "auto";
   crumb("scale auto");
@@ -827,6 +828,12 @@ function drawSide() {
 for (const b of $("pageSideSeg").children) {
   b.onclick = () => {
     pageSide = b.dataset.side;
+    if (pageSide === "") {
+      // Auto: the text crop and the Scale's Auto — Crop applies the (adjusted) rect, the letters then scaled by it
+      S.size.mode = "auto";
+      crumb("scale auto");
+      drawScale();
+    }
     findCrop(); // a page mode tapped: the paper found in it at once
   };
 }
