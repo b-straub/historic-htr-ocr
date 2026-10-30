@@ -15,22 +15,17 @@ The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the ou
 trained and scored. Questions, problems and reading errors worth reporting:
 [issues](https://github.com/b-straub/historic-htr-ocr/issues).
 
-## What's new in v1.3.0
+## What's new in v1.4.0
 
-- **Text size** for photos and close-ups: a select in the image head scales the page so its letters reach the model as
-  tall as on the pages it learned from (smaller / average page / larger; *as is* leaves the image unchanged). A gauge
-  on the image shows a word's letter height now and the height the read gets — and says when only a tighter crop can
-  enlarge it further. The model size beside the image follows the choice at once.
-- **One crop bar**, open when an image loads, over the image head (never over the image): **Draw** a rectangle by hand,
-  or tap a page mode (**Auto, Left, Right, Double, Leaf**) to find the paper. Any rectangle can be adjusted by its edges
-  and corners, then **Crop** or **Cancel**; **Reset** goes back to the original.
-- **Gestures that stay put**: drawing a crop no longer zooms or moves the image when a second finger touches; two
-  fingers zoom, also while cropping; on a computer the cursor shows where a rectangle can be resized or moved.
-- **Phones and tablets**: Image / Text tabs where the two panes do not fit side by side, each keeping its zoom and
-  scroll; pinch to zoom the text; a compact two-line image head held upright, Help and Settings beside the image on a
-  phone's side.
-- **Steadier reads**: a read starts from the fitted image and the zoom is capped — a strongly zoomed image no longer
-  holds graphics memory beside the read (on an iPhone it likely ended the page).
+- **The tools in three rows**, in the order you work: **Crop** (what part of the image), **Adjust** (how it looks to
+  the model), **Read**. Every button keeps its place — one that cannot act is greyed out, never hidden — so the image
+  never jumps. On a phone's side the rows take two lines; the preset sits right beside Read.
+- **Crop**: **Page** takes the whole image, **Auto** finds the text block — now also on scans with a colour chart and a
+  ruler beside the sheet. Adjust the rectangle by its edges, then the green ✓ or the red ✕.
+- **Scale** replaces Text size: a slider sets how tall the letters reach the model, the wand brings them into the range
+  the model learned from. The size the model gets is shown beside it.
+- **Contrast** and **Pencil** are on / off — a second press takes them out again.
+- **Phones**: quick taps no longer zoom the page; on its side a free strip at the top leaves room for Control Center.
 
 ## This repository
 
