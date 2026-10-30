@@ -278,7 +278,7 @@ const user = () => load(USER_PRESETS);
 
 function settings() {
   const s = JSON.parse(load(SETTINGS) ?? "null") ?? {};
-  return { preset: s.preset ?? presets.defaultName, modelUrl: s.modelUrl ?? "", textSize: ["smaller", "average", "larger"].includes(s.textSize) ? s.textSize : null };
+  return { preset: s.preset ?? presets.defaultName, modelUrl: s.modelUrl ?? "" };
 }
 
 const commands = {
@@ -293,8 +293,8 @@ const commands = {
     previewUrl = URL.createObjectURL(new Blob([p.jpeg], { type: "image/jpeg" }));
     return { url: previewUrl, w: p.w, h: p.h, bake: JSON.parse(p.bake) };
   },
-  /// `textSize` = "smaller" / "average" / "larger" (the page's glyph height scaled to the trained pages') or null (as is)
-  async read({ ops, preset, textSize }) {
+  /// `factor` = the Scale slider's (1 = as is)
+  async read({ ops, preset, factor }) {
     const p = [...presets.shipped, ...presets.user].find((x) => x.name === preset);
     if (!p) throw new Error(`no preset '${preset}'`);
     const blocked = blockedNote();
@@ -304,9 +304,9 @@ const commands = {
     stopAsked = false;
     // the baked model input, then the image worker ended — the full-size image and its copies go with it before the
     // engine takes its GPU memory; image requests during the read wait for its end (holdImage)
-    const b = textSize === null ? await imageWork("bake", { ops }) : await imageWork("bakeNormalized", { ops, size: textSize });
+    const b = factor === 1 ? await imageWork("bake", { ops }) : await imageWork("bakeScaled", { ops, factor });
     endImageWorker();
-    emit("ocr:input", { plan: JSON.parse(b.plan), w: b.w, h: b.h, scale: textSize === null ? null : JSON.parse(b.scale) });
+    emit("ocr:input", { plan: JSON.parse(b.plan), w: b.w, h: b.h, factor });
     if (stopAsked) {
       // a Stop while the image was baked: no read
       emit("ocr:error", "stopped");
@@ -360,7 +360,7 @@ const commands = {
   },
   save_settings({ settings: s }) {
     if (![...presets.shipped, ...presets.user].some((p) => p.name === s.preset)) throw new Error(`no preset '${s.preset}'`);
-    store(SETTINGS, JSON.stringify({ preset: s.preset, modelUrl: s.modelUrl ?? "", textSize: s.textSize }));
+    store(SETTINGS, JSON.stringify({ preset: s.preset, modelUrl: s.modelUrl ?? "" }));
   },
   save_user_presets({ user: list }) {
     const next = JSON.parse(ocr.check_user_presets(JSON.stringify(list)));

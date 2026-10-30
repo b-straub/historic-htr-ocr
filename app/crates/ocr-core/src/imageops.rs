@@ -442,8 +442,8 @@ fn paper_tone(img: &RgbImage, inside: &[bool]) -> Option<Rgb<u8>> {
 /// a region's model input: the page (after its steps) at the PAGE's bake scale — the writing keeps the size it has in a
 /// whole-page read — the region's bounding box cut; then as the desktop GT tools read a region: AutoContrast with the
 /// levels from inside the polygon (`input.contrast`), the outside painted white or in the inside's paper tone (even-odd,
-/// row by row), the cut scaled by `input.scale` (the region's line-pitch decision; Lanczos), turned, baked (pad only
-/// unless the scale passed the bake's edge). `polygon` in the page's pixels.
+/// row by row) — the cut resized once, to the page's bake scale × `input.scale` (the region's line-pitch decision;
+/// Lanczos) — turned, baked (pad only unless the scale passed the bake's edge). `polygon` in the page's pixels.
 pub fn bake_region(page: &RgbImage, polygon: &[(f64, f64)], b: Bake, input: &RegionInput) -> Result<(RgbImage, BakePlan)> {
     if polygon.len() < 3 {
         bail!("a region needs at least 3 corners, got {}", polygon.len());
@@ -466,6 +466,13 @@ pub fn bake_region(page: &RgbImage, polygon: &[(f64, f64)], b: Bake, input: &Reg
     }
     let cut = imageops::crop_imm(page, x0, y0, x1 - x0, y1 - y0).to_image();
     let (cw, ch) = (((x1 - x0) as f64 * fx).round().max(1.0) as u32, ((y1 - y0) as f64 * fy).round().max(1.0) as u32);
+    // the region's scale on top of the page's: ONE resize from the page's own pixels (a second Lanczos pass softens thin
+    // strokes, and an enlargement from the bake-scaled page has no detail to show)
+    let (cw, ch) = if (input.scale - 1.0).abs() > 1e-4 {
+        (((cw as f64 * input.scale).round() as u32).max(1), ((ch as f64 * input.scale).round() as u32).max(1))
+    } else {
+        (cw, ch)
+    };
     let mut region = if (cw, ch) != cut.dimensions() { imageops::resize(&cut, cw, ch, imageops::FilterType::Lanczos3) } else { cut };
     // inside the polygon: per row of the scaled cut, the polygon's crossings at the row's centre (in page pixels)
     let (sx, sy) = ((x1 - x0) as f64 / cw as f64, (y1 - y0) as f64 / ch as f64);
@@ -492,11 +499,6 @@ pub fn bake_region(page: &RgbImage, polygon: &[(f64, f64)], b: Bake, input: &Reg
         if !i {
             *p = fill;
         }
-    }
-    if (input.scale - 1.0).abs() > 1e-4 {
-        let (w, h) = region.dimensions();
-        let (nw, nh) = (((w as f64 * input.scale).round() as u32).max(1), ((h as f64 * input.scale).round() as u32).max(1));
-        region = imageops::resize(&region, nw, nh, imageops::FilterType::Lanczos3);
     }
     region = match input.quarters % 4 {
         1 => imageops::rotate90(&region),

@@ -158,7 +158,7 @@ const ok = R.ok;
   await page.waitForFunction(() => window.__ops.some((o) => o.includes("crop")));
   const got = JSON.parse((await page.evaluate(() => window.__ops.find((o) => o.includes("crop")))))[0];
   ok(got.x === expect.x && got.y === expect.y && got.w === expect.w && got.h === expect.h, `crop at 200 %: got ${JSON.stringify(got)} expected ${JSON.stringify(expect)}`);
-  await page.waitForFunction((w) => document.getElementById("bakeInfo").textContent.startsWith(`${w} ×`), {}, expect.w);
+  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, expect.w);
   s = await st();
   ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropBar").hidden), "after Crop the mode is left, the crop bar closed");
   ok(s.zoom === "100 %", `after the crop: back to fit (${s.zoom}), ${s.info}`);
@@ -173,7 +173,7 @@ const ok = R.ok;
   ok(resetAt <= 12 && /^Cropped to \d+ × \d+$/.test(doneText), `desktop: Reset at the crop bar's right end (${resetAt} px in), "${doneText}"`);
   // reset, pencil
   await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").textContent.startsWith("3000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
   await new Promise((r) => setTimeout(r, 300));
   const sample = () => page.evaluate(async () => {
     const i = document.getElementById("img");
@@ -273,7 +273,7 @@ const ok = R.ok;
   // cropped image is not cropped again)
   await page.waitForFunction(() => document.getElementById("zoomVal").textContent === "100 %");
   await page.click("#autoCropBtn"); await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").textContent.startsWith("3000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
   await drawMode();
   const g0 = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + 10, y: r.y + 10 }; });
   const v0 = await page.evaluate(() => { const p = document.getElementById("imgPane"); return { zoom: document.getElementById("zoomVal").textContent, sl: p.scrollLeft, st: p.scrollTop }; });
@@ -421,11 +421,10 @@ const ok = R.ok;
     await page.screenshot({ path: `${OUT}/11d_phone_crop.png` });
     ok(bar2.shown && bar2.crop <= bar2.vw && bar2.sw <= bar2.vw && Math.abs(ic.top - top0) < 0.5, `phone crop: Crop at ${bar2.crop.toFixed(0)} of ${bar2.vw}, page ${bar2.sw} wide, the image stayed (top ${top0.toFixed(1)} → ${ic.top.toFixed(1)})`);
     await page.click("#cropCancelBtn");
-    // the Text size gauge upright (a real page: the synthetic image has no measurable writing): its label in two
-    // lines, closed by its ×
+    // a real page (the synthetic image has no measurable writing)
     const [ch2] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").textContent.startsWith("1176"));
+    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").title.startsWith("1176"));
     // Auto on a real page: a text block inside the image (this example is cropped tight already: almost all of it)
     await page.click('#pageSideSeg [data-side=""]');
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
@@ -441,31 +440,44 @@ const ok = R.ok;
     const capPx = Math.min(6144, fitPx * 8);
     ok(Math.abs(layer.px - capPx) < 3, `phone zoom capped: ${layer.zoom}, the image ${layer.px} device px (fit ${Math.round(fitPx)}, cap ${Math.round(capPx)})`);
     await zoomBtn("#zoomFitBtn");
-    await page.select("#scaleSel", "average");
-    await page.waitForFunction(() => !document.getElementById("gauge").hidden, { timeout: 20000 });
-    await new Promise((r) => setTimeout(r, 500));
-    // the model size line follows the text size at once, not only when a read starts
-    const infoAvg = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
-    // upright the image head is two lines: Text size + zoom, then the size line
+    // the Scale: without a crop the slider is off (as is); Auto proposes the text crop, Crop applies it, the letters
+    // measured — this example's lie inside the trained range: as is
+    const scale = () => page.evaluate(() => ({ off: document.getElementById("scaleSlider").disabled,
+      auto: document.getElementById("scaleAutoBtn").classList.contains("on"), manual: document.getElementById("scaleManualBtn").classList.contains("on"),
+      min: +document.getElementById("scaleSlider").min, max: +document.getElementById("scaleSlider").max, info: document.getElementById("bakeInfo").textContent,
+      // the tools' places: the status' text never moves them
+      at: ["scaleManualBtn", "scaleSlider", "scaleAutoBtn", "zoomSeg"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
+    const s0 = await scale();
+    await page.evaluate(() => { if (!document.getElementById("cropBar").hidden) { document.getElementById("autoCropBtn").click(); } }); // the crop bar over the head closed
+    await page.click("#scaleAutoBtn");
+    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+    await page.click("#cropApplyBtn");
+    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
+    const s1 = await scale();
+    const px = (i) => +/· (\d+) px$/.exec(i)[1];
+    ok(s0.off && s0.manual && !/px$/.test(s0.info) && !s1.off && s1.auto && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max, `Scale: off without a crop ("${s0.info}"); Auto crops, then "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
+    // upright the image head is two lines: the Scale + zoom, then the size line
     const head = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
-      const sel = r("scaleSel"), zm = r("zoomSeg"), info = r("bakeInfo"), h = document.querySelector("#imgCard .cardhead").getBoundingClientRect();
-      return { row1: Math.abs((sel.top + sel.bottom) / 2 - (zm.top + zm.bottom) / 2), below: info.top >= Math.max(sel.bottom, zm.bottom) - 1, h: Math.round(h.height) };
+      const sc = r("scaleSeg"), zm = r("zoomSeg"), info = r("bakeInfo"), h = document.querySelector("#imgCard .cardhead").getBoundingClientRect();
+      return { row1: Math.abs((sc.top + sc.bottom) / 2 - (zm.top + zm.bottom) / 2), below: info.top >= Math.max(sc.bottom, zm.bottom) - 1, h: Math.round(h.height), right: sc.right, vw: innerWidth };
     });
-    ok(head.row1 < 3 && head.below && head.h < 90, `phone image head in two lines: Text size beside the zoom (${head.row1.toFixed(1)} px apart), the size line below ${head.below}, ${head.h} px tall`);
-    const lines = await page.evaluate(() => { const t = document.getElementById("gaugeText"); return Math.round(t.getBoundingClientRect().height / parseFloat(getComputedStyle(t).lineHeight)); });
-    await page.screenshot({ path: `${OUT}/11c_phone_gauge.png` });
-    await page.click("#gaugeClose");
-    const closed = await page.evaluate(() => document.getElementById("gauge").hidden);
-    await page.select("#scaleSel", "larger");
-    await page.waitForFunction(() => !document.getElementById("gauge").hidden, { timeout: 20000 });
-    await zoomBtn("#zoomInBtn");
-    const byZoom = await page.evaluate(() => document.getElementById("gauge").hidden);
-    await zoomBtn("#zoomFitBtn");
-    const infoLarge = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
-    ok(/ · text /.test(infoAvg) && / · text /.test(infoLarge), `size line per text size before a read: average "${infoAvg}", larger "${infoLarge}"`);
-    ok(lines >= 2 && lines <= 3 && closed && byZoom, `phone gauge: label in ${lines} lines (now · read · full size), closed by × → hidden ${closed}; shown again by a text size, hidden by a zoom ${byZoom}`);
-    await page.select("#scaleSel", "");
+    ok(head.row1 < 3 && head.below && head.h < 90 && head.right <= head.vw, `phone image head in two lines: the Scale beside the zoom (${head.row1.toFixed(1)} px apart), the size line below ${head.below}, ${head.h} px tall`);
+    // the slider to its low end: Manual, the model input smaller at once; Manual again: as is
+    await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
+    const s2 = await scale();
+    await page.screenshot({ path: `${OUT}/11c_phone_scale.png` });
+    await page.click("#scaleManualBtn");
+    const s3 = await scale();
+    const model = (i) => +/· ×([\d.]+)/.exec(i)[1];
+    ok(s2.manual && px(s2.info) === 9 && model(s2.info) < model(s1.info) && s3.info === s1.info, `Scale slider: "${s2.info}", Manual → "${s3.info}"`);
+    ok([s1.at, s2.at, s3.at].every((a) => a === s0.at), `the tools stay put while the status changes: ${s0.at} · ${s2.at}`);
+    // a new image: back to Manual, as is, the slider off
+    const [ch3] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
+    await ch3.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
+    await page.waitForFunction(() => !document.getElementById("cropBar").hidden && document.getElementById("opsChips").textContent === "");
+    const s4 = await scale();
+    ok(s4.off && s4.manual && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
     // the text: Fit takes every line whole, two fingers zoom it
     await page.click("#paneTabs [data-tab=text]");
     await page.click("#markupBtn");
@@ -499,6 +511,13 @@ const ok = R.ok;
     }));
     const a = await where();
     await page.screenshot({ path: `${OUT}/13_phone_landscape.png` });
+    // the image head on its side: the tools, then the status on the same line
+    const row = await page.evaluate(() => {
+      const mid = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return (r.top + r.bottom) / 2; };
+      const info = document.getElementById("bakeInfo").getBoundingClientRect(), z = document.getElementById("zoomSeg").getBoundingClientRect();
+      return { off: Math.max(...["scaleSeg", "zoomSeg", "readBtn", "bakeInfo"].map(mid)) - Math.min(...["scaleSeg", "zoomSeg", "readBtn", "bakeInfo"].map(mid)), after: info.left >= z.right, w: info.width };
+    });
+    ok(row.off < 3 && row.after && row.w > 40, `phone on its side: tools then the status in one line (${row.off.toFixed(1)} px apart, status ${Math.round(row.w)} px wide)`);
     await page.click("#paneTabs [data-tab=text]");
     await new Promise((r) => setTimeout(r, 200));
     const b = await where();

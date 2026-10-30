@@ -140,7 +140,7 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
 
     // a read with the real model: must equal the native read
     if (!real) {
-      R.skip("a real read (5 checks: it runs, its text equals the native read, fit for the read, a Text size average read, Read ready after it) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
+      R.skip("a real read (5 checks: it runs, its text equals the native read, fit for the read, a scaled read, Read ready after it) — set OCR_LITE_MODEL_DIR, OCR_LITE_READ_IMAGE, OCR_LITE_READ_EXPECT");
     } else {
     const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await chooser.accept([IMG]);
@@ -158,8 +158,14 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     ok(norm(text) === norm(want), `read == ${path.basename(EXPECT)} (line ends trimmed): ${text.length} chars, first line "${text.split("\n")[0]}"`);
     fs.writeFileSync(path.join(DIR, "out", "read.txt"), text);
     await page.screenshot({ path: path.join(DIR, "out", "3_read.png") });
-    // Text size average page (glyph height 23): the page measured, the decision beside the image, the read on the scaled input
-    await page.select("#scaleSel", "average");
+    // the Scale: Auto crops to the text, the slider to its low end (9 px letters) — the read on the scaled input
+    await page.evaluate(() => { if (!document.getElementById("cropBar").hidden) { document.getElementById("autoCropBtn").click(); } }); // the crop bar over the head closed
+    await page.click("#scaleAutoBtn");
+    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+    await page.click("#cropApplyBtn");
+    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
+    await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
+    const sizeLine = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
     await page.evaluate(() => { window.__text = ""; });
     await page.click("#zoomInBtn"); await page.click("#zoomInBtn"); // a zoomed image goes back to fit for the read
     await page.click("#readBtn");
@@ -169,14 +175,12 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     await page.waitForFunction(() => /tok\/s|stopped|token limit/.test(document.getElementById("status").textContent), { timeout: 10000, polling: 100 });
     const fitForRead = await page.evaluate(() => document.getElementById("zoomVal").textContent);
     ok(fitForRead === "100 %", `the zoomed image back to fit for the read: ${fitForRead}`);
-    const scaled = await page.evaluate(() => ({ info: document.getElementById("bakeInfo").textContent, why: document.getElementById("bakeInfo").title, st: document.getElementById("status").textContent, text: window.__text }));
-    // a page at the 1540 edge cannot be enlarged: native, the same input — the same text
-    const native = /^native/.test(scaled.why);
-    const same = !native || norm(scaled.text) === norm(want);
-    ok(/text /.test(scaled.info) && /target 23/.test(scaled.why) && /tok\/s/.test(scaled.st) && same, `Text size average read: ${scaled.info} (${scaled.why}) · ${scaled.text.length} chars${native ? ", == the native read" : ""}`);
+    const scaled = await page.evaluate(() => ({ info: document.getElementById("bakeInfo").textContent, st: document.getElementById("status").textContent, text: window.__text }));
+    // the read's model input is the one the size line showed before it
+    ok(scaled.info === sizeLine && /· 9 px$/.test(scaled.info) && /tok\/s/.test(scaled.st) && scaled.text.length > 0, `Scale read: ${scaled.info} · ${scaled.text.length} chars`);
     fs.writeFileSync(path.join(DIR, "out", "read_scaled.txt"), scaled.text);
     await page.screenshot({ path: path.join(DIR, "out", "3b_read_scaled.png") });
-    // after it Read is ready for the next image — and after a reload (the text size kept)
+    // after it Read is ready for the next image — and after a reload
     const readState = () => page.evaluate(() => ({ disabled: document.getElementById("readBtn").disabled, why: document.getElementById("readBtn").title, status: document.getElementById("status").textContent }));
     const reopen = async () => {
       const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
@@ -189,8 +193,7 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     await sleep(1500);
     await reopen();
     const reloaded = await readState();
-    ok(!next.disabled && !reloaded.disabled, `Read after a text size read: next image ${JSON.stringify(next)} · after a reload ${JSON.stringify(reloaded)}`);
-    await page.select("#scaleSel", "");
+    ok(!next.disabled && !reloaded.disabled, `Read after a scaled read: next image ${JSON.stringify(next)} · after a reload ${JSON.stringify(reloaded)}`);
     }
 
     // About / Help / Settings: the open model, no key or preview text

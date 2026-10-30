@@ -7,7 +7,7 @@
 
 use crate::geom::{self, Failed, Pt, Rect, bounds, is_simple, simplify_outward};
 use crate::ink::{self, Page};
-use crate::scale::{self, Decision};
+
 use crate::shape::{self, Side};
 
 /// the simplify tolerance in crop px at the bake's scale `bake_scale` (bake px per crop px)
@@ -128,13 +128,11 @@ pub fn region_box(poly: &[Pt]) -> [f64; 4] {
     [b.x, b.y, b.max_x(), b.max_y()]
 }
 
-/// a page's writing size (bake px): its glyph height (ink::Page::xh — the median height of its text blobs), its line
-/// pitch, and the box [x, y, w, h] of one text blob of that height, the one nearest the page's centre (shown beside the
-/// target, so the measure can be checked against the letters)
+/// a page's writing size (bake px): its glyph height (ink::Page::xh — the median height of its text blobs) and its line
+/// pitch
 pub struct Glyphs {
     pub xh: f64,
     pub pitch: f64,
-    pub sample: [f64; 4],
 }
 
 /// a plausible measure: the glyph height at most this share of the line pitch (pages: 0.38 – 0.64; a sticky note's
@@ -168,41 +166,7 @@ pub fn page_glyphs(rgb: &[u8], w: usize, h: usize) -> Result<Glyphs, ink::page::
         }
         // px of this measure → bake px
         let to_bake = 1.0 / (pg.f * k);
-        let (mx, my) = (pg.w() as f64 / 2.0, pg.h() as f64 / 2.0);
-        let near = |c: usize| (pg.cx[c] - mx).powi(2) + (pg.cy[c] - my).powi(2);
-        let sample = (1..pg.n)
-            .filter(|&c| pg.keep[c] && (pg.st[c].h as f64 - pg.xh).abs() < 0.5)
-            .min_by(|&a, &b| near(a).total_cmp(&near(b)))
-            .map(|c| {
-                let s = &pg.st[c];
-                [s.x as f64 * to_bake, s.y as f64 * to_bake, s.w as f64 * to_bake, s.h as f64 * to_bake]
-            })
-            .ok_or_else(|| ink::page::NoInk("no text blob of the median height".into()))?;
-        return Ok(Glyphs { xh: pg.xh * to_bake, pitch: pg.pitch * to_bake, sample });
+        return Ok(Glyphs { xh: pg.xh * to_bake, pitch: pg.pitch * to_bake });
     }
     Err(ink::page::NoInk(format!("no plausible writing size ({})", why.join("; "))))
-}
-
-/// NORMALIZE a whole page (OCR Lite's Text size: a photo, a close-up): `rgb` = the page at its bake scale (w × h,
-/// unpadded), its GLYPH HEIGHT (page_glyphs) brought to `target_xh` (scale::XH_*), capped by the bake's edge; no ink =
-/// no scale (a warning)
-pub fn page_scale(rgb: &[u8], w: usize, h: usize, target_xh: f64) -> Decision {
-    match page_glyphs(rgb, w, h) {
-        Ok(g) => glyph_scale(&g, w, h, target_xh),
-        Err(e) => Decision { factor: 1.0, reason: "normalize: no ink".into(), warning: Some(format!("{e} — no scale derived")), own_pitch: None, lines: 0 },
-    }
-}
-
-/// page_scale's decision from a measure already taken (`g` of the w × h page at its bake scale)
-pub fn glyph_scale(g: &Glyphs, w: usize, h: usize, target_xh: f64) -> Decision {
-    let cap = scale::LONGEST / (w.max(h) as f64);
-    let factor = (target_xh / g.xh).min(cap);
-    let capped = if cap < target_xh / g.xh { format!(" (capped: the page reaches the {} px edge)", scale::LONGEST as i64) } else { String::new() };
-    Decision {
-        factor,
-        reason: format!("glyph height {} → {} (target {}; line pitch {}){capped}", g.xh.round() as i64, (g.xh * factor).round() as i64, target_xh, g.pitch.round() as i64),
-        warning: None,
-        own_pitch: Some(g.pitch),
-        lines: 0,
-    }
 }

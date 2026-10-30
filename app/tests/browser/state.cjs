@@ -114,7 +114,7 @@ let BIG = null;
     const w = path.basename(img) === path.basename(BIG) ? "3000" : "700";
     await page.waitForFunction((w, before) => {
       const i = document.getElementById("img");
-      return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").textContent.startsWith(`${w} ×`);
+      return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").title.startsWith(`${w} ×`);
     }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
@@ -187,7 +187,7 @@ let BIG = null;
   await check(page, "image · zoomed", E.imgZoomed);
   await page.click("#zoomFitBtn");
   await page.click('[data-op="rotateLeft"]');
-  await page.waitForFunction(() => document.getElementById("bakeInfo").textContent.startsWith("2000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("2000 ×"));
   await check(page, "image · one step", E.stepped);
 
   // ── reopen: Draw crop → crop mode → pending → Cancel ──
@@ -270,10 +270,10 @@ let BIG = null;
   if (!process.env.OCR_LITE_READ_IMAGE) {
     R.skip("background → read stopped: needs a real page that yields text — set OCR_LITE_READ_IMAGE");
   } else {
-  const before = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
+  const before = await page.evaluate(() => document.getElementById("bakeInfo").title);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([process.env.OCR_LITE_READ_IMAGE]);
-  await page.waitForFunction((b) => document.getElementById("bakeInfo").textContent !== b, { timeout: 30000 }, before);
+  await page.waitForFunction((b) => document.getElementById("bakeInfo").title !== b, { timeout: 30000 }, before);
   await sleep(300);
   // Stop before the text (the image encode runs ~10 s here): the engine released at once, the read ends within seconds
   await page.click("#readBtn");

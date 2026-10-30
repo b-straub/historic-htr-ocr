@@ -177,9 +177,9 @@ fn clear_of_others_cuts_a_neighbour_out() {
     assert!(!contains(&r, p(85., 25.)) && contains(&r, p(85., 75.)) && contains(&r, p(25., 25.)), "{r:?}");
 }
 
-/// Text size of a whole page: words 30 px high at a pitch of 100 px → their glyph height brought to the average
+/// the writing size of a whole page: words 30 px high at a pitch of 100 px
 #[test]
-fn page_scale_brings_the_glyph_height_to_the_target() {
+fn page_glyphs_measures_the_glyph_height() {
     let (w, h) = (1000usize, 1400usize);
     let mut rgb = vec![255u8; w * h * 3];
     for line in 0..12 {
@@ -204,7 +204,6 @@ fn page_scale_brings_the_glyph_height_to_the_target() {
             x += 90;
         }
     }
-    let d = ocr_layout::tools::page_scale(&rgb, w, h, ocr_layout::scale::XH_AVERAGE);
-    assert!(d.warning.is_none(), "{:?}", d);
-    assert!((d.factor - 23.0 / 30.0).abs() < 0.05, "{:?}", d);
+    let g = ocr_layout::tools::page_glyphs(&rgb, w, h).expect("a writing size");
+    assert!((g.xh - 30.0).abs() < 1.5 && (g.pitch - 100.0).abs() < 3.0, "glyph height {} pitch {}", g.xh, g.pitch);
 }

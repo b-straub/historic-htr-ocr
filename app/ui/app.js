@@ -49,7 +49,9 @@ const S = {
   ops: [],          // the prep chain (imageops::Op), applied in order to the opened image
   prev: null,       // the last preview: { url, w, h, bake }
   readBake: null,   // the bake plan of the read's model input (Scale may differ from the preview's)
-  glyphs: null,     // the page's writing size for the Text size gauge (glyph_height), null = not measured / as is
+  // the Scale, reset for every image: mode "manual" / "auto"; range = the cropped page's glyph_height ({ xh, lo, auto,
+  // hi } or { none }), null without a crop or not yet measured; factor = what the read applies (1 = as is)
+  size: { mode: "manual", range: null, factor: 1 },
   sharp: false,     // the shown preview is the sharp (zoomed-in) one
   stem: "",
   reading: false,
@@ -192,6 +194,7 @@ async function openPath(src) {
   }
   S.stem = o.stem;
   S.ops = [];
+  S.size = { mode: "manual", range: null, factor: 1 }; // a new image: Manual, as is
   setTab("image");
   zoom = 1;
   crumb(`open ${o.stem} ${o.w}×${o.h}`);
@@ -204,7 +207,6 @@ async function openPath(src) {
 let previewSeq = 0;
 async function refresh() {
   cancelCrop();
-  gaugeShown = false; // a new image / step: the gauge goes (measured again below)
   const seq = ++previewSeq;
   const old = S.prev;
   const sharp = S.sharp && zoom > 1; // zoomed in on a sharp preview: ask for the sharp one straight away
@@ -218,9 +220,9 @@ async function refresh() {
   $("drop").hidden = true;
   layout();
   drawBakeInfo();
-  $("opsChips").innerHTML = S.ops.map((o) => `<span class="chip">${o.op === "crop" ? `crop ${o.w}×${o.h}` : OP_LABEL[o.op]}</span>`).join("");
+  $("opsChips").innerHTML = S.ops.map((o) => `<span class="chip">${o.op === "crop" ? "crop" : OP_LABEL[o.op]}</span>`).join("");
   applyState();
-  measureGlyphs(); // a new image / step: the gauge measured again (Text size set)
+  measureSize(); // a new image / step: the Scale's range measured again on a crop
 }
 function pushOp(op) {
   if (!S.prev) return;
@@ -300,7 +302,6 @@ function zoomTo(z, from, to = from) {
   z = Math.min(zoomMax(), Math.max(1, z));
   if (z < 1.005) z = 1;
   zoom = z;
-  gaugeShown = false; // an image action: the gauge goes
   crumb(`zoom ${Math.round(z * 100)} %`, true);
   layout({ from, to });
 }
@@ -395,9 +396,8 @@ const helpHome = { parent: $("helpBtn").parentNode, next: $("helpBtn").nextSibli
 const tabsHome = { parent: $("paneTabs").parentNode, next: $("paneTabs").nextSibling };
 function placeRead() {
   if (COMPACT.matches && document.body.dataset.tab !== "text") {
-    $("zoomSeg").after($("readBtn"));
     // Help and Settings join the image head too: the title bar keeps one row, no buttons left alone at its end
-    $("scaleSel").closest("label").after($("helpBtn"), $("settingsBtn"));
+    $("zoomSeg").after($("readBtn"), $("helpBtn"), $("settingsBtn"));
   } else {
     readHome.parent.insertBefore($("readBtn"), readHome.next);
     helpHome.parent.insertBefore($("helpBtn"), helpHome.next);
@@ -461,93 +461,105 @@ const retab = () => {
 STACKED.addEventListener("change", retab);
 COMPACT.addEventListener("change", retab);
 
-// ── Text size gauge: the page's glyph height (a sample blob outlined) beside the chosen target, at the image's scale ──
-const SIZE_NAME = { smaller: "smaller", average: "average page", larger: "larger" };
-let glyphSeq = 0;
-// shown when the text size changes and when a read starts with one; any image action (a touch on the image, a zoom, a
-// step, a crop, a new image) or its × hides it — the measure stays for the next showing
-let gaugeShown = false;
-function showGauge(on) {
-  gaugeShown = on;
-  drawGauge();
-}
-$("gaugeClose").onclick = () => showGauge(false);
-// a tap on the label is its own: the pane under it would take the pointer for a pan / crop
-$("gaugeLabel").addEventListener("pointerdown", (e) => e.stopPropagation());
-async function measureGlyphs() {
-  const seq = ++glyphSeq;
-  S.glyphs = null;
-  drawGauge();
-  drawBakeInfo();
-  if (S.settings.textSize === null || !S.prev) {
+// ── Scale: Manual · slider · Auto. The slider runs in the letters' height for the model (bake px, steps of 1) over the
+// cropped page's range (glyph_height: ocr-layout scale::xh_range — 9 … 45 px, never past the 1540 px edge); without a
+// crop the image is read as is ──
+let sizeSeq = 0;
+const hasCrop = () => S.ops.some((o) => o.op === "crop");
+async function measureSize() {
+  const seq = ++sizeSeq;
+  S.size.range = null;
+  S.size.factor = 1;
+  drawScale();
+  if (!S.prev || !hasCrop()) {
     return;
   }
-  let g;
+  let r;
   try {
-    g = await call("glyph_height", { ops: S.ops });
+    r = await call("glyph_height", { ops: S.ops });
   } catch {
     return; // call() put the error in the status line
   }
-  if (seq !== glyphSeq) return;
-  S.glyphs = g;
-  drawGauge();
-  drawBakeInfo();
+  if (seq !== sizeSeq) return;
+  S.size.range = r;
+  if (r.none !== undefined) {
+    status(`Scale: ${r.none} — the image is read as is`, "err");
+  } else {
+    // Auto: its factor; Manual: as is, kept inside the range
+    S.size.factor = S.size.mode === "auto" ? r.auto : Math.min(r.hi, Math.max(r.lo, 1));
+    crumb(`scale ${S.size.mode} ×${S.size.factor.toFixed(2)} (letters ${Math.round(r.xh)} px, ${r.lo.toFixed(2)} … ${r.hi.toFixed(2)})`);
+  }
+  drawScale();
 }
-// the model size beside the image: the preview's bake; with a Text size, once measured, that size's decision and model
-// input (glyph_height's sizes — the read's ocr:input reports the same)
+// the slider, the buttons, the letters' height and the model size from S.size
+function drawScale() {
+  const r = S.size.range, ok = r !== null && r.none === undefined;
+  $("scaleManualBtn").classList.toggle("on", S.size.mode === "manual");
+  $("scaleAutoBtn").classList.toggle("on", S.size.mode === "auto");
+  const sl = $("scaleSlider");
+  if (ok) {
+    sl.min = String(Math.ceil(r.xh * r.lo - 1e-6));
+    sl.max = String(Math.floor(r.xh * r.hi + 1e-6));
+    sl.value = String(Math.round(r.xh * S.size.factor));
+  }
+  drawBakeInfo();
+  applyState();
+}
+$("scaleSlider").oninput = () => {
+  const r = S.size.range, v = Number($("scaleSlider").value);
+  S.size.mode = "manual";
+  // the scan's own letter height on the slider = as is (no resize)
+  S.size.factor = v === Math.round(r.xh) && r.lo <= 1 && 1 <= r.hi ? 1 : v / r.xh;
+  drawScale();
+};
+$("scaleSlider").onchange = () => crumb(`scale manual ×${S.size.factor.toFixed(2)}`);
+$("scaleManualBtn").onclick = () => {
+  const r = S.size.range;
+  S.size.mode = "manual";
+  if (r !== null && r.none === undefined) {
+    S.size.factor = Math.min(r.hi, Math.max(r.lo, 1));
+  }
+  crumb("scale manual");
+  drawScale();
+};
+// Auto: not yet cropped → the text crop proposed (the crop bar's Auto; Crop applies it, the factor follows its measure)
+$("scaleAutoBtn").onclick = () => {
+  S.size.mode = "auto";
+  crumb("scale auto");
+  const r = S.size.range;
+  if (!hasCrop()) {
+    drawScale();
+    showCropBar(true);
+    pageSide = "";
+    findCrop();
+    return;
+  }
+  if (r !== null && r.none === undefined) {
+    S.size.factor = r.auto;
+  }
+  drawScale();
+};
+// the status after the tools: the crop (or the image), the factor from it to the model input, the average glyph height
+// there — "1300 × 800 · ×1.2 · 23 px"; the scaled size, line height and model input in its tooltip (a tap shows it in
+// the status line). The scaled size = the preview's bake scale × the Scale's factor, as bake_scaled makes it (inside
+// the 1540 px edge by the range; imageops::plan pads it to 56 px and the 28 px grid)
 function drawBakeInfo() {
-  const p = S.prev, g = S.glyphs, size = S.settings === null ? null : S.settings.textSize;
+  const p = S.prev;
   if (p === null) {
     return;
   }
-  const info = $("bakeInfo");
-  if (size !== null && g !== null && g.none === undefined) {
-    const d = g.sizes[size];
-    info.textContent = `${p.w} × ${p.h} → model ${d.w} × ${d.h} · ${textSize(d)}`;
-    info.title = d.summary;
-    return;
+  const b = p.bake, f = S.size.factor, r = S.size.range;
+  const w = f === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * f)), h = f === 1 ? b.scaledH : Math.max(1, Math.round(b.scaledH * f));
+  const ok = r !== null && r.none === undefined;
+  const by = `×${Number((w / p.w).toFixed(2))}`;
+  $("bakeInfo").textContent = `${p.w} × ${p.h} · ${by}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
+  let fw = w, fh = h;
+  if (Math.min(fw, fh) < 56) {
+    if (fw <= fh) { fw = 56; } else { fh = 56; }
   }
-  const b = p.bake;
-  const fw = b.scaledW + b.left + b.right, fh = b.scaledH + b.top + b.bottom;
-  info.textContent = size !== null && g !== null ? `${p.w} × ${p.h} → model ${fw} × ${fh} · ${textSize({ warning: g.none })}` : `${p.w} × ${p.h} → model ${fw} × ${fh}`;
-  info.title = b.scaledW === p.w ? "kept at its size, white pad to the 28 px grid" : `scaled to ${b.scaledW} × ${b.scaledH}, white pad to the 28 px grid`;
-}
-function drawGauge() {
-  const g = S.glyphs, size = S.settings === null ? null : S.settings.textSize;
-  const el = $("gauge");
-  if (g === null || size === null || g.none !== undefined || !gaugeShown) {
-    el.hidden = true;
-    if (g !== null && g.none !== undefined) {
-      status(`Text size: ${g.none} — the image is read as is`, "err");
-    }
-    return;
-  }
-  const k = D / g.scale; // CSS px per bake px
-  const [x, y, w, h] = g.sample;
-  const t = g.targets[size];
-  const base = (y + h) * k;
-  // both at their exact heights (the borders inside): the blob's and the target's compare as they are
-  Object.assign($("gaugeSample").style, { left: `${x * k}px`, top: `${y * k}px`, width: `${w * k}px`, height: `${h * k}px` });
-  // the factor the read applies: capped where the page reaches the model's 1540 px edge — the bar = the height the
-  // read gets, the dashed rest = the target it cannot reach
-  const f = Math.min(t / g.xh, g.cap);
-  const got = g.xh * f;
-  Object.assign($("gaugeTarget").style, { left: `${(x + w) * k + 6}px`, top: `${base - got * k}px`, height: `${got * k}px` });
-  const short = t - got > 0.5;
-  $("gaugeMissing").hidden = !short;
-  if (short) {
-    Object.assign($("gaugeMissing").style, { left: `${(x + w) * k + 6}px`, top: `${base - t * k}px`, height: `${(t - got) * k}px` });
-  }
-  // the label names the three marks: blue = the letters now, solid orange = what the read gets, dashed = the target the
-  // read cannot reach — the page already fills the model's 1540 px input; only a tighter crop leaves room to enlarge
-  const by = Math.abs(f - 1) < 0.005 ? "as is" : `×${f.toFixed(2)}`;
-  const tail = !short ? "" : `<span class="dash">${SIZE_NAME[size]} ${t}: full size — crop tighter for more</span>`;
-  $("gaugeText").innerHTML = `<b>now ${Math.round(g.xh)}</b><span class="sep"> · </span><i>read ${Math.round(got)} (${short ? by : `${SIZE_NAME[size]}, ${by}`})</i>${tail}`;
-  el.hidden = false;
-  // under the blob, kept inside the image (its × in reach)
-  const label = $("gaugeLabel"), room = S.prev.w * D;
-  label.style.left = "0px"; // measured at the left edge: placed further right it would wrap before it is moved back
-  Object.assign(label.style, { left: `${Math.max(0, Math.min(x * k, room - label.offsetWidth - 2))}px`, top: `${base + 6}px` });
+  const why = r === null ? (hasCrop() ? " · measuring the letters…" : " · the Scale works on a cropped image") : r.none !== undefined ? ` · ${r.none}` : "";
+  const lines = ok ? `, glyph height ${Math.round(r.xh * f)} px, line height ${Math.round(r.pitch * f)} px` : "";
+  $("bakeInfo").title = `${p.w} × ${p.h} scaled ${by} to ${w} × ${h}${lines}; model input ${Math.ceil(fw / 28) * 28} × ${Math.ceil(fh / 28) * 28} (white pad to the 28 px grid)${why}`;
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -559,7 +571,6 @@ function drawOverlay() {
     Object.assign(rect.style, { left: `${c.x}px`, top: `${c.y}px`, width: `${c.w}px`, height: `${c.h}px` });
     rect.hidden = false;
   }
-  drawGauge();
   applyState(); // every change of the crop rect (and of the zoom, via layout) passes here
 }
 function setCropMode(on) {
@@ -669,9 +680,6 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   };
   pane.addEventListener("pointerdown", (ev) => {
     if (!S.prev || stage.hidden) return;
-    if (gaugeShown) {
-      showGauge(false); // a touch on the image: the gauge goes
-    }
     if (ev.pointerType === "touch") {
       if (ev.isPrimary) {
         // a fresh first finger: no finger is down — one whose end the pane missed (it lifted outside) is gone
@@ -1193,14 +1201,11 @@ $("readBtn").onclick = async () => {
     crumb("zoom to fit for the read");
     zoomTo(1, paneCentre());
   }
-  if (S.settings.textSize !== null) {
-    showGauge(true); // the read's text size shown as it starts
-  }
   setReading(true);
   status("Starting…", "busy");
   try {
     S.readBake = null;
-    await call("read", { ops: S.ops, preset: $("presetSel").value, textSize: S.settings.textSize });
+    await call("read", { ops: S.ops, preset: $("presetSel").value, factor: S.size.factor });
   } catch { setReading(false); }
 };
 // the checks before a read → true: it may start; false: refused, the status says why
@@ -1256,35 +1261,17 @@ function phaseTimes(r) {
 const PHASES = { encodingImage: "Encoding image…", loadingText: "Loading the text model…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
 const scan = scanOverlay($("stage"), $("img"));
 listen("ocr:phase", (e) => scan.phase(e.payload, S.readBake));
-/// the Text size decision in a few plain words (Rust's tools::page_scale: reason / warning) — the measure in the tooltip
-function textSize(d) {
-  if (d.warning !== null) {
-    return "⚠ no text found: as is";
-  }
-  if (d.factor > 1.0001) {
-    return `text ×${d.factor.toFixed(1)} larger`;
-  }
-  if (d.factor < 0.9999) {
-    return `text ×${d.factor.toFixed(2)} smaller`;
-  }
-  return /capped/.test(d.reason) ? "text as is (full size)" : "text already fits";
-}
 // a tap on the model size line: its detail (the tooltip) in the status line — a touch screen shows no tooltip
 $("bakeInfo").onclick = () => {
   if ($("bakeInfo").title !== "") {
     status($("bakeInfo").title, "ok");
   }
 };
-// the read's model input: its plan (the scan sweeps it), its size and the Scale decision beside the image
+// the read's model input: its plan (the scan sweeps it) — the status already shows its size (drawBakeInfo)
 listen("ocr:input", (e) => {
-  const { plan, w, h, scale } = e.payload;
+  const { plan, w, h, factor } = e.payload;
   S.readBake = plan;
-  const p = S.prev;
-  const size = p ? `${p.w} × ${p.h} → model ${w} × ${h}` : `model ${w} × ${h}`;
-  $("bakeInfo").textContent = scale === null ? size : `${size} · ${textSize(scale)}`;
-  // the measure behind it (pitch → target) in the tooltip
-  $("bakeInfo").title = scale === null ? "" : scale.warning === null ? scale.summary : `${scale.summary} — ${scale.warning}`;
-  crumb(`input ${w}×${h}${scale === null ? "" : ` ${scale.summary}${scale.warning === null ? "" : ` ⚠ ${scale.warning}`}`}`);
+  crumb(`input ${w}×${h}${factor === 1 ? "" : ` ×${factor.toFixed(2)}`}`);
 });
 listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the vision weights' load
 listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
@@ -1367,21 +1354,7 @@ function fillPresetSel() {
     sel.append(o);
   }
   sel.value = S.settings.preset;
-  $("scaleSel").value = S.settings.textSize === null ? "" : S.settings.textSize;
 }
-$("scaleSel").onchange = async () => {
-  const v = $("scaleSel").value;
-  const next = { ...S.settings, textSize: v === "" ? null : v };
-  try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("scaleSel").value = S.settings.textSize === null ? "" : S.settings.textSize; }
-  crumb(`text size ${v === "" ? "as is" : v}`);
-  gaugeShown = v !== "";
-  if (S.glyphs !== null) {
-    drawGauge(); // the page measured already: only the target changes
-    drawBakeInfo();
-  } else {
-    measureGlyphs();
-  }
-};
 $("presetSel").onchange = async () => {
   const next = { ...S.settings, preset: $("presetSel").value };
   try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("presetSel").value = S.settings.preset; }
@@ -1568,7 +1541,12 @@ function applyState() {
   enable($("imgUndoBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("resetBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("presetSel"), !busy, BUSY_WHY);
-  enable($("scaleSel"), !busy, BUSY_WHY);
+  // the Scale: Auto with an image (it crops first); Manual + the slider on a measured crop
+  const sized = img && !busy && !cropping && cropped && S.size.range !== null && S.size.range.none === undefined;
+  const sizeWhy = !img ? noImg : busy ? BUSY_WHY : cropping ? cropWhy : !cropped ? "Crop first: the Scale works on a cropped image" : S.size.range === null ? "Measuring the letters…" : S.size.range.none;
+  enable($("scaleAutoBtn"), img && !busy && !cropping && !S.finding, !img ? noImg : busy ? BUSY_WHY : cropping ? cropWhy : "Finding the crop…");
+  enable($("scaleManualBtn"), sized, sizeWhy);
+  enable($("scaleSlider"), sized, sizeWhy);
   enable($("settingsBtn"), !busy, BUSY_WHY);
   drawReadBtn(img, cropping);
   // the image card

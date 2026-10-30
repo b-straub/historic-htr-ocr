@@ -30,22 +30,35 @@ pub const TARGET_LOW: f64 = 43.0;
 pub const TARGET_MID: f64 = 50.5;
 pub const TARGET_HIGH: f64 = 59.5;
 
-/// the WHOLE-PAGE targets (OCR Lite's Text size): the glyph height (ink::Page::xh — the median height of the page's
-/// text blobs, bake px) of the trained pages, weighted by each corpus' training pages: p25 18 · median 23 · p75 29
-/// (p5 11 · p95 43; the same pages and measure as the pitch quartiles). A page is scaled by its glyph height, not its
-/// line pitch: a dense hand (textura) has large letters at an ordinary pitch
-pub const XH_SMALLER: f64 = 18.0;
-pub const XH_AVERAGE: f64 = 23.0;
-pub const XH_LARGER: f64 = 29.0;
+/// OCR Lite's Scale slider for a cropped page, in its GLYPH HEIGHT (ink::Page::xh — the median height of the page's text
+/// blobs, bake px). The trained pages' glyph heights: p5 11 · p25 18 · median 23 · p75 29 · p95 43 (weighted by each
+/// corpus' training pages). Below XH_MIN the strokes collapse into too few pixels; above XH_MAX the model has hardly
+/// seen letters. A page read at its own size reads as well as or better than at a common target (6 + 4 validation
+/// pages, 15 … 24 px: a 32 px hand brought to 21 px read 4.2 % CER instead of 1.3 %; within about ±25 % of its own
+/// size no gain) — UNMEASURED beyond those pages
+pub const XH_MIN: f64 = 11.0;
+pub const XH_MAX: f64 = 43.0;
+/// the slider reaches a little beyond the trained range, never far (4 or 70 px letters read badly) — UNMEASURED
+pub const SLIDE_MIN: f64 = 9.0;
+pub const SLIDE_MAX: f64 = 45.0;
 
-/// Text size by name ("smaller" / "average" / "larger") → its glyph height target
-pub fn xh_target(name: &str) -> Option<f64> {
-    match name {
-        "smaller" => Some(XH_SMALLER),
-        "average" => Some(XH_AVERAGE),
-        "larger" => Some(XH_LARGER),
-        _ => None,
+/// the slider's factors for a page of glyph height `xh` and longest edge `longest` (both bake px): `lo` / `hi` bring
+/// its letters to SLIDE_MIN / SLIDE_MAX (`hi` never past the bake's 1540 px edge); `auto` = the page as is inside the
+/// trained range, else its nearest end. None = letters too small even at 1540 px (a tighter crop leaves room)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Range {
+    pub lo: f64,
+    pub auto: f64,
+    pub hi: f64,
+}
+
+pub fn xh_range(xh: f64, longest: f64) -> Option<Range> {
+    let lo = SLIDE_MIN / xh;
+    let hi = (SLIDE_MAX / xh).min(LONGEST / longest);
+    if hi < lo {
+        return None;
     }
+    Some(Range { lo, auto: (xh.clamp(XH_MIN, XH_MAX) / xh).min(hi), hi })
 }
 
 /// a scale decision
@@ -285,6 +298,26 @@ mod tests {
             ..Default::default()
         };
         close(normalize(TARGET_MID, &large, 1540.0, None).factor, 50.5 / 350.0);
+    }
+
+    #[test]
+    fn slider_range() {
+        let r = xh_range(20.0, 600.0).expect("a range");
+        close(r.lo, 9.0 / 20.0);
+        close(r.auto, 1.0);
+        close(r.hi, 45.0 / 20.0);
+        // a close-up's 80 px letters: auto brings them to 43, the slider to 9 … 45
+        let r = xh_range(80.0, 1000.0).expect("a range");
+        close(r.auto, 43.0 / 80.0);
+        close(r.hi, 45.0 / 80.0);
+        // small letters: auto to 11 px, the slider up only to the 1540 px edge
+        let r = xh_range(8.0, 1000.0).expect("a range");
+        close(r.hi, 1.54);
+        close(r.auto, 11.0 / 8.0);
+        let r = xh_range(8.0, 1200.0).expect("a range");
+        close(r.auto, 1540.0 / 1200.0);
+        // 9 px not reachable inside 1540 px
+        assert!(xh_range(8.0, 1400.0).is_none());
     }
 
     #[test]

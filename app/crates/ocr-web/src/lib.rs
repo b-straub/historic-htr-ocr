@@ -228,31 +228,20 @@ pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
     .map_err(js_err)
 }
 
-/// the page's writing size for the Text size gauge: { xh, pitch, sample: [x, y, w, h] — bake px; scale: bake px per
-/// page px; cap: the largest factor the bake's edge allows; targets: { smaller, average, larger } — the glyph heights
-/// Text size scales to; sizes: { smaller, average, larger } — each the read's decision { factor, summary, reason, warning } and
-/// its model input { w, h }, as bake_normalized makes them }; { none: why } without ink
+/// the Scale slider for the prepared (cropped) page, measured at its bake scale: { xh, pitch, lo, auto, hi } — the glyph
+/// height and line pitch (bake px), the slider's factors (ocr-layout scale::xh_range); { none: why } without
+/// measurable writing or when its letters stay below the slider even at the 1540 px edge
 #[wasm_bindgen]
 pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
         let (img, _) = prepared(ops_json)?;
         let small = at_bake_scale(&img);
         let (sw, sh) = small.dimensions();
-        let targets = serde_json::json!({ "smaller": ocr_layout::scale::XH_SMALLER, "average": ocr_layout::scale::XH_AVERAGE, "larger": ocr_layout::scale::XH_LARGER });
         Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), sw as usize, sh as usize) {
-            Ok(g) => {
-                let mut sizes = serde_json::Map::new();
-                for size in ["smaller", "average", "larger"] {
-                    let target = ocr_layout::scale::xh_target(size).ok_or_else(|| anyhow!("no text size '{size}'"))?;
-                    let d = ocr_layout::tools::glyph_scale(&g, sw as usize, sh as usize, target);
-                    // the whole page scaled as bake_region scales it, then baked
-                    let (nw, nh) = if (d.factor - 1.0).abs() > 1e-4 { (((sw as f64 * d.factor).round() as u32).max(1), ((sh as f64 * d.factor).round() as u32).max(1)) } else { (sw, sh) };
-                    let p = imageops::plan(Bake::PIXTRAL, nw, nh);
-                    sizes.insert(size.into(), serde_json::json!({ "factor": d.factor, "summary": d.summary(), "reason": d.reason, "warning": d.warning, "w": p.final_w(), "h": p.final_h() }));
-                }
-                serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "sample": g.sample, "scale": sw as f64 / img.width() as f64,
-                    "cap": ocr_layout::scale::LONGEST / sw.max(sh) as f64, "targets": targets, "sizes": sizes })
-            }
+            Ok(g) => match ocr_layout::scale::xh_range(g.xh, sw.max(sh) as f64) {
+                Some(r) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "lo": r.lo, "auto": r.auto, "hi": r.hi }),
+                None => serde_json::json!({ "none": format!("letters {} px — below {} px even at {} px, crop tighter", g.xh.round() as i64, ocr_layout::scale::SLIDE_MIN, ocr_layout::scale::LONGEST) }),
+            },
             Err(e) => serde_json::json!({ "none": e.to_string() }),
         }
         .to_string())
@@ -260,28 +249,21 @@ pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
     .map_err(js_err)
 }
 
-/// a read's preparation with the page's TEXT SIZE `size` ("smaller" / "average" / "larger": the trained pages' glyph
-/// heights, ocr-layout scale::xh_target — photos, close-ups) — the glyph height measured on the page at its bake scale
-/// (ocr-layout tools::page_scale), the page then scaled by the
-/// decision's factor (imageops::bake_region over the whole page): as bake + `scale` = { factor, summary, reason, warning }
+/// a read's preparation with the page scaled by `factor` (the Scale slider) on top of its bake scale — one Lanczos3
+/// resize from the page's own pixels (imageops::bake_region over the whole page): as bake
 #[wasm_bindgen]
-pub fn bake_normalized(ops_json: &str, size: &str) -> Result<Object, JsError> {
+pub fn bake_scaled(ops_json: &str, factor: f64) -> Result<Object, JsError> {
     (|| -> Result<Object> {
-        let target = ocr_layout::scale::xh_target(size).ok_or_else(|| anyhow!("no text size '{size}'"))?;
         let (img, stem) = prepared(ops_json)?;
-        let small = at_bake_scale(&img);
-        let d = ocr_layout::tools::page_scale(small.as_raw(), small.width() as usize, small.height() as usize, target);
-        drop(small);
         let (w, h) = (img.width() as f64, img.height() as f64);
         let page = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
-        let (baked, plan) = imageops::bake_region(&img, &page, Bake::PIXTRAL, &imageops::RegionInput { scale: d.factor, ..imageops::RegionInput::PLAIN })?;
+        let (baked, plan) = imageops::bake_region(&img, &page, Bake::PIXTRAL, &imageops::RegionInput { scale: factor, ..imageops::RegionInput::PLAIN })?;
         let o = Object::new();
         set(&o, "w", baked.width())?;
         set(&o, "h", baked.height())?;
         set(&o, "rgb", Uint8Array::from(baked.as_raw().as_slice()))?;
         set(&o, "plan", serde_json::to_string(&plan)?)?;
         set(&o, "seed", seed_for_stem(&stem) as f64)?;
-        set(&o, "scale", serde_json::json!({ "factor": d.factor, "summary": d.summary(), "reason": d.reason, "warning": d.warning }).to_string())?;
         Ok(o)
     })()
     .map_err(js_err)

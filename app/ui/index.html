@@ -35,21 +35,24 @@
     <section class="card" id="imgCard">
       <div class="cardhead">
         <span class="label">Image</span>
-        <span class="chips" id="opsChips"></span>
-        <span class="grow"></span>
+        <!-- the Scale (app.js Scale): Manual · the slider (the letters' height for the model, px) · Auto — the slider only
+             on a cropped image, its range from the crop's letters (ocr-layout scale::xh_range); reset for every image -->
+        <span class="seg" id="scaleSeg">
+          <button class="btn small toggle" id="scaleManualBtn" title="Manual: the slider sets the letters' height for the model (as is on a new crop)">Manual</button>
+          <i data-icon="textsize"></i>
+          <input type="range" id="scaleSlider" step="1" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
+          <button class="btn small toggle" id="scaleAutoBtn" title="Auto: crop to the text, then the letters into the trained range (as is when they already are)">Auto</button>
+        </span>
         <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
           <button class="ib" id="zoomOutBtn" title="Zoom out"><i data-icon="zoomout"></i></button>
           <span class="meta zoomval" id="zoomVal">100 %</span>
           <button class="ib" id="zoomInBtn" title="Zoom in"><i data-icon="zoomin"></i></button>
           <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
         </span>
+        <!-- the tools above, the status after them: upright on a line of its own, else the line's rest (cut with …) -->
+        <span class="rowbreak"></span>
+        <span class="chips" id="opsChips"></span>
         <span class="meta" id="bakeInfo"></span>
-        <label class="select iconsel"><i data-icon="textsize"></i><select id="scaleSel" aria-label="Text size" title="Text size: how large the letters come to the model. As is = the image unchanged. Average page = the image scaled so its letters are as tall as on an average page the model learned from (a whole page read at full size); smaller / larger = as on the pages with smaller / larger letters. For photos and close-ups.">
-          <option value="">as is</option>
-          <option value="smaller">smaller</option>
-          <option value="average">average page</option>
-          <option value="larger">larger</option>
-        </select></label>
         <!-- the crop bar (app.js cropBar): over this head (never over the image, never moving it) — open after an image
              loads; Draw + the page modes, a rectangle's size + Cancel / Crop (upright a second line) -->
         <div class="cropbar" id="cropBar" hidden>
@@ -75,12 +78,6 @@
         <div id="stage" hidden>
           <img id="img" alt="page" draggable="false">
           <div id="rect" hidden><i class="hd tl"></i><i class="hd tr"></i><i class="hd bl"></i><i class="hd br"></i></div>
-          <div id="gauge" hidden title="Text size: blue = a word of the page's typical letter height now; solid orange = the height the read gets; dashed = the rest of the target, when the page already fills the model's 1540 px input (crop tighter to enlarge further)">
-            <div id="gaugeSample"></div>
-            <div id="gaugeTarget"></div>
-            <div id="gaugeMissing" hidden></div>
-            <span id="gaugeLabel"><span id="gaugeText"></span><button class="ib" id="gaugeClose" title="Hide the text size gauge (it shows again for the next image or text size)" aria-label="Hide the gauge"><i data-icon="close"></i></button></span>
-          </div>
         </div>
         <div class="empty" id="drop">
           <i data-icon="image"></i>
@@ -329,7 +326,7 @@
           <li><b>Open</b> an image, or drop it on the image pane.</li>
           <li><b>Crop</b> to the text: the crop button → <b>Find crop</b> (Page: Auto, Left, Right, Double, Leaf) or <b>Draw crop</b> (drag a rectangle — it may begin beside the image; drag its edges or corners to adjust it, inside it to move it), then Crop.</li>
           <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper. Undo / back to the original beside them.</li>
-          <li><b>Text size</b> (above the image) for photos and close-ups: <b>average page</b> scales the image so its letters are as tall as on an average whole page the model learned from — a close-up of a few lines is made smaller. <b>Smaller</b> / <b>larger</b> try a bit less or more if a read is poor; <b>as is</b> reads the image unchanged. When the text size changes and as a read starts, a gauge shows on the image: blue = a word of the page's typical letter height <i>now</i>; solid orange beside it = the height the <i>read</i> gets; dashed above it = the rest of the target, when the page already fills the model's 1540 px input (full size) — then only a tighter crop leaves room to enlarge. Any touch on the image hides it. When the read starts, what was done shows above the image (e.g. "text ×0.64 smaller"; tap it for the measure).</li>
+          <li><b>Scale</b> (above the image): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. <b>Manual</b> starts as is; <b>Auto</b> crops to the text (when not yet cropped) and then reads the letters as is when they lie in the trained range, else scales them just to its nearest end — a close-up made smaller, tiny writing larger. After Auto the slider still moves inside its range. Every new image starts at Manual, as is.</li>
           <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
           <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
           <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
