@@ -20,13 +20,7 @@ const IMG = process.env.OCR_LITE_READ_IMAGE ?? null;
 const EXPECT = process.env.OCR_LITE_READ_EXPECT ?? null;
 const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
 
-const cropTool = async (page, id) => {
-  // Page / Auto: behind the title bar's crop button
-  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
-    await page.click("#cropBtn");
-  }
-  await page.click(id);
-};
+const cropTool = (page, id) => page.click(id);
 (async () => {
   const real = MODEL_DIR !== null && IMG !== null && EXPECT !== null;
   const srv = await serve(8804, { modelDir: real ? MODEL_DIR : fakeModel() });
@@ -171,7 +165,7 @@ const cropTool = async (page, id) => {
     await page.click("#cropApplyBtn");
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
     await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
-    const sizeLine = await page.evaluate(() => document.getElementById("bakeInfo").textContent);
+    const sizeLine = await page.evaluate(() => `${document.getElementById("bakeInfo").textContent} · ${document.getElementById("scaleInfo").textContent}`);
     await page.evaluate(() => { window.__text = ""; });
     await page.click("#zoomInBtn"); await page.click("#zoomInBtn"); // a zoomed image goes back to fit for the read
     await page.click("#readBtn");
@@ -181,7 +175,7 @@ const cropTool = async (page, id) => {
     await page.waitForFunction(() => /tok\/s|stopped|token limit/.test(document.getElementById("status").textContent), { timeout: 10000, polling: 100 });
     const fitForRead = await page.evaluate(() => document.getElementById("zoomVal").textContent);
     ok(fitForRead === "100 %", `the zoomed image back to fit for the read: ${fitForRead}`);
-    const scaled = await page.evaluate(() => ({ info: document.getElementById("bakeInfo").textContent, st: document.getElementById("status").textContent, text: window.__text }));
+    const scaled = await page.evaluate(() => ({ info: `${document.getElementById("bakeInfo").textContent} · ${document.getElementById("scaleInfo").textContent}`, st: document.getElementById("status").textContent, text: window.__text }));
     // the read's model input is the one the size line showed before it
     ok(scaled.info === sizeLine && /· 9 px$/.test(scaled.info) && /tok\/s/.test(scaled.st) && scaled.text.length > 0, `Scale read: ${scaled.info} · ${scaled.text.length} chars`);
     fs.writeFileSync(path.join(DIR, "out", "read_scaled.txt"), scaled.text);

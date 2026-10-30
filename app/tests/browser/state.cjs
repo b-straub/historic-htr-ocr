@@ -16,8 +16,8 @@ const OUT = require("./lib.cjs").outDir("state");
 // every control of the state table (app.js) by a short name
 const C = {
   open: "#openBtn", rotL: '[data-op="rotateLeft"]', rotR: '[data-op="rotateRight"]', rot180: '[data-op="rotate180"]',
-  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', cropBtn: "#cropBtn", crop: "#pageCropBtn",
-  find: "#textCropBtn", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
+  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', crop: "#pageCropBtn",
+  find: "#textCropBtn", cropCancel: "#cropCancelBtn", cropApply: "#cropApplyBtn", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
   settings: "#settingsBtn", about: "#aboutBtn", read: "#readBtn", zoomOut: "#zoomOutBtn", zoomIn: "#zoomInBtn",
   fit: "#zoomFitBtn", fmt: "#fmtSeg button", gap: "#gapBtn", tab: "#tabBtn", undo: "#undoBtn", redo: "#redoBtn",
   markup: "#markupBtn", copy: "#copyBtn", save: "#saveBtn", saveTxt: '[data-save="txt"]', saveHtml: '[data-save="html"]',
@@ -28,13 +28,13 @@ const ALL = Object.keys(C);
 const ALWAYS = ["help", "about"];
 const EDIT = ["fmt", "gap", "tab", "markup"];
 const STEPS = ["rotL", "rotR", "rot180", "contrast", "pencil"];
-const CROPMENU = ["cropBtn", "crop", "find"];
+const CROPMENU = ["crop", "find"];
 const E = {
   noImg: [...ALWAYS, "open", "preset", "settings", ...EDIT],
   noModelImg: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng"],
   img: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read"],
   imgZoomed: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "zoomOut", "fit", "save", "savePng", "read"],
-  crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "zoomIn", "save", "savePng"],
+  crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "cropCancel", "cropApply", "zoomIn", "save", "savePng"],
   stepped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
   // cropped: Page / Auto still on (they start from the uncropped image)
   cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
@@ -52,13 +52,7 @@ let browser = null;
 let BASE = null;
 let BIG = null;
 
-const cropTool = async (page, id) => {
-  // Page / Auto: behind the title bar's crop button
-  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
-    await page.click("#cropBtn");
-  }
-  await page.click(id);
-};
+const cropTool = (page, id) => page.click(id);
 (async () => {
   const real = MODEL_DIR !== null;
   srv = await serve(8802, { modelDir: real ? MODEL_DIR : fakeModel() });
@@ -134,8 +128,9 @@ const cropTool = async (page, id) => {
     }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
-  // the image head: the Scale, or the crop (Page · Auto) with Cancel · Crop while a rectangle shows
-  const cropCtl = (page) => page.evaluate(() => ["cropSeg", "scaleSeg", "cropAct"].filter((id) => !document.getElementById(id).hidden).join(" "));
+  // the bar's rows keep every control in place: the crop (Page · Auto), Cancel · Apply and the Scale always shown
+  const cropCtl = (page) => page.evaluate(() => ["cropSeg", "cropAct", "scaleSeg"].filter((id) => document.getElementById(id).offsetParent !== null).join(" "));
+  const ALLCTL = "cropSeg cropAct scaleSeg";
 
   // ── no model (a fresh context: its own empty storage) ──
   {
@@ -190,7 +185,7 @@ const cropTool = async (page, id) => {
 
   // ── a fresh large image: the Scale in the image head (the crop behind the title bar's crop button) ──
   await open(page, BIG);
-  ok(await cropCtl(page) === "scaleSeg", `a fresh image: the Scale in its slot (${await cropCtl(page)})`);
+  ok(await cropCtl(page) === ALLCTL, `a fresh image: crop, Cancel · Apply and the Scale in their places (${await cropCtl(page)})`);
   await check(page, "image", E.img, /^Read the image/);
   await page.screenshot({ path: `${OUT}/image_desktop_light.png` });
   // dialogs: modal — nothing changes behind them
@@ -209,11 +204,11 @@ const cropTool = async (page, id) => {
   await open(page, BIG);
   await check(page, "image (reopened, steps cleared)", E.img);
   await cropTool(page, "#pageCropBtn");
-  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping") && !document.getElementById("rect").hidden) && await cropCtl(page) === "cropSeg cropAct",
-    `Page → crop mode, a rectangle, Cancel · Crop in the Scale's place (${await cropCtl(page)})`);
+  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping") && !document.getElementById("rect").hidden) && await cropCtl(page) === ALLCTL,
+    `Page → crop mode, a rectangle, nothing moved (${await cropCtl(page)})`);
   await check(page, "pending crop", E.crop, /^Apply or cancel the crop first/);
   await page.click("#cropCancelBtn");
-  ok(await cropCtl(page) === "scaleSeg" && await page.evaluate(() => document.getElementById("rect").hidden), "Cancel → the rectangle gone, the Scale back");
+  ok(await cropCtl(page) === ALLCTL && await page.evaluate(() => document.getElementById("rect").hidden), "Cancel → the rectangle gone");
   await check(page, "crop cancelled", E.img);
 
   // ── reopen: Auto → the text crop (no writing in the synthetic image: the whole image to adjust) → Crop ──
@@ -240,7 +235,7 @@ const cropTool = async (page, id) => {
   await page.evaluate(() => { window.__ops = []; });
   await page.click("#cropApplyBtn");
   await page.waitForFunction(() => window.__ops.some((o) => o.includes('"crop"')));
-  ok(await cropCtl(page) === "scaleSeg", "after a crop: the Scale back in its slot");
+  ok(await cropCtl(page) === ALLCTL, "after a crop: every control in its place");
   await check(page, "cropped by hand", E.cropped);
 
   // ── reopen: Read → starting → reading → Stop → stopping → idle ──

@@ -35,6 +35,7 @@ const ICONS = {
   table: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M12 5v14"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/>',
   textsize: '<path d="m10 19 5-14 5 14"/><path d="M11.8 14h6.4"/><path d="m2 19 3.3-8 3.3 8"/><path d="M3.2 16.2h4.2"/>',
   wand: '<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>',
@@ -199,7 +200,6 @@ async function openPath(src) {
   S.stem = o.stem;
   S.ops = [];
   uncropped = null;
-  cropOpen = false;
   sizeKey = null;
   setTab("image");
   zoom = 1;
@@ -366,8 +366,6 @@ $("img").addEventListener("load", () => sharpen());
 let cropMode = false;
 // Page / Auto on a cropped image start from the uncropped one: the chain before (Cancel puts it back), else null
 let uncropped = null;
-// the crop tools open (the title bar's crop button): Crop: Page · Auto in the image head, in place of the Scale
-let cropOpen = false;
 let pending = null; // { x, y, w, h } in prepared-image pixels
 let drag = null;    // the rectangle being drawn: { id, start, cur, prev } (points in prepared-image pixels)
 // the rectangle a drag gives: a new one from where it began (mode "new"), or the drawn one (d.base) with the grabbed
@@ -411,23 +409,10 @@ function grabOf(b, p) {
 // ── Image / Text tabs: upright on a narrow screen one card at a time (style.css); each keeps its zoom, scroll and
 // fit while away — the hidden pane is neither laid out nor fitted (layout / fitText), its scroll put back on return
 // tab mode (body.stacked): a narrow screen upright, and a phone on its side (too little width for two panes) — there
-// the tabs sit in the title bar (one row), upright in a bar at the bottom; Read beside the zoom on the phone's side
-// when the image shows (the title bar keeps one row), else in the title bar
+// the tabs sit in the bar after the logo, upright in a bar at the bottom
 const STACKED = matchMedia("(max-width: 820px) and (orientation: portrait), (orientation: landscape) and (max-height: 500px)");
 const COMPACT = matchMedia("(orientation: landscape) and (max-height: 500px)");
-const readHome = { parent: $("readBtn").parentNode, next: $("readBtn").nextSibling };
-const helpHome = { parent: $("helpBtn").parentNode, next: $("helpBtn").nextSibling };
 const tabsHome = { parent: $("paneTabs").parentNode, next: $("paneTabs").nextSibling };
-function placeRead() {
-  if (COMPACT.matches && document.body.dataset.tab !== "text") {
-    // Help and Settings join the image head too: the title bar keeps one row, no buttons left alone at its end
-    $("zoomSeg").after($("readBtn"), $("helpBtn"), $("settingsBtn"));
-  } else {
-    readHome.parent.insertBefore($("readBtn"), readHome.next);
-    helpHome.parent.insertBefore($("helpBtn"), helpHome.next);
-    $("helpBtn").after($("settingsBtn"));
-  }
-}
 function placeTabs() {
   document.body.classList.toggle("stacked", STACKED.matches);
   if (COMPACT.matches) {
@@ -435,7 +420,6 @@ function placeTabs() {
   } else {
     tabsHome.parent.insertBefore($("paneTabs"), tabsHome.next);
   }
-  placeRead();
 }
 const tabScroll = { image: { left: 0, top: 0 }, text: { left: 0, top: 0 } };
 const tabScroller = (t) => (t === "image" ? $("imgPane") : markupView ? $("src") : $("editor"));
@@ -454,7 +438,6 @@ function setTab(t) {
     b.setAttribute("aria-selected", String(b.dataset.tab === t));
   }
   crumb(`tab ${t}`);
-  placeRead();
   if (!STACKED.matches) {
     return;
   }
@@ -572,13 +555,17 @@ function drawBakeInfo() {
   if (rb) {
     $("bakeInfo").textContent = `${rb.w} × ${rb.h}`;
     $("bakeInfo").title = `${p.w} × ${p.h} — the rectangle ${rb.w} × ${rb.h} at (${rb.x}, ${rb.y})`;
+    $("scaleInfo").textContent = "";
     return;
   }
   const b = p.bake, f = S.size.factor, r = S.size.range;
   const w = f === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * f)), h = f === 1 ? b.scaledH : Math.max(1, Math.round(b.scaledH * f));
   const ok = r !== null && r.none === undefined;
   const by = `×${Number((w / p.w).toFixed(2))}`;
-  $("bakeInfo").textContent = `${p.w} × ${p.h} · ${by} · ${w} × ${h}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
+  // the Read row: the image (or crop) → the model input ("from" goes on a narrow phone); the Adjust row: the factor and
+  // the letters' height there
+  $("bakeInfo").replaceChildren(Object.assign(document.createElement("span"), { className: "from", textContent: `${p.w} × ${p.h} → ` }), `${w} × ${h}`);
+  $("scaleInfo").textContent = `${by}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
   let fw = w, fh = h;
   if (Math.min(fw, fh) < 56) {
     if (fw <= fh) { fw = 56; } else { fh = 56; }
@@ -605,29 +592,10 @@ function setCropMode(on) {
   $("stage").classList.toggle("cropping", on);
   applyState();
 }
-// the image head: the Scale, or — the crop open — Crop: Page · Auto, with Cancel · Crop while a rectangle shows
-function drawCropTools(cropping) {
-  const open = cropOpen || cropping;
-  $("cropBtn").classList.toggle("on", open);
-  $("cropSeg").hidden = !open;
-  $("cropAct").hidden = !cropping;
-  $("scaleSeg").hidden = open;
-  enable($("cropApplyBtn"), pending !== null, "Drag a rectangle first");
-}
-$("cropBtn").onclick = () => {
-  if (cropOpen || cropMode) {
-    dropCrop(); // closed: a rectangle up goes with it
-    return;
-  }
-  cropOpen = true;
-  applyState();
-};
 $("cropApplyBtn").onclick = () => applyCrop();
 $("cropCancelBtn").onclick = () => dropCrop();
-// Cancel / Esc / the crop button: the rectangle gone, the crop closed — a crop taken off for it (Page / Auto on a
-// cropped image) back
+// Cancel / Esc: the rectangle gone — a crop taken off for it (Page / Auto on a cropped image) back
 function dropCrop() {
-  cropOpen = false;
   cancelCrop();
   if (uncropped !== null) {
     S.ops = uncropped;
@@ -646,7 +614,6 @@ function applyCrop() {
   const op = { op: "crop", ...pending };
   cancelCrop();
   uncropped = null;
-  cropOpen = false;
   pushOp(op);
 }
 
@@ -836,7 +803,7 @@ async function uncrop() {
 $("pageCropBtn").onclick = async () => {
   await uncrop();
   showPending({ x: 0, y: 0, w: S.prev.w, h: S.prev.h });
-  status(`Page: ${S.prev.w} × ${S.prev.h} — drag its edges, then Crop`, "ok");
+  status(`Page: ${S.prev.w} × ${S.prev.h} — drag its edges, then ✓`, "ok");
 };
 $("textCropBtn").onclick = async () => {
   await uncrop();
@@ -857,7 +824,7 @@ $("textCropBtn").onclick = async () => {
     return;
   }
   showPending(r);
-  status(`Text crop: ${r.w} × ${r.h} at (${r.x}, ${r.y}) — Crop to apply, Cancel to drop`, "ok");
+  status(`Text crop: ${r.w} × ${r.h} at (${r.x}, ${r.y}) — ✓ to apply, ✕ to cancel`, "ok");
 };
 
 document.addEventListener("keydown", (e) => {
@@ -1453,14 +1420,12 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //   control                        enabled when                                   disabled → title says
 //   Open (+ drop, the empty pane)  not busy                                       busy: "Wait for the read to end"
 //   rotate ×3, contrast, pencil    image · no crop mode / pending · not finding   "Open an image first" · "Finish the
-//                                  · not busy                                     crop first (Crop / Cancel)" · busy ·
+//                                  · not busy                                     crop first (✓ / ✕)" · busy ·
 //                                                                                 "Finding the crop…"
-//   crop menu ▸                    image · not finding · not busy                 "Open an image first" · busy ·
+//   Page, Auto                     image · not finding · not busy                 "Open an image first" · busy ·
 //                                                                                 "Finding the crop…"
-//     Page side                    always (a setting, kept per browser)
-//     Draw crop, Find crop         as the menu button (also the crop tip's two)
-//   crop tip: Use whole page,      always while the tip shows (it shows only with an image, never while busy)
-//     Don't show again
+//   ✕ cancel crop                  a rectangle shows (or is being drawn)          "Nothing to cancel …"
+//   ✓ apply crop                   a rectangle shows                              "Nothing to crop …"
 //   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own title
 //                                  not finding · not busy
 //   preset select                  not busy                                       busy (the running read keeps its own)
@@ -1498,11 +1463,10 @@ function applyState() {
   const img = S.prev !== null;
   const cropping = cropMode || pending !== null || drag !== null;
   const cropped = S.ops.some((o) => o.op === "crop");
-  drawCropTools(cropping);
   const editing = S.editor !== null && !markupView;
   const text = S.editor !== null && currentMarkup().trim() !== "";
   const noImg = "Open an image first";
-  const cropWhy = "Finish the crop first (Crop / Cancel)";
+  const cropWhy = "Finish the crop first (✓ / ✕)";
   // the title bar
   enable($("openBtn"), !busy, BUSY_WHY);
   const steps = img && !cropping && !S.finding && !busy;
@@ -1518,11 +1482,13 @@ function applyState() {
   // Page / Auto: with an image, also on a cropped one (they start from the uncropped image) and over a rectangle
   const crop = img && !S.finding && !busy;
   const cropWhy2 = !img ? noImg : busy ? BUSY_WHY : "Finding the crop…";
-  enable($("cropBtn"), crop, cropWhy2);
   enable($("pageCropBtn"), crop, cropWhy2);
   enable($("textCropBtn"), crop, cropWhy2);
   enable($("imgUndoBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("resetBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
+  // Cancel / Apply: while a rectangle shows (Apply once it is drawn)
+  enable($("cropCancelBtn"), img && cropping && !busy, !img ? noImg : "Nothing to cancel — Page or Auto put up a rectangle");
+  enable($("cropApplyBtn"), img && pending !== null && !busy, !img ? noImg : "Nothing to crop — Page or Auto put up a rectangle");
   enable($("presetSel"), !busy, BUSY_WHY);
   // the Scale on a measured crop: the slider; Auto until applied (again after a slider move or a crop change)
   const scaling = img && !busy && !cropping && cropped && sized();
@@ -1598,7 +1564,7 @@ function drawReadBtn(img, cropping) {
   const why = mode === "starting" ? "Checking before the read…"
     : !S.model.ready ? S.model.why
       : !img ? "Open an image first"
-        : cropping ? "Apply or cancel the crop first (Crop / Cancel)"
+        : cropping ? "Apply or cancel the crop first (✓ / ✕)"
           : S.finding ? "Finding the crop…" : "";
   btn.disabled = why !== "";
   btn.title = why !== "" ? why : `Read the image (preset ${$("presetSel").value})`;

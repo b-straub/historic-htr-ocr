@@ -8,13 +8,7 @@ const path = require("path");
 const { launch, serve, outDir, results, testImages, REPO } = require("./lib.cjs");
 const R = results("ui");
 const ok = R.ok;
-const cropTool = async (page, id) => {
-  // Page / Auto: behind the title bar's crop button
-  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
-    await page.click("#cropBtn");
-  }
-  await page.click(id);
-};
+const cropTool = (page, id) => page.click(id);
 (async () => {
   const OUT = outDir("ui");
   const srv = await serve(8801);
@@ -100,9 +94,9 @@ const cropTool = async (page, id) => {
   ok(/no writing found/.test(none.st) && none.rect && none.info === "3000 × 2000", `Auto on the synthetic image: ${none.st} ("${none.info}")`);
   await page.click("#cropCancelBtn");
   await cropTool(page, "#pageCropBtn");
-  const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), act: !document.getElementById("cropAct").hidden,
-    scale: !document.getElementById("scaleSeg").hidden, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
-  ok(ctl0.mode && ctl0.act && !ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Page → crop mode, the whole image ("${ctl0.info}"), Cancel · Crop in the Scale's slot`);
+  const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), cancel: !document.getElementById("cropCancelBtn").disabled,
+    scale: document.getElementById("scaleSlider").disabled, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
+  ok(ctl0.mode && ctl0.cancel && ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Page → crop mode, the whole image ("${ctl0.info}"), ✕ · ✓ on, the Scale off`);
   // at 200 %: the image's lower right corner scrolled into view, the right edge dragged 40 px left, the bottom 30 px up
   await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft = p.scrollWidth; p.scrollTop = p.scrollHeight; });
   await new Promise((r) => setTimeout(r, 200));
@@ -140,7 +134,7 @@ const cropTool = async (page, id) => {
   ok(near(got.x, expect.x) && near(got.y, expect.y) && near(got.w, expect.w) && near(got.h, expect.h), `crop adjusted at 200 % and at fit: got ${JSON.stringify(got)} expected ${JSON.stringify(expect)} (± 1)`);
   await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, got.w);
   s = await st();
-  ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropAct").hidden && !document.getElementById("scaleSeg").hidden), "after Crop the mode is left, the Scale back");
+  ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropApplyBtn").disabled && document.getElementById("cropCancelBtn").disabled), "after ✓ the mode is left, ✕ · ✓ off");
   ok(s.zoom === "100 %", `after the crop: back to fit (${s.zoom}), ${s.info}`);
   await page.screenshot({ path: `${OUT}/04_cropped.png` });
   // a cropped image: Page starts from the uncropped one, Cancel puts the crop back
@@ -222,13 +216,13 @@ const cropTool = async (page, id) => {
   ok(!(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping"))), "Esc leaves the crop mode");
   // without a keyboard: Cancel is the way out; a tap on the waiting Read says why
   await cropTool(page, "#pageCropBtn");
-  const bar = await page.evaluate(() => !document.getElementById("cropAct").hidden);
+  const bar = await page.evaluate(() => !document.getElementById("cropCancelBtn").disabled);
   const rb = await page.evaluate(() => { const r = document.getElementById("readBtn").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.touchscreen.tap(rb.x, rb.y);
   const why = await page.evaluate(() => document.getElementById("status").textContent);
   await page.click("#cropCancelBtn");
-  const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropAct").hidden && !document.getElementById("scaleSeg").hidden);
-  ok(bar && /^Read waits: /.test(why) && left, `Cancel shown, a tap on Read: "${why}", Cancel leaves the mode (the Scale back)`);
+  const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropCancelBtn").disabled);
+  ok(bar && /^Read waits: /.test(why) && left, `✕ on, a tap on Read: "${why}", ✕ leaves the mode`);
   // one finger drags the rectangle's lower right corner in
   await cropTool(page, "#pageCropBtn");
   await page.evaluate(() => { window.__ops = []; });
@@ -338,7 +332,7 @@ const cropTool = async (page, id) => {
     const st = () => page.evaluate(() => ({
       img: getComputedStyle(document.getElementById("imgCard")).display !== "none",
       text: getComputedStyle(document.getElementById("textCard")).display !== "none",
-      steps: getComputedStyle(document.getElementById("imgSteps")).display !== "none",
+      steps: getComputedStyle(document.getElementById("cropRow")).display !== "none" && getComputedStyle(document.getElementById("adjustRow")).display !== "none",
       zoom: document.getElementById("zoomVal").textContent,
       left: document.getElementById("imgPane").scrollLeft,
     }));
@@ -370,7 +364,7 @@ const cropTool = async (page, id) => {
     ok(geo.i.top > geo.p.top + 30 && Math.abs(rc.left - to.x) < 1.5 && Math.abs(rc.top - to.y) < 1.5 && Math.abs(rc.right - ic.right) < 1.5 && Math.abs(rc.bottom - ic.bottom) < 1.5,
       `a press beside the image moves the nearest corner: rect ${rc.left.toFixed(0)},${rc.top.toFixed(0)} – ${rc.right.toFixed(0)},${rc.bottom.toFixed(0)} (drag ended at ${to.x.toFixed(0)},${to.y.toFixed(0)})`);
     // Cancel · Crop on screen, no horizontal scroll, the image still
-    const bar2 = await page.evaluate(() => ({ crop: document.getElementById("cropApplyBtn").getBoundingClientRect().right, vw: innerWidth, sw: document.documentElement.scrollWidth, shown: !document.getElementById("cropAct").hidden }));
+    const bar2 = await page.evaluate(() => ({ crop: document.getElementById("cropApplyBtn").getBoundingClientRect().right, vw: innerWidth, sw: document.documentElement.scrollWidth, shown: document.getElementById("cropAct").offsetParent !== null }));
     await page.screenshot({ path: `${OUT}/11d_phone_crop.png` });
     ok(bar2.shown && bar2.crop <= bar2.vw && bar2.sw <= bar2.vw && Math.abs(ic.top - top0) < 0.5, `phone crop: Crop at ${bar2.crop.toFixed(0)} of ${bar2.vw}, page ${bar2.sw} wide, the image stayed (top ${top0.toFixed(1)} → ${ic.top.toFixed(1)})`);
     await page.click("#cropCancelBtn");
@@ -396,7 +390,7 @@ const cropTool = async (page, id) => {
     // the Scale: without a crop off (as is); Auto finds the text crop, Crop applies it, the letters measured — 1:1 at
     // first, Auto offered
     const scale = () => page.evaluate(() => ({ off: document.getElementById("scaleSlider").disabled, auto: !document.getElementById("scaleAutoBtn").disabled,
-      min: +document.getElementById("scaleSlider").min, max: +document.getElementById("scaleSlider").max, info: document.getElementById("bakeInfo").textContent,
+      min: +document.getElementById("scaleSlider").min, max: +document.getElementById("scaleSlider").max, info: document.getElementById("scaleInfo").textContent,
       // the tools' places: the status' text never moves them
       at: ["scaleSlider", "scaleAutoBtn"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
     const s0 = await scale();
@@ -406,16 +400,21 @@ const cropTool = async (page, id) => {
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
     const s1 = await scale();
     const px = (i) => +/· (\d+) px$/.exec(i)[1];
-    const by = (i) => +/· ×([\d.]+)/.exec(i)[1];
+    const by = (i) => +/×([\d.]+)/.exec(i)[1];
     ok(s0.off && !s0.auto && !/px$/.test(s0.info) && !s1.off && s1.auto && by(s1.info) === 1 && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max,
       `Scale: off without a crop ("${s0.info}"); a crop starts at 1:1 with Auto offered: "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
-    // upright the image head is two lines: the crop, the Scale and the zoom, then the status
+    // upright the bar is four lines: logo · Help · Settings, then Crop, Adjust, the Read row with Read — each on screen,
+    // the sizes not cut
     const head = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
-      const sc = r("scaleSeg"), sl = r("scaleSlider"), info = r("bakeInfo"), h = document.querySelector("#imgCard .cardhead").getBoundingClientRect();
-      return { below: info.top >= sc.bottom - 1, h: Math.round(h.height), right: sc.right, vw: innerWidth, slider: Math.round(sl.width) };
+      const top = ["aboutBtn", "cropRow", "adjustRow", "readRow"].map((id) => Math.round(r(id).top));
+      const cut = ["scaleInfo", "bakeInfo"].filter((id) => { const e = document.getElementById(id); return e.scrollWidth > e.clientWidth; });
+      return { top, rows: top.every((t, k) => k === 0 || t > top[k - 1]), readLine: Math.abs(r("readBtn").top - r("readRow").top) < 8,
+        right: Math.max(...["cropRow", "adjustRow", "readBtn"].map((id) => r(id).right)), vw: innerWidth, slider: Math.round(r("scaleSlider").width),
+        h: Math.round(document.querySelector(".titlebar").getBoundingClientRect().height), cut };
     });
-    ok(head.below && head.h < 90 && head.right <= head.vw && head.slider >= 120, `phone image head in two lines: the Scale (slider ${head.slider} px), the status below ${head.below}, ${head.h} px tall`);
+    ok(head.rows && head.readLine && head.right <= head.vw && head.slider >= 120 && head.cut.length === 0 && head.h < 190,
+      `phone bar upright: four lines at ${head.top.join(" / ")} (${head.h} px), slider ${head.slider} px, cut: ${head.cut.join(" ") || "none"}`);
     // Auto applied → off until the slider moves; the slider to its low end: smaller at once, Auto offered; the slider
     // back to the crop's own letter height: 1:1 again
     await page.click("#scaleAutoBtn");
@@ -479,24 +478,25 @@ const cropTool = async (page, id) => {
     const where = () => page.evaluate(() => ({
       stacked: document.body.classList.contains("stacked"),
       tabsInBar: document.getElementById("paneTabs").parentElement.classList.contains("titlebar"),
-      readBeside: document.getElementById("readBtn").previousElementSibling === document.getElementById("zoomSeg"),
-      oneRow: document.querySelector(".titlebar").getBoundingClientRect().height < 60,
+      bar: Math.round(document.querySelector(".titlebar").getBoundingClientRect().height),
     }));
     const a = await where();
     await page.screenshot({ path: `${OUT}/13_phone_landscape.png` });
-    // the image head on its side: the tools, then the status on the same line
+    // on its side two lines: Crop · Adjust, then logo · tabs · Read row · Help · Settings · Read
     const row = await page.evaluate(() => {
       const mid = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return (r.top + r.bottom) / 2; };
-      const info = document.getElementById("bakeInfo").getBoundingClientRect(), z = document.getElementById("settingsBtn").getBoundingClientRect();
-      return { off: Math.max(...["scaleSeg", "readBtn", "bakeInfo"].map(mid)) - Math.min(...["scaleSeg", "readBtn", "bakeInfo"].map(mid)), after: info.left >= z.right, w: info.width,
-        cut: document.getElementById("bakeInfo").scrollWidth > document.getElementById("bakeInfo").clientWidth };
+      const spread = (ids) => Math.max(...ids.map(mid)) - Math.min(...ids.map(mid));
+      const cut = ["scaleInfo", "bakeInfo"].filter((id) => { const e = document.getElementById(id); return e.scrollWidth > e.clientWidth; });
+      return { one: spread(["cropRow", "adjustRow"]), two: spread(["aboutBtn", "paneTabs", "readRow", "settingsBtn", "readBtn"]), below: mid("readRow") > mid("cropRow") + 20,
+        right: document.getElementById("readBtn").getBoundingClientRect().right, vw: innerWidth, cut };
     });
-    ok(row.off < 3 && row.after && !row.cut, `phone on its side: tools then the status in one line (${row.off.toFixed(1)} px apart, status ${Math.round(row.w)} px wide, not cut ${!row.cut})`);
+    ok(row.one < 3 && row.two < 3 && row.below && row.right <= row.vw && row.cut.length === 0,
+      `phone on its side: two lines (${row.one.toFixed(1)} / ${row.two.toFixed(1)} px apart), Read at ${Math.round(row.right)} of ${row.vw}, cut: ${row.cut.join(" ") || "none"}`);
     await page.click("#paneTabs [data-tab=text]");
     await new Promise((r) => setTimeout(r, 200));
     const b = await where();
     await page.screenshot({ path: `${OUT}/13b_phone_landscape_text.png` });
-    ok(a.stacked && a.tabsInBar && a.readBeside && a.oneRow && !b.readBeside && b.oneRow, `phone on its side: image ${JSON.stringify(a)} · text ${JSON.stringify(b)}`);
+    ok(a.stacked && a.tabsInBar && a.bar < 110 && b.bar < 60, `phone on its side: image ${JSON.stringify(a)} · text (the Read line only) ${JSON.stringify(b)}`);
     await page.click("#paneTabs [data-tab=image]");
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   }

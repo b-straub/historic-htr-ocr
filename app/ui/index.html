@@ -10,60 +10,72 @@
 </head>
 <body>
   <div class="edgeband" aria-hidden="true"></div>
+  <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn, Page /
+       Auto, Cancel / Apply, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (preset, the
+       model input's size, zoom, Read). Upright: the app row (logo · Help · Settings) on top, then the three; on its side
+       two lines — Crop · Adjust, then logo · Read row · Help · Settings · Read. Every control keeps its place: a control
+       that cannot act is greyed out, never hidden -->
   <header class="titlebar">
     <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
-    <button class="btn" id="openBtn" title="Open an image"><i data-icon="folder"></i><span class="openlabel">Open</span></button>
-    <div class="seg" id="imgSteps" title="image steps — applied in order, each one undoable">
-      <button class="ib" data-op="rotateLeft" title="Rotate left"><i data-icon="rotl"></i></button>
-      <button class="ib" data-op="rotateRight" title="Rotate right"><i data-icon="rotr"></i></button>
-      <button class="ib" data-op="rotate180" title="Rotate 180°"><i data-icon="flip"></i></button>
-      <span class="div"></span>
-      <button class="ib" data-op="autoContrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
-      <button class="ib" data-op="pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
-      <span class="div"></span>
-      <button class="ib" id="cropBtn" title="Crop: Page · Auto in the image head, in place of the Scale"><i data-icon="autocrop"></i></button>
-      <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
-      <button class="ib" id="resetBtn" title="Back to the original — every image step undone"><i data-icon="reset"></i></button>
+    <span class="grow appgap"></span>
+    <div class="row" id="cropRow">
+      <button class="btn" id="openBtn" title="Open an image"><i data-icon="folder"></i><span class="openlabel">Open</span></button>
+      <span class="seg">
+        <button class="ib" data-op="rotateLeft" title="Rotate left"><i data-icon="rotl"></i></button>
+        <button class="ib" data-op="rotateRight" title="Rotate right"><i data-icon="rotr"></i></button>
+        <button class="ib" data-op="rotate180" title="Rotate 180°"><i data-icon="flip"></i></button>
+      </span>
+      <!-- the crop (app.js crop): Page = the whole image, Auto = the text block found — a rectangle to adjust, then
+           Cancel or Apply -->
+      <span class="seg" id="cropSeg">
+        <button class="btn small" id="pageCropBtn" title="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
+        <button class="btn small" id="textCropBtn" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
+      </span>
+      <span class="seg" id="cropAct">
+        <button class="ib" id="cropCancelBtn" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
+        <button class="ib" id="cropApplyBtn" title="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
+      </span>
+      <span class="seg">
+        <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
+        <button class="ib" id="resetBtn" title="Back to the original — every image step undone"><i data-icon="reset"></i></button>
+      </span>
     </div>
-    <div class="grow"></div>
-    <label class="select"><select id="presetSel" title="decoding preset"></select></label>
-    <button class="ib ghost" id="helpBtn" title="Help"><i data-icon="help"></i></button>
-    <button class="ib ghost" id="settingsBtn" title="Settings"><i data-icon="gear"></i></button>
+    <div class="row" id="adjustRow">
+      <span class="seg">
+        <button class="ib" data-op="autoContrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
+        <button class="ib" data-op="pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
+      </span>
+      <!-- the Scale (app.js Scale): the slider (the letters' height for the model, px) · Auto — only on a cropped image,
+           its range from the crop's letters (ocr-layout scale::xh_range); every crop change starts at 1:1. After it
+           what it gives: the factor to the model input and the letters' height there -->
+      <span class="seg" id="scaleSeg">
+        <span class="croplabel">Scale</span>
+        <input type="range" id="scaleSlider" step="1" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
+        <button class="ib" id="scaleAutoBtn" title="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
+      </span>
+      <span class="meta" id="scaleInfo"></span>
+    </div>
+    <span class="rowbreak"></span>
+    <div class="row" id="readRow">
+      <label class="select"><select id="presetSel" title="decoding preset"></select></label>
+      <!-- the image (or crop) and the model input's size; the detail is its tooltip (a tap shows it in the status line) -->
+      <span class="meta" id="bakeInfo"></span>
+      <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
+        <button class="ib" id="zoomOutBtn" title="Zoom out"><i data-icon="zoomout"></i></button>
+        <span class="meta zoomval" id="zoomVal">100 %</span>
+        <button class="ib" id="zoomInBtn" title="Zoom in"><i data-icon="zoomin"></i></button>
+        <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
+      </span>
+    </div>
+    <span class="row" id="appRow">
+      <button class="ib ghost" id="helpBtn" title="Help"><i data-icon="help"></i></button>
+      <button class="ib ghost" id="settingsBtn" title="Settings"><i data-icon="gear"></i></button>
+    </span>
     <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
   </header>
 
   <main>
     <section class="card" id="imgCard">
-      <div class="cardhead">
-        <span class="label">Image</span>
-        <!-- the crop (app.js crop), opened by the title bar's crop button in place of the Scale: Page = the whole image,
-             Auto = the text block found — a rectangle to adjust, then Cancel / Crop (both close the crop again) -->
-        <span class="seg" id="cropSeg" hidden>
-          <span class="croplabel">Crop</span>
-          <button class="btn small" id="pageCropBtn" title="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
-          <button class="btn small" id="textCropBtn" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
-        </span>
-        <span class="cropact" id="cropAct" hidden>
-          <button class="btn small" id="cropCancelBtn" title="Drop the rectangle — the image stays as it was">Cancel</button>
-          <button class="btn small primary" id="cropApplyBtn" title="Crop the image to the rectangle">Crop</button>
-        </span>
-        <!-- the Scale (app.js Scale): the slider (the letters' height for the model, px) · Auto — only on a cropped image,
-             its range from the crop's letters (ocr-layout scale::xh_range); every crop change starts at 1:1 -->
-        <span class="seg" id="scaleSeg">
-          <span class="croplabel">Scale</span>
-          <input type="range" id="scaleSlider" step="1" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
-          <button class="ib" id="scaleAutoBtn" title="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
-        </span>
-        <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
-          <button class="ib" id="zoomOutBtn" title="Zoom out"><i data-icon="zoomout"></i></button>
-          <span class="meta zoomval" id="zoomVal">100 %</span>
-          <button class="ib" id="zoomInBtn" title="Zoom in"><i data-icon="zoomin"></i></button>
-          <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
-        </span>
-        <!-- the tools above, the status after them: upright on a line of its own, else the line's rest (cut with …) -->
-        <span class="rowbreak"></span>
-        <span class="meta" id="bakeInfo"></span>
-      </div>
       <div class="imgwrap" id="imgPane">
         <div id="stage" hidden>
           <img id="img" alt="page" draggable="false">
@@ -277,7 +289,7 @@
       </section>
       <section data-step="done" hidden>
         <p><b>Ready — open an image and press Read.</b></p>
-        <p class="hint">Crop to the text first (the crop button in the title bar: Page or Auto, then adjust the rectangle); Contrast or Pencil help with faint ink or uneven paper.</p>
+        <p class="hint">Crop to the text first (Page or Auto in the first row, then adjust the rectangle and ✓); Contrast or Pencil help with faint ink or uneven paper.</p>
         <div class="dlgfoot">
           <button type="button" class="btn" id="suDone">Close</button>
           <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i>Open an image</button>
@@ -314,15 +326,16 @@
         <h3>Workflow</h3>
         <ol>
           <li><b>Open</b> an image, or drop it on the image pane.</li>
-          <li><b>Crop</b>: the crop button opens <b>Page</b> and <b>Auto</b> above the image. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then <b>Crop</b>; Cancel drops it. On a cropped image Page and Auto start again from the uncropped one.</li>
-          <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out. Undo / back to the original beside them.</li>
-          <li><b>Scale</b> (above the image): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. The line beside it: crop · scale · scaled size · letter height.</li>
+          <li>The tools come in three rows: <b>Crop</b> (what part of the image), <b>Adjust</b> (how it looks to the model), <b>Read</b>. On a phone's side the first two share a line.</li>
+          <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then ✓ (Apply); ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
+          <li><b>Adjust</b> row: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out.</li>
+          <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
           <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
           <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
           <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
         </ol>
         <h3>Phone, and tablet upright</h3>
-        <p>Image and Text are two tabs (a bar at the bottom; on a phone's side in the title bar); each keeps its zoom and scroll, and shows only its own tools. A new image opens on Image, a read switches to Text as its text begins.</p>
+        <p>Image and Text are two tabs (a bar at the bottom; on a phone's side after the logo); each keeps its zoom and scroll, and shows only its own tools. A new image opens on Image, a read switches to Text as its text begins.</p>
         <h3>Zoom</h3>
         <p>− / + / fit above the image<span class="kbd">; ⌘ / ctrl + wheel or a trackpad pinch</span>; two fingers on a touch screen. A drag pans; a <span class="kbd">double-click or </span>double-tap fits. The text zooms the same way (two fingers<span class="kbd">, ⌘ / ctrl + wheel</span>); Fit starts it again from the whole line width.</p>
         <h3>Status line</h3>
