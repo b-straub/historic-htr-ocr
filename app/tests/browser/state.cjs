@@ -16,8 +16,8 @@ const OUT = require("./lib.cjs").outDir("state");
 // every control of the state table (app.js) by a short name
 const C = {
   open: "#openBtn", rotL: '[data-op="rotateLeft"]', rotR: '[data-op="rotateRight"]', rot180: '[data-op="rotate180"]',
-  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', crop: "#autoCropBtn", draw: "#drawCropBtn",
-  find: '#pageSideSeg [data-side=""]', imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
+  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', cropBtn: "#cropBtn", crop: "#pageCropBtn",
+  find: "#textCropBtn", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
   settings: "#settingsBtn", about: "#aboutBtn", read: "#readBtn", zoomOut: "#zoomOutBtn", zoomIn: "#zoomInBtn",
   fit: "#zoomFitBtn", fmt: "#fmtSeg button", gap: "#gapBtn", tab: "#tabBtn", undo: "#undoBtn", redo: "#redoBtn",
   markup: "#markupBtn", copy: "#copyBtn", save: "#saveBtn", saveTxt: '[data-save="txt"]', saveHtml: '[data-save="html"]',
@@ -28,7 +28,7 @@ const ALL = Object.keys(C);
 const ALWAYS = ["help", "about"];
 const EDIT = ["fmt", "gap", "tab", "markup"];
 const STEPS = ["rotL", "rotR", "rot180", "contrast", "pencil"];
-const CROPMENU = ["crop", "draw", "find"];
+const CROPMENU = ["cropBtn", "crop", "find"];
 const E = {
   noImg: [...ALWAYS, "open", "preset", "settings", ...EDIT],
   noModelImg: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng"],
@@ -36,8 +36,8 @@ const E = {
   imgZoomed: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "zoomOut", "fit", "save", "savePng", "read"],
   crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "zoomIn", "save", "savePng"],
   stepped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
-  // cropped: the crop bar's Draw and page modes off (Reset goes back to the original)
-  cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, "crop", "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
+  // cropped: Page / Auto still on (they start from the uncropped image)
+  cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
   // a read: About off (its re-layout during a read ended in crashes on the iPhone), Help stays
   starting: ["help", "zoomIn"],
   reading: ["help", "zoomIn", "read"],
@@ -52,6 +52,13 @@ let browser = null;
 let BASE = null;
 let BIG = null;
 
+const cropTool = async (page, id) => {
+  // Page / Auto: behind the title bar's crop button
+  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
+    await page.click("#cropBtn");
+  }
+  await page.click(id);
+};
 (async () => {
   const real = MODEL_DIR !== null;
   srv = await serve(8802, { modelDir: real ? MODEL_DIR : fakeModel() });
@@ -63,8 +70,17 @@ let BIG = null;
   const errors = [];
   const prep = async (page) => {
     await page.setViewport({ width: 1440, height: 920, deviceScaleFactor: 1 });
-    page.on("pageerror", (e) => { errors.push(e.message); console.log("pageerror", e.message); });
+    page.on("pageerror", (e) => { errors.push(String(e)); console.log("pageerror", String(e), e && e.stack); });
     // the snapshot of the enabled controls, in the page; the Read button's every state change records one
+    // every prep chain the bridge hands to the image worker (a crop applied shows in it)
+    await page.evaluateOnNewDocument(() => {
+      const post = Worker.prototype.postMessage;
+      window.__ops = [];
+      Worker.prototype.postMessage = function (m, ...r) {
+        if (m && Array.isArray(m.ops)) window.__ops.push(JSON.stringify(m.ops));
+        return post.call(this, m, ...r);
+      };
+    });
     await page.evaluateOnNewDocument((C) => {
       window.__snap = () => {
         const on = [];
@@ -118,8 +134,8 @@ let BIG = null;
     }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
-  // the crop bar: open, its rectangle line (Cancel), Crop
-  const cropCtl = (page) => page.evaluate(() => ["cropBar", "cropAct", "cropApplyBtn"].filter((id) => !document.getElementById(id).hidden).join(" "));
+  // the image head: the Scale, or the crop (Page · Auto) with Cancel · Crop while a rectangle shows
+  const cropCtl = (page) => page.evaluate(() => ["cropSeg", "scaleSeg", "cropAct"].filter((id) => !document.getElementById(id).hidden).join(" "));
 
   // ── no model (a fresh context: its own empty storage) ──
   {
@@ -172,10 +188,9 @@ let BIG = null;
   }
   await check(page, "no image", E.noImg, /^Open an image first$/);
 
-  // ── a fresh large image: no tip over it (the crop is the title bar's crop button) ──
+  // ── a fresh large image: the Scale in the image head (the crop behind the title bar's crop button) ──
   await open(page, BIG);
-  ok(await cropCtl(page) === "cropBar", `a fresh image: the crop bar open (${await cropCtl(page)})`);
-  await page.click("#autoCropBtn"); // closed: the zoom buttons lie under it
+  ok(await cropCtl(page) === "scaleSeg", `a fresh image: the Scale in its slot (${await cropCtl(page)})`);
   await check(page, "image", E.img, /^Read the image/);
   await page.screenshot({ path: `${OUT}/image_desktop_light.png` });
   // dialogs: modal — nothing changes behind them
@@ -190,53 +205,42 @@ let BIG = null;
   await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("2000 ×"));
   await check(page, "image · one step", E.stepped);
 
-  // ── reopen: Draw crop → crop mode → pending → Cancel ──
+  // ── reopen: Page → crop mode, the whole image pending → Cancel ──
   await open(page, BIG);
   await check(page, "image (reopened, steps cleared)", E.img);
-  await page.click("#drawCropBtn");
-  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping")) && await cropCtl(page) === "cropBar cropAct", `Draw → crop mode, Cancel (${await cropCtl(page)})`);
-  await check(page, "crop mode", E.crop, /^Apply or cancel the crop first/);
-  {
-    const r = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
-    await page.mouse.move(r.left + r.width * 0.2, r.top + r.height * 0.2);
-    await page.mouse.down();
-    await page.mouse.move(r.left + r.width * 0.7, r.top + r.height * 0.8, { steps: 5 });
-    await page.mouse.up();
-  }
-  ok(await cropCtl(page) === "cropBar cropAct cropApplyBtn", `a drawn rect is pending: Cancel + Crop (${await cropCtl(page)})`);
+  await cropTool(page, "#pageCropBtn");
+  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping") && !document.getElementById("rect").hidden) && await cropCtl(page) === "cropSeg cropAct",
+    `Page → crop mode, a rectangle, Cancel · Crop in the Scale's place (${await cropCtl(page)})`);
   await check(page, "pending crop", E.crop, /^Apply or cancel the crop first/);
   await page.click("#cropCancelBtn");
-  ok(await cropCtl(page) === "cropBar", "Cancel → the rectangle gone, the bar stays");
+  ok(await cropCtl(page) === "scaleSeg" && await page.evaluate(() => document.getElementById("rect").hidden), "Cancel → the rectangle gone, the Scale back");
   await check(page, "crop cancelled", E.img);
 
-  // ── reopen: Find crop → a proposal (or nothing to trim) → Crop ──
+  // ── reopen: Auto → the text crop (no writing in the synthetic image: the whole image to adjust) → Crop ──
   await open(page, BIG);
-  await page.click('#pageSideSeg [data-side="right"]'); // the paper crop (Auto's text crop finds no writing here)
-  await page.waitForFunction(() => /^Auto crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-  const found = await page.evaluate(() => ({ st: document.getElementById("status").textContent, pending: !document.getElementById("cropApplyBtn").hidden, auto: document.getElementById("rect").classList.contains("auto") }));
-  if (found.pending) {
-    ok(found.auto, "Find crop → a dashed proposal");
-    await check(page, "found crop pending", E.crop, /^Apply or cancel the crop first/);
-    await page.click("#cropApplyBtn");
-    await page.waitForFunction(() => document.getElementById("opsChips").textContent.includes("crop"));
-    await check(page, "cropped", E.cropped);
-  } else {
-    ok(/nothing to trim/.test(found.st), `Find crop: ${found.st}`);
-  }
+  await cropTool(page, "#textCropBtn");
+  await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+  ok(await page.evaluate(() => document.getElementById("rect").classList.contains("auto") && !document.getElementById("rect").hidden), "Auto → a dashed rectangle");
+  await check(page, "found crop pending", E.crop, /^Apply or cancel the crop first/);
+  await page.evaluate(() => { window.__ops = []; });
+  await page.click("#cropApplyBtn");
+  await page.waitForFunction(() => window.__ops.some((o) => o.includes('"crop"')));
+  await check(page, "cropped", E.cropped);
 
-  // ── reopen: a crop by hand ──
+  // ── reopen: a crop by hand (Page, its corner dragged in) ──
   await open(page, BIG);
-  await page.click("#drawCropBtn");
+  await cropTool(page, "#pageCropBtn");
   {
     const r = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
-    await page.mouse.move(r.left + r.width * 0.1, r.top + r.height * 0.1);
+    await page.mouse.move(r.right - 1, r.bottom - 1);
     await page.mouse.down();
     await page.mouse.move(r.left + r.width * 0.6, r.top + r.height * 0.7, { steps: 5 });
     await page.mouse.up();
   }
+  await page.evaluate(() => { window.__ops = []; });
   await page.click("#cropApplyBtn");
-  await page.waitForFunction(() => document.getElementById("opsChips").textContent.includes("crop"));
-  ok(await cropCtl(page) === "", "after a crop: the crop bar closed");
+  await page.waitForFunction(() => window.__ops.some((o) => o.includes('"crop"')));
+  ok(await cropCtl(page) === "scaleSeg", "after a crop: the Scale back in its slot");
   await check(page, "cropped by hand", E.cropped);
 
   // ── reopen: Read → starting → reading → Stop → stopping → idle ──

@@ -20,6 +20,13 @@ const IMG = process.env.OCR_LITE_READ_IMAGE ?? null;
 const EXPECT = process.env.OCR_LITE_READ_EXPECT ?? null;
 const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
 
+const cropTool = async (page, id) => {
+  // Page / Auto: behind the title bar's crop button
+  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
+    await page.click("#cropBtn");
+  }
+  await page.click(id);
+};
 (async () => {
   const real = MODEL_DIR !== null && IMG !== null && EXPECT !== null;
   const srv = await serve(8804, { modelDir: real ? MODEL_DIR : fakeModel() });
@@ -158,9 +165,8 @@ const FORBIDDEN = /\bkey\b/i; // the app has no key step (the model is open)
     ok(norm(text) === norm(want), `read == ${path.basename(EXPECT)} (line ends trimmed): ${text.length} chars, first line "${text.split("\n")[0]}"`);
     fs.writeFileSync(path.join(DIR, "out", "read.txt"), text);
     await page.screenshot({ path: path.join(DIR, "out", "3_read.png") });
-    // the Scale: Auto crops to the text, the slider to its low end (9 px letters) — the read on the scaled input
-    await page.evaluate(() => { if (!document.getElementById("cropBar").hidden) { document.getElementById("autoCropBtn").click(); } }); // the crop bar over the head closed
-    await page.click("#scaleAutoBtn");
+    // the Scale: Auto finds the text crop, the slider to its low end (9 px letters) — the read on the scaled input
+    await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     await page.click("#cropApplyBtn");
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });

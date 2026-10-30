@@ -160,8 +160,6 @@ body.stacked main { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .cardhead { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .label { font-weight: 600; font-size: 13px; margin-right: 4px; }
-.chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.chip { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--hover); color: var(--muted); }
 
 /* image */
 .imgwrap { flex: 1; min-height: 0; position: relative; overflow: auto; display: flex; padding: 18px; background: var(--stage);
@@ -374,7 +372,7 @@ label.btn.disabled { opacity: 0.35; pointer-events: none; }
 /* the Scale: Manual · slider · Auto in one segment; the slider gives way first */
 #scaleSeg { display: flex; align-items: center; gap: 4px; min-width: 0; }
 #scaleSeg i { color: var(--muted); display: flex; }
-#scaleSlider { width: 110px; min-width: 0; accent-color: var(--accent); }
+#scaleSlider { flex: 1 1 0; min-width: 0; accent-color: var(--accent); }
 .rowbreak { display: none; }
 /* image above text would leave each too little room: there one card at a time, chosen by the tabs in its head; the
    image steps of the title bar only with the image (app.js setTab) */
@@ -399,35 +397,27 @@ body.stacked[data-tab="text"] #imgSteps, body.stacked[data-tab="text"] #openBtn 
 @media (max-width: 820px) and (orientation: portrait) {
   #imgCard .cardhead { row-gap: 2px; }
   #imgCard .cardhead .label { display: none; }
-  #scaleSlider { flex: 1 1 0; width: auto; }
-  #scaleSeg { flex: 1 1 0; }
   .rowbreak { display: block; flex-basis: 100%; height: 0; }
   #bakeInfo { font-size: 12px; }
 }
-/* the crop bar (app.js cropBar): over the image head, edge to edge — the head keeps its height, the image never moves;
-   upright the rectangle's part takes the head's second line */
-#imgCard .cardhead { position: relative; }
-.cropbar { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; align-content: center; flex-wrap: wrap;
-  gap: 6px 8px; padding: 4px 10px 4px 16px; font-size: 12px; background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--card); }
-.croplabel { color: var(--muted); }
-.cropdone { color: var(--muted); }
-/* Reset at the line's right end (upright line 1: the rectangle's part follows on line 2) */
-#resetBtn { margin-left: auto; padding: 2px 8px; }
-#resetBtn i { width: 14px; height: 14px; }
-.cropbar.tight #resetBtn span { display: none; }
-.cropbar .seg .ib { padding: 0 9px; font-size: 12px; height: 26px; }
-.cropact { display: flex; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; }
-/* the rectangle's size line gives way (an ellipsis) before anything wraps: one line beside the head's other controls */
-.croptext { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the crop (Crop: Page · Auto) and, in one slot of one width, the Scale or — while a rectangle shows — Cancel · Crop:
+   swapping them moves nothing */
+#cropSeg { display: flex; align-items: center; gap: 4px; }
+.croplabel { color: var(--muted); font-size: 12px; padding: 0 2px 0 4px; }
+#scaleSeg { width: 220px; }
+/* the Scale and the crop one height: opening the crop never moves the image */
+#scaleSeg, #cropSeg, .cropact { height: 36px; box-sizing: border-box; }
+.cropact { display: flex; align-items: center; gap: 6px; }
 @media (max-width: 820px) and (orientation: portrait) {
-  .cropact, .cropdone { flex-basis: 100%; order: 1; }
+  #scaleSeg { width: auto; flex: 1 1 0; min-width: 0; }
 }
-@media (max-width: 480px) and (orientation: portrait) {
-  .cropbar { padding-left: 10px; }
-  .cropbar .seg .ib { padding: 0 6px; }
-  /* Draw, the page modes and Reset on the first line: the "Page" word goes */
-  .croplabel { display: none; }
-  .cropbar { gap: 6px; }
+/* a phone: the zoom by pinch and double tap only — its buttons give the crop, the Scale and the status their room; on
+   its side the "Image" label goes too (the tab names it) */
+@media (max-width: 480px) and (orientation: portrait), (orientation: landscape) and (max-height: 500px) {
+  #zoomSeg { display: none; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  #imgCard .cardhead .label { display: none; }
 }
 /* the crop rectangle's corners: where a finger adjusts it (any edge works too) */
 #rect .hd { position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); background: #fff; border-radius: 3px; box-sizing: border-box; }

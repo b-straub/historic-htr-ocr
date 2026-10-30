@@ -8,6 +8,13 @@ const path = require("path");
 const { launch, serve, outDir, results, testImages, REPO } = require("./lib.cjs");
 const R = results("ui");
 const ok = R.ok;
+const cropTool = async (page, id) => {
+  // Page / Auto: behind the title bar's crop button
+  if (await page.evaluate(() => document.getElementById("cropSeg").hidden)) {
+    await page.click("#cropBtn");
+  }
+  await page.click(id);
+};
 (async () => {
   const OUT = outDir("ui");
   const srv = await serve(8801);
@@ -49,21 +56,9 @@ const ok = R.ok;
     return { w: r.width, h: r.height, left: r.left, top: r.top, nat: i.naturalWidth, zoom: document.getElementById("zoomVal").textContent,
       sl: p.scrollLeft, st: p.scrollTop, pane: p.getBoundingClientRect().toJSON(), info: document.getElementById("bakeInfo").textContent };
   });
-  // Draw in the crop bar (open after a load, closed by a Crop — the crop button opens it again)
-  const drawMode = async () => {
-    if (await page.evaluate(() => document.getElementById("cropBar").hidden)) {
-      await page.click("#autoCropBtn");
-    }
-    await page.click("#drawCropBtn");
-  };
-  const bar0 = await page.evaluate(() => !document.getElementById("cropBar").hidden); // open after the load
-  // the zoom buttons lie under the open crop bar (it covers the image head): closed first, as by hand
-  const zoomBtn = async (id) => {
-    if (!(await page.evaluate(() => document.getElementById("cropBar").hidden))) {
-      await page.click("#autoCropBtn");
-    }
-    await page.click(id);
-  };
+  // a click by script: on a phone the zoom buttons are hidden (pinch / double tap there)
+  const zoomBtn = (id) => page.evaluate((id) => document.querySelector(id).click(), id);
+  const near = (a, b) => Math.abs(a - b) <= 1;
   const fit = await st();
   console.log("fit", JSON.stringify(fit));
   await page.screenshot({ path: `${OUT}/01_fit.png` });
@@ -97,80 +92,63 @@ const ok = R.ok;
     ok(!rectVis && Math.abs(s1.sl - s0.sl - 60) < 2 && Math.abs(s1.st - s0.st - 40) < 2, `no crop mode: drag pans +${(s1.sl - s0.sl).toFixed(0)}, +${(s1.st - s0.st).toFixed(0)}, no rect`);
     await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft -= 60; p.scrollTop -= 40; });
   }
-  // the crop bar is open after the load; a page mode finds the paper at once (a dashed, adjustable rectangle) or says
-  // there is nothing to trim; the crop button closes the bar and drops the rectangle. Auto (the text crop) finds no
-  // writing on the synthetic image and says so (a real page: below)
-  await page.click("#autoCropBtn"); // the crop button opens the bar again
-  const marked0 = await page.evaluate(() => document.querySelectorAll("#pageSideSeg .on").length);
-  await page.click('#pageSideSeg [data-side=""]');
+  // Crop: Auto (the text crop) finds no writing on the synthetic image — the whole image to adjust instead; Page the
+  // whole image too: a dashed rectangle in the crop mode, Cancel · Crop in the Scale's slot, its size in the status
+  await cropTool(page, "#textCropBtn");
   await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-  const none = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden }));
-  ok(/no writing found/.test(none.st) && !none.rect, `Auto on the synthetic image: ${none.st}`);
-  await page.click('#pageSideSeg [data-side="right"]');
-  await page.waitForFunction(() => /^Auto crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-  const auto = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, act: !document.getElementById("cropAct").hidden,
-    crop: !document.getElementById("cropApplyBtn").hidden, text: document.getElementById("cropText").textContent, mode: document.getElementById("stage").classList.contains("cropping"),
-    marked: [...document.querySelectorAll("#pageSideSeg .on")].map((b) => b.textContent).join() }));
-  await page.click("#drawCropBtn");
-  const swap = await page.evaluate(() => ({ marked: [...document.querySelectorAll("#pageSideSeg .on")].length, draw: document.getElementById("drawCropBtn").classList.contains("on"), rect: !document.getElementById("rect").hidden }));
-  ok(swap.marked === 0 && swap.draw && !swap.rect, `Draw after a found rectangle: page mode unmarked, Draw marked, the found rectangle gone ${JSON.stringify(swap)}`);
-  await page.click("#autoCropBtn");
-  const closed = await page.evaluate(() => document.getElementById("cropBar").hidden && document.getElementById("rect").hidden);
-  ok(bar0 && closed && marked0 === 0 && (/nothing to trim/.test(auto.st) || (auto.rect && auto.act && auto.crop && auto.mode && /^Found /.test(auto.text) && auto.marked === "Right")),
-    `crop bar open after the load, no page mode marked before a find (${marked0}); Double →${auto.st} (${auto.text}, marked ${auto.marked}); the crop button closes the bar`);
-  await drawMode();
-  const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), draw: document.getElementById("drawCropBtn").classList.contains("on"),
-    act: !document.getElementById("cropAct").hidden, crop: !document.getElementById("cropApplyBtn").hidden, text: document.getElementById("cropText").textContent }));
-  ok(ctl0.mode && ctl0.draw && ctl0.act && !ctl0.crop, `Draw → crop mode, Draw on, "${ctl0.text}" + Cancel, no Crop before a rectangle`);
+  const none = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, info: document.getElementById("bakeInfo").textContent }));
+  ok(/no writing found/.test(none.st) && none.rect && none.info === "3000 × 2000", `Auto on the synthetic image: ${none.st} ("${none.info}")`);
+  await page.click("#cropCancelBtn");
+  await cropTool(page, "#pageCropBtn");
+  const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), act: !document.getElementById("cropAct").hidden,
+    scale: !document.getElementById("scaleSeg").hidden, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
+  ok(ctl0.mode && ctl0.act && !ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Page → crop mode, the whole image ("${ctl0.info}"), Cancel · Crop in the Scale's slot`);
+  // at 200 %: the image's lower right corner scrolled into view, the right edge dragged 40 px left, the bottom 30 px up
+  await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft = p.scrollWidth; p.scrollTop = p.scrollHeight; });
+  await new Promise((r) => setTimeout(r, 200));
   s = await st();
-  // draw a crop at 200 %: from 25 % / 30 % of the pane to 70 % / 75 %
   const W = 3000, H = 2000;
-  const a = { x: s.pane.x + s.pane.width * 0.25, y: s.pane.y + s.pane.height * 0.3 }, b = { x: s.pane.x + s.pane.width * 0.7, y: s.pane.y + s.pane.height * 0.75 };
-  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 4 }); await page.mouse.move(b.x, b.y, { steps: 4 }); await page.mouse.up();
-  s = await st();
   const D = s.w / W;
-  const clampx = (v) => Math.min(W, Math.max(0, v)), clampy = (v) => Math.min(H, Math.max(0, v));
-  const ex0 = Math.round(clampx((a.x - s.left) / D)), ey0 = Math.round(clampy((a.y - s.top) / D));
-  const ex1 = Math.round(clampx((b.x - s.left) / D)), ey1 = Math.round(clampy((b.y - s.top) / D));
-  const expect = { x: ex0, y: ey0, w: ex1 - ex0, h: ey1 - ey0 };
-  const rectCss = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
-  ok(Math.abs(rectCss.left - (s.left + ex0 * D)) < 1.5 && Math.abs(rectCss.width - expect.w * D) < 1.5, `pending rect drawn at the zoomed position (${rectCss.left.toFixed(1)} vs ${(s.left + ex0 * D).toFixed(1)})`);
-  const ctl1 = await page.evaluate(() => { const top = (id) => document.getElementById(id).getBoundingClientRect().top;
-    return { act: !document.getElementById("cropAct").hidden, crop: !document.getElementById("cropApplyBtn").hidden, text: document.getElementById("cropText").textContent,
-      oneLine: Math.abs(top("resetBtn") - top("cropApplyBtn")) < 2 && Math.abs(top("drawCropBtn") - top("cropApplyBtn")) < 4 }; });
-  ok(ctl1.act && ctl1.crop && ctl1.oneLine, `a drawn rectangle: "${ctl1.text}", Cancel + Crop, all on one line with Reset ${ctl1.oneLine}`);
-  await page.screenshot({ path: `${OUT}/03_crop_pending_200.png` });
-  // adjust it: its right edge dragged 40 px left
+  const expect = { x: 0, y: 0, w: W, h: H };
   {
     const r = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
-    const y = r.top + r.height / 3;
-    // the mouse's cursor says what a press does: resize at the edge, move inside, draw anew outside
+    // the mouse's cursor says what a press does: resize at the edge, move inside
     const cur = async (x, yy) => { await page.mouse.move(x, yy); return page.evaluate(() => document.getElementById("stage").style.cursor); };
-    const curs = [await cur(r.right, y), await cur(r.right, r.bottom), await cur(r.left + r.width / 2, r.top + r.height / 2), await cur(r.right + 60, y)];
-    ok(curs[0] === "ew-resize" && curs[1] === "nwse-resize" && curs[2] === "move" && curs[3] === "", `cursors: edge ${curs[0]}, corner ${curs[1]}, inside ${curs[2]}, outside "${curs[3]}" (crosshair)`);
-    await page.mouse.move(r.right, y); await page.mouse.down(); await page.mouse.move(r.right - 40, y, { steps: 4 }); await page.mouse.up();
+    const curs = [await cur(r.right, r.bottom - 120), await cur(r.right, r.bottom), await cur(r.right - 150, r.bottom - 150)];
+    ok(curs[0] === "ew-resize" && curs[1] === "nwse-resize" && curs[2] === "move", `cursors: edge ${curs[0]}, corner ${curs[1]}, inside ${curs[2]}`);
+    await page.mouse.move(r.right, r.bottom - 120); await page.mouse.down(); await page.mouse.move(r.right - 40, r.bottom - 120, { steps: 4 }); await page.mouse.up();
+    await page.mouse.move(r.right - 200, r.bottom); await page.mouse.down(); await page.mouse.move(r.right - 200, r.bottom - 30, { steps: 4 }); await page.mouse.up();
     const r2 = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
-    ok(Math.abs(r2.left - r.left) < 1 && Math.abs(r.width - r2.width - 40) < 1.5, `crop adjusted by its right edge: width ${r.width.toFixed(0)} → ${r2.width.toFixed(0)}, left kept`);
-    expect.w = Math.round(ex1 - 40 / D) - ex0;
+    ok(Math.abs(r2.left - r.left) < 1 && Math.abs(r.width - r2.width - 40) < 1.5 && Math.abs(r.height - r2.height - 30) < 1.5, `at 200 %: the right edge and the bottom adjusted: ${r.width.toFixed(0)} × ${r.height.toFixed(0)} → ${r2.width.toFixed(0)} × ${r2.height.toFixed(0)}`);
+    expect.w = W - Math.round(40 / D);
+    expect.h = H - Math.round(30 / D);
+  }
+  await page.screenshot({ path: `${OUT}/03_crop_pending_200.png` });
+  // back to fit (the rectangle stays): the upper left corner dragged in
+  await zoomBtn("#zoomFitBtn");
+  s = await st();
+  {
+    const Df = s.w / W, a = { x: s.left + s.w * 0.25, y: s.top + s.h * 0.3 };
+    await page.mouse.move(s.left + 1, s.top + 1); await page.mouse.down(); await page.mouse.move(a.x, a.y, { steps: 5 }); await page.mouse.up();
+    const dx = Math.round((a.x - s.left - 1) / Df), dy = Math.round((a.y - s.top - 1) / Df);
+    expect.x = dx; expect.y = dy; expect.w -= dx; expect.h -= dy;
   }
   await page.evaluate(() => { window.__ops = []; });
   await page.click("#cropApplyBtn");
   await page.waitForFunction(() => window.__ops.some((o) => o.includes("crop")));
   const got = JSON.parse((await page.evaluate(() => window.__ops.find((o) => o.includes("crop")))))[0];
-  ok(got.x === expect.x && got.y === expect.y && got.w === expect.w && got.h === expect.h, `crop at 200 %: got ${JSON.stringify(got)} expected ${JSON.stringify(expect)}`);
-  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, expect.w);
+  ok(near(got.x, expect.x) && near(got.y, expect.y) && near(got.w, expect.w) && near(got.h, expect.h), `crop adjusted at 200 % and at fit: got ${JSON.stringify(got)} expected ${JSON.stringify(expect)} (± 1)`);
+  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, got.w);
   s = await st();
-  ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropBar").hidden), "after Crop the mode is left, the crop bar closed");
+  ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropAct").hidden && !document.getElementById("scaleSeg").hidden), "after Crop the mode is left, the Scale back");
   ok(s.zoom === "100 %", `after the crop: back to fit (${s.zoom}), ${s.info}`);
   await page.screenshot({ path: `${OUT}/04_cropped.png` });
-  // a cropped image: the crop bar's tools off, its Reset back to the original
-  await page.click("#autoCropBtn");
-  const done = await page.evaluate(() => ({ draw: document.getElementById("drawCropBtn").disabled, modes: [...document.querySelectorAll("#pageSideSeg button")].every((b) => b.disabled),
-    reset: !document.getElementById("resetBtn").disabled, said: !document.getElementById("cropDone").hidden }));
-  ok(done.draw && done.modes && done.reset && done.said, `cropped: Draw + page modes off, "Cropped" + Reset in the crop bar ${JSON.stringify(done)}`);
-  const resetAt = await page.evaluate(() => { const r = document.getElementById("resetBtn").getBoundingClientRect(), b = document.getElementById("cropBar").getBoundingClientRect(); return Math.round(b.right - r.right); });
-  const doneText = await page.evaluate(() => document.getElementById("cropDone").textContent);
-  ok(resetAt <= 12 && /^Cropped to \d+ × \d+$/.test(doneText), `desktop: Reset at the crop bar's right end (${resetAt} px in), "${doneText}"`);
+  // a cropped image: Page starts from the uncropped one, Cancel puts the crop back
+  await cropTool(page, "#pageCropBtn");
+  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×") && !document.getElementById("rect").hidden);
+  await page.click("#cropCancelBtn");
+  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, got.w);
+  ok(true, "a cropped image: Page shows the whole image again, Cancel puts the crop back");
   // reset, pencil
   await page.click("#resetBtn");
   await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
@@ -184,8 +162,9 @@ const ok = R.ok;
     return { src: i.src.slice(0, 40), pts };
   });
   const before = await sample();
+  await page.evaluate(() => { window.__ops = []; });
   await page.click('[data-op="pencil"]');
-  await page.waitForFunction(() => document.getElementById("opsChips").textContent.includes("pencil"));
+  await page.waitForFunction(() => window.__ops.some((o) => o.includes("pencil")));
   await new Promise((r) => setTimeout(r, 400));
   const after = await sample();
   console.log("before", JSON.stringify(before.pts), "after", JSON.stringify(after.pts));
@@ -229,53 +208,49 @@ const ok = R.ok;
     ok(!rectVis && Math.abs(s1.sl - s0.sl + 50) < 2 && Math.abs(s1.st - s0.st + 40) < 2, `no crop mode: one finger pans ${(s1.sl - s0.sl).toFixed(0)}, ${(s1.st - s0.st).toFixed(0)}, no rect`);
     s = s1;
   }
-  // Esc leaves the crop mode
-  // zoomed in, Draw crop leaves the image where it is
+  // zoomed in, Page leaves the image where it is
   await zoomBtn("#zoomInBtn");
   const at0 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
-  await drawMode();
+  await cropTool(page, "#pageCropBtn");
   await new Promise((r) => setTimeout(r, 300));
   const at1 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
   await page.click("#cropCancelBtn");
   await zoomBtn("#zoomFitBtn");
-  ok(Math.abs(at1.left - at0.left) < 0.5 && Math.abs(at1.top - at0.top) < 0.5 && Math.abs(at1.width - at0.width) < 0.5, `Draw crop keeps the zoomed image in place: ${at0.left.toFixed(1)},${at0.top.toFixed(1)} → ${at1.left.toFixed(1)},${at1.top.toFixed(1)}`);
-  await drawMode();
+  ok(Math.abs(at1.left - at0.left) < 0.5 && Math.abs(at1.top - at0.top) < 0.5 && Math.abs(at1.width - at0.width) < 0.5, `Page keeps the zoomed image in place: ${at0.left.toFixed(1)},${at0.top.toFixed(1)} → ${at1.left.toFixed(1)},${at1.top.toFixed(1)}`);
+  await cropTool(page, "#pageCropBtn");
   await page.keyboard.press("Escape");
   ok(!(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping"))), "Esc leaves the crop mode");
   // without a keyboard: Cancel is the way out; a tap on the waiting Read says why
-  await drawMode();
+  await cropTool(page, "#pageCropBtn");
   const bar = await page.evaluate(() => !document.getElementById("cropAct").hidden);
   const rb = await page.evaluate(() => { const r = document.getElementById("readBtn").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.touchscreen.tap(rb.x, rb.y);
   const why = await page.evaluate(() => document.getElementById("status").textContent);
   await page.click("#cropCancelBtn");
-  const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropAct").hidden && !document.getElementById("cropBar").hidden);
-  ok(bar && /^Read waits: /.test(why) && left, `Cancel shown, a tap on Read: "${why}", Cancel leaves the mode (the bar stays)`);
-  await drawMode();
-  // one finger draws a crop
+  const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropAct").hidden && !document.getElementById("scaleSeg").hidden);
+  ok(bar && /^Read waits: /.test(why) && left, `Cancel shown, a tap on Read: "${why}", Cancel leaves the mode (the Scale back)`);
+  // one finger drags the rectangle's lower right corner in
+  await cropTool(page, "#pageCropBtn");
   await page.evaluate(() => { window.__ops = []; });
-  const f0 = { x: s.pane.x + 200, y: s.pane.y + 150 }, f1 = { x: s.pane.x + 420, y: s.pane.y + 330 };
+  const s2 = await st();
+  const D2 = s2.w / W;
+  const f0 = { x: s2.left + s2.w - 1, y: s2.top + s2.h - 1 }, f1 = { x: f0.x - 120, y: f0.y - 90 };
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...f0, id: 3 }] });
   for (let k = 1; k <= 6; k++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: f0.x + (f1.x - f0.x) * k / 6, y: f0.y + (f1.y - f0.y) * k / 6, id: 3 }] });
   await new Promise((r) => setTimeout(r, 200));
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await new Promise((r) => setTimeout(r, 200));
-  const s2 = await st();
-  const D2 = s2.w / W;
-  // a finger beside the image: the rectangle kept on it
-  const e2 = { x: Math.max(0, Math.round((f0.x - s2.left) / D2)), y: Math.max(0, Math.round((f0.y - s2.top) / D2)) };
-  e2.w = Math.round((f1.x - s2.left) / D2) - e2.x; e2.h = Math.round((f1.y - s2.top) / D2) - e2.y;
+  const e2 = { x: 0, y: 0, w: W - Math.round(120 / D2), h: H - Math.round(90 / D2) };
   await page.click("#cropApplyBtn");
   await page.waitForFunction(() => window.__ops.some((o) => o.includes("crop")));
   const got2 = JSON.parse((await page.evaluate(() => window.__ops.find((o) => o.includes("crop"))))).find((o) => o.op === "crop");
-  ok(got2.x === e2.x && got2.y === e2.y && got2.w === e2.w && got2.h === e2.h, `one-finger crop at ${pinchZoom}: got ${JSON.stringify(got2)} expected ${JSON.stringify(e2)}`);
-  // while a crop is drawn a second finger neither zooms nor pans: the rectangle goes on (the original back first: a
-  // cropped image is not cropped again)
+  ok(got2.x === 0 && got2.y === 0 && near(got2.w, e2.w) && near(got2.h, e2.h), `one finger drags the corner: got ${JSON.stringify(got2)} expected ${JSON.stringify(e2)} (± 1)`);
+  // while a corner is dragged a second finger neither zooms nor pans: the rectangle goes on (the original back first)
   await page.waitForFunction(() => document.getElementById("zoomVal").textContent === "100 %");
-  await page.click("#autoCropBtn"); await page.click("#resetBtn");
+  await page.click("#resetBtn");
   await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
-  await drawMode();
-  const g0 = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + 10, y: r.y + 10 }; });
+  await cropTool(page, "#pageCropBtn");
+  const g0 = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + 1, y: r.y + 1 }; });
   const v0 = await page.evaluate(() => { const p = document.getElementById("imgPane"); return { zoom: document.getElementById("zoomVal").textContent, sl: p.scrollLeft, st: p.scrollTop }; });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...g0, id: 7 }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: g0.x + 60, y: g0.y + 50, id: 7 }] });
@@ -287,7 +262,7 @@ const ok = R.ok;
   await page.click("#cropCancelBtn");
   ok(v1.zoom === v0.zoom && v1.sl === v0.sl && v1.st === v0.st && v1.rect, `crop + a second finger: zoom ${v0.zoom} → ${v1.zoom}, scroll ${v0.sl},${v0.st} → ${v1.sl},${v1.st}, rect kept ${v1.rect}`);
   await new Promise((r) => setTimeout(r, 600)); // the quiet time after the crop
-  // after Draw crop → Cancel two fingers zoom again; in the crop mode two fingers landing together zoom too
+  // after Cancel two fingers zoom again; in the crop mode two fingers landing together zoom too (the rectangle stays)
   {
     const p = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     const two = (d) => [{ x: p.x - d, y: p.y, id: 31 }, { x: p.x + d, y: p.y, id: 32 }];
@@ -300,13 +275,13 @@ const ok = R.ok;
     };
     const afterCancel = await pinchOut();
     await zoomBtn("#zoomFitBtn");
-    await drawMode();
+    await cropTool(page, "#pageCropBtn");
     const inCrop = await pinchOut();
-    const rectAfter = await page.evaluate(() => !document.getElementById("rect").hidden);
+    const rectAfter = await page.evaluate(() => { const r = document.getElementById("rect").getBoundingClientRect(), i = document.getElementById("img").getBoundingClientRect(); return !document.getElementById("rect").hidden && Math.abs(r.width - i.width) < 1.5; });
     await page.click("#cropCancelBtn");
     await zoomBtn("#zoomFitBtn");
     await new Promise((r) => setTimeout(r, 600));
-    ok(afterCancel !== "100 %" && inCrop !== "100 %" && !rectAfter, `pinch after Draw crop → Cancel: ${afterCancel}; a pinch in the crop mode: ${inCrop}, no rectangle ${!rectAfter}`);
+    ok(afterCancel !== "100 %" && inCrop !== "100 %" && rectAfter, `pinch after Cancel: ${afterCancel}; a pinch in the crop mode: ${inCrop}, the rectangle unchanged ${rectAfter}`);
   }
   // double tap = fit
   for (let k = 0; k < 2; k++) await zoomBtn("#zoomInBtn");
@@ -383,41 +358,19 @@ const ok = R.ok;
     const c = await st();
     ok(a.img && !a.text && a.steps && !b.img && b.text && !b.steps && c.img && c.zoom === a.zoom && a.left > 100 && Math.abs(c.left - a.left) < 2 && y0 === y1,
       `phone tabs (bar at y ${y0} / ${y1}): image ${JSON.stringify(a)} → text ${JSON.stringify(b)} → image ${JSON.stringify(c)}`);
-    // Draw crop begun beside the image (the pane's margin above it): the rectangle starts at the image's corner
+    // a press beside the image (the pane's margin above it) takes the rectangle's nearest corner: a finger need not hit it
     await zoomBtn("#zoomFitBtn");
     await new Promise((r) => setTimeout(r, 300));
     const top0 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().top);
-    await drawMode();
-    const geo = await page.evaluate(() => ({ p: document.getElementById("imgPane").getBoundingClientRect().toJSON(), i: document.getElementById("img").getBoundingClientRect().toJSON(),
-      bar: document.getElementById("cropBar").getBoundingClientRect().bottom }));
-    const from = { x: geo.p.left + 4, y: geo.bar + 4 }, to = { x: geo.i.left + geo.i.width / 2, y: geo.i.top + geo.i.height / 2 };
+    await cropTool(page, "#pageCropBtn");
+    const geo = await page.evaluate(() => ({ p: document.getElementById("imgPane").getBoundingClientRect().toJSON(), i: document.getElementById("img").getBoundingClientRect().toJSON() }));
+    const from = { x: geo.p.left + 4, y: geo.p.top + 4 }, to = { x: geo.i.left + geo.i.width / 2, y: geo.i.top + geo.i.height / 2 };
     await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 5 }); await page.mouse.up();
     const [rc, ic] = await page.evaluate(() => ["rect", "img"].map((id) => document.getElementById(id).getBoundingClientRect().toJSON()));
-    ok(geo.i.top > geo.bar + 8 && Math.abs(rc.left - ic.left) < 1.5 && Math.abs(rc.top - ic.top) < 1.5, `crop begun beside the image: rect at ${rc.left.toFixed(0)},${rc.top.toFixed(0)}, image at ${ic.left.toFixed(0)},${ic.top.toFixed(0)}`);
-    // the phone's title bar holds Cancel + Crop: both on screen, no horizontal scroll
-    const rs = await page.evaluate(() => { const r = document.getElementById("resetBtn").getBoundingClientRect(), d = document.getElementById("drawCropBtn").getBoundingClientRect(), b = document.getElementById("cropBar").getBoundingClientRect();
-      return { row: Math.abs((r.top + r.bottom) / 2 - (d.top + d.bottom) / 2), end: Math.round(b.right - r.right), label: document.querySelector("#resetBtn span").getBoundingClientRect().width > 0,
-        tight: document.getElementById("cropBar").classList.contains("tight") }; });
-    // its label where it fits (the fonts decide: a Linux font is wider), else the icon alone — never a line of its own
-    ok(rs.row < 2 && rs.end <= 12 && rs.label !== rs.tight, `phone: Reset on Draw's line, at the right end (${rs.end} px in), ${rs.label ? "with its label" : "its icon only"}`);
-    if (rs.tight) {
-      R.skip("phone, less room → Reset's icon only: this font shows the icon at full width already (the check above holds)");
-    } else {
-      // just too little room for the label (the free space beside Reset + 2 px, as a wider font gives): the icon alone,
-      // still on Draw's line — measured, so it holds for any font
-      const cut = await page.evaluate(() => {
-        const free = document.getElementById("resetBtn").getBoundingClientRect().left - document.getElementById("pageSideSeg").getBoundingClientRect().right - 6;
-        document.getElementById("cropBar").style.right = `${Math.ceil(free) + 2}px`;
-        return Math.ceil(free) + 2;
-      });
-      await new Promise((r) => setTimeout(r, 200));
-      const rs2 = await page.evaluate(() => { const r = document.getElementById("resetBtn").getBoundingClientRect(), d = document.getElementById("drawCropBtn").getBoundingClientRect();
-        const out = { row: Math.abs((r.top + r.bottom) / 2 - (d.top + d.bottom) / 2), tight: document.getElementById("cropBar").classList.contains("tight") };
-        document.getElementById("cropBar").style.right = ""; return out; });
-      await new Promise((r) => setTimeout(r, 200));
-      ok(rs2.row < 2 && rs2.tight, `phone, ${cut} px less room: Reset its icon only, still on Draw's line (${rs2.row.toFixed(1)} px apart)`);
-    }
-    const bar2 = await page.evaluate(() => ({ crop: document.getElementById("cropApplyBtn").getBoundingClientRect().right, vw: innerWidth, sw: document.documentElement.scrollWidth, shown: !document.getElementById("cropApplyBtn").hidden }));
+    ok(geo.i.top > geo.p.top + 30 && Math.abs(rc.left - to.x) < 1.5 && Math.abs(rc.top - to.y) < 1.5 && Math.abs(rc.right - ic.right) < 1.5 && Math.abs(rc.bottom - ic.bottom) < 1.5,
+      `a press beside the image moves the nearest corner: rect ${rc.left.toFixed(0)},${rc.top.toFixed(0)} – ${rc.right.toFixed(0)},${rc.bottom.toFixed(0)} (drag ended at ${to.x.toFixed(0)},${to.y.toFixed(0)})`);
+    // Cancel · Crop on screen, no horizontal scroll, the image still
+    const bar2 = await page.evaluate(() => ({ crop: document.getElementById("cropApplyBtn").getBoundingClientRect().right, vw: innerWidth, sw: document.documentElement.scrollWidth, shown: !document.getElementById("cropAct").hidden }));
     await page.screenshot({ path: `${OUT}/11d_phone_crop.png` });
     ok(bar2.shown && bar2.crop <= bar2.vw && bar2.sw <= bar2.vw && Math.abs(ic.top - top0) < 0.5, `phone crop: Crop at ${bar2.crop.toFixed(0)} of ${bar2.vw}, page ${bar2.sw} wide, the image stayed (top ${top0.toFixed(1)} → ${ic.top.toFixed(1)})`);
     await page.click("#cropCancelBtn");
@@ -426,7 +379,7 @@ const ok = R.ok;
     await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
     await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").title.startsWith("1176"));
     // Auto on a real page: a text block inside the image (this example is cropped tight already: almost all of it)
-    await page.click('#pageSideSeg [data-side=""]');
+    await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     const tc = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, nat: [document.getElementById("img").naturalWidth, document.getElementById("img").naturalHeight] }));
     const m = /^Text crop: (\d+) × (\d+) at \((\d+), (\d+)\)/.exec(tc.st);
@@ -440,51 +393,55 @@ const ok = R.ok;
     const capPx = Math.min(6144, fitPx * 8);
     ok(Math.abs(layer.px - capPx) < 3, `phone zoom capped: ${layer.zoom}, the image ${layer.px} device px (fit ${Math.round(fitPx)}, cap ${Math.round(capPx)})`);
     await zoomBtn("#zoomFitBtn");
-    // the Scale: without a crop the slider is off (as is); Auto proposes the text crop, Crop applies it, the letters
-    // measured — this example's lie inside the trained range: as is
-    const scale = () => page.evaluate(() => ({ off: document.getElementById("scaleSlider").disabled,
-      auto: document.getElementById("scaleAutoBtn").classList.contains("on"), manual: document.getElementById("scaleManualBtn").classList.contains("on"),
+    // the Scale: without a crop off (as is); Auto finds the text crop, Crop applies it, the letters measured — 1:1 at
+    // first, Auto offered
+    const scale = () => page.evaluate(() => ({ off: document.getElementById("scaleSlider").disabled, auto: !document.getElementById("scaleAutoBtn").disabled,
       min: +document.getElementById("scaleSlider").min, max: +document.getElementById("scaleSlider").max, info: document.getElementById("bakeInfo").textContent,
       // the tools' places: the status' text never moves them
-      at: ["scaleManualBtn", "scaleSlider", "scaleAutoBtn", "zoomSeg"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
+      at: ["scaleSlider", "scaleAutoBtn"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
     const s0 = await scale();
-    await page.evaluate(() => { if (!document.getElementById("cropBar").hidden) { document.getElementById("autoCropBtn").click(); } }); // the crop bar over the head closed
-    await page.click("#scaleAutoBtn");
+    await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     await page.click("#cropApplyBtn");
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
     const s1 = await scale();
     const px = (i) => +/· (\d+) px$/.exec(i)[1];
-    // (the crop bar's Auto above set the Scale to Auto already: Cancel drops the rect, not the mode)
-    ok(s0.off && s0.auto && !/px$/.test(s0.info) && !s1.off && s1.auto && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max, `Scale: off without a crop ("${s0.info}"); Auto crops, then "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
-    // upright the image head is two lines: the Scale + zoom, then the size line
+    const by = (i) => +/· ×([\d.]+)/.exec(i)[1];
+    ok(s0.off && !s0.auto && !/px$/.test(s0.info) && !s1.off && s1.auto && by(s1.info) === 1 && s1.min === 9 && s1.max <= 45 && px(s1.info) >= s1.min && px(s1.info) <= s1.max,
+      `Scale: off without a crop ("${s0.info}"); a crop starts at 1:1 with Auto offered: "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
+    // upright the image head is two lines: the crop, the Scale and the zoom, then the status
     const head = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
-      const sc = r("scaleSeg"), zm = r("zoomSeg"), info = r("bakeInfo"), h = document.querySelector("#imgCard .cardhead").getBoundingClientRect();
-      return { row1: Math.abs((sc.top + sc.bottom) / 2 - (zm.top + zm.bottom) / 2), below: info.top >= Math.max(sc.bottom, zm.bottom) - 1, h: Math.round(h.height), right: sc.right, vw: innerWidth };
+      const sc = r("scaleSeg"), sl = r("scaleSlider"), info = r("bakeInfo"), h = document.querySelector("#imgCard .cardhead").getBoundingClientRect();
+      return { below: info.top >= sc.bottom - 1, h: Math.round(h.height), right: sc.right, vw: innerWidth, slider: Math.round(sl.width) };
     });
-    ok(head.row1 < 3 && head.below && head.h < 90 && head.right <= head.vw, `phone image head in two lines: the Scale beside the zoom (${head.row1.toFixed(1)} px apart), the size line below ${head.below}, ${head.h} px tall`);
-    // the slider to its low end: Manual, the model input smaller at once; Manual again: as is
-    await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
+    ok(head.below && head.h < 90 && head.right <= head.vw && head.slider >= 120, `phone image head in two lines: the Scale (slider ${head.slider} px), the status below ${head.below}, ${head.h} px tall`);
+    // Auto applied → off until the slider moves; the slider to its low end: smaller at once, Auto offered; the slider
+    // back to the crop's own letter height: 1:1 again
+    await page.click("#scaleAutoBtn");
+    const sA = await scale();
+    const slide = (v) => page.evaluate((v) => { const s = document.getElementById("scaleSlider"); s.value = v === null ? s.min : String(v); s.dispatchEvent(new Event("input")); }, v);
+    await slide(null);
     const s2 = await scale();
     await page.screenshot({ path: `${OUT}/11c_phone_scale.png` });
-    await page.click("#scaleManualBtn");
+    // contrast changes the ink, not the letters: the Scale stays (the measure is the crop's geometry)
+    await page.evaluate(() => { window.__ops = []; });
+    await page.click('[data-op="autoContrast"]');
+    await page.waitForFunction(() => window.__ops.some((o) => o.includes("autoContrast")));
+    await new Promise((r) => setTimeout(r, 800));
+    const sC = await scale();
+    ok(sC.info === s2.info && !sC.off, `contrast keeps the Scale: "${s2.info}" → "${sC.info}"`);
+    await slide(px(s1.info));
     const s3 = await scale();
-    const model = (i) => +/· ×([\d.]+)/.exec(i)[1];
-    ok(s2.manual && px(s2.info) === 9 && model(s2.info) < model(s1.info) && s3.info === s1.info, `Scale slider: "${s2.info}", Manual → "${s3.info}"`);
-    ok([s1.at, s2.at, s3.at].every((a) => a === s0.at), `the tools stay put while the status changes: ${s0.at} · ${s2.at}`);
-    // a new image: back to Manual, as is, the slider off
+    ok(!sA.auto && px(s2.info) === 9 && by(s2.info) < by(s1.info) && s2.auto && s3.info === s1.info,
+      `Scale: Auto → "${sA.info}" (Auto off), slider → "${s2.info}" (Auto on), back → "${s3.info}"`);
+    ok([s1.at, sA.at, s2.at, s3.at].every((a) => a === s0.at), `the tools stay put while the status changes: ${s0.at} · ${s2.at}`);
+    // a new image: as is, the Scale off
     const [ch3] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch3.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => !document.getElementById("cropBar").hidden && document.getElementById("opsChips").textContent === "");
+    await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("1176 ×") && document.getElementById("scaleSlider").disabled);
     const s4 = await scale();
-    ok(s4.off && s4.manual && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
-    await page.click('#pageSideSeg [data-side=""]');
-    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-    await page.click("#cropApplyBtn");
-    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
-    const s5 = await scale();
-    ok(s5.auto && /px$/.test(s5.info), `the crop bar's Auto on a new image: crop and scale — "${s5.info}"`);
+    ok(s4.off && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
     // the text: Fit takes every line whole, two fingers zoom it
     await page.click("#paneTabs [data-tab=text]");
     await page.click("#markupBtn");
@@ -521,10 +478,11 @@ const ok = R.ok;
     // the image head on its side: the tools, then the status on the same line
     const row = await page.evaluate(() => {
       const mid = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return (r.top + r.bottom) / 2; };
-      const info = document.getElementById("bakeInfo").getBoundingClientRect(), z = document.getElementById("zoomSeg").getBoundingClientRect();
-      return { off: Math.max(...["scaleSeg", "zoomSeg", "readBtn", "bakeInfo"].map(mid)) - Math.min(...["scaleSeg", "zoomSeg", "readBtn", "bakeInfo"].map(mid)), after: info.left >= z.right, w: info.width };
+      const info = document.getElementById("bakeInfo").getBoundingClientRect(), z = document.getElementById("settingsBtn").getBoundingClientRect();
+      return { off: Math.max(...["scaleSeg", "readBtn", "bakeInfo"].map(mid)) - Math.min(...["scaleSeg", "readBtn", "bakeInfo"].map(mid)), after: info.left >= z.right, w: info.width,
+        cut: document.getElementById("bakeInfo").scrollWidth > document.getElementById("bakeInfo").clientWidth };
     });
-    ok(row.off < 3 && row.after && row.w > 40, `phone on its side: tools then the status in one line (${row.off.toFixed(1)} px apart, status ${Math.round(row.w)} px wide)`);
+    ok(row.off < 3 && row.after && !row.cut, `phone on its side: tools then the status in one line (${row.off.toFixed(1)} px apart, status ${Math.round(row.w)} px wide, not cut ${!row.cut})`);
     await page.click("#paneTabs [data-tab=text]");
     await new Promise((r) => setTimeout(r, 200));
     const b = await where();
