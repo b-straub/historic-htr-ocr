@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 //
 //! THE TEXT CROP: the page's main text block from its text ink — the crop OCR Lite's Auto proposes. On a photo of a
-//! sheet against a darker background only the writing on the sheet counts (seals, colour charts, rulers beside it lie
-//! outside; see sheet). The text blobs (ink::page::text_blobs) summed per column: the runs of ink, the heaviest run is the main block; every other run on
+//! sheet against a darker background, or of a tinted paper on a white scanner bed, only the writing on the sheet counts
+//! (seals, colour charts, rulers beside it lie outside; see sheet). The text blobs (ink::page::text_blobs) summed per column: the runs of ink, the heaviest run is the main block; every other run on
 //! the page joins it (headings, margin columns, notes — however far) unless it is FOREIGN or TINY:
 //!   • foreign: a neighbour page (≥ EDGE_CUT of its blobs cut by the image edge — its lines run off the scan) or a
 //!     book edge (≥ TALL_INK of its ink in tall thin strokes — the leaves' edges); a foreign run ends the block on its
@@ -13,8 +13,8 @@
 //! The block's ends are trimmed while their ink is mostly tall strokes (a book edge grown into the text). Then the rows
 //! inside the block's columns, the same way without the foreign / blob rules (a one-word heading or a date line stays),
 //! and PAD pitch around. A 200-page sample over the training corpora: as large as the sealed training crops (median),
-//! 86 of 124 pages fit the GT text (≤ 1 line pitch of it cut, ≤ 2 pitches beyond it; paper crop: 57); photographed charters with seals and colour
-//! charts: 28 of 44 (paper crop: 0).
+//! 88 of 124 pages fit the GT text (≤ 1 line pitch of it cut, ≤ 2 pitches beyond it; paper crop: 57); photographed charters with seals and colour
+//! charts: 30 of 44 (paper crop: 0); letters on a white scanner bed with a colour chart and a ruler beside them: 4 of 4.
 
 use crate::ink::{self, Page, img};
 use crate::raster::Mask;
@@ -43,11 +43,16 @@ const SHEET_CLOSE: f64 = 0.5;
 const SHEET_OPEN: f64 = 3.0;
 const SHEET_ALL: f64 = 0.97;
 const SHEET_DENSER: f64 = 1.5;
+/// a framed tinted sheet needs only this share of the text blobs (the rest may be a chart's letters, a ruler's figures)
+const SHEET_TINT_MOST: f64 = 0.25;
 /// the writing counts from this far inside the sheet's edge (pitch) — its torn edge and the specks along it do not
 const SHEET_EDGE: f64 = 0.5;
 /// the colour phase: a sheet fills this much of its box, and covers this much of the image
 const SHEET_FILL: f64 = 0.9;
 const SHEET_MIN: f64 = 0.45;
+/// the tint (RGB spread) of a paper or parchment: above TINT_MAX it is a printed colour (a colour chart's patches, a
+/// yellow ruler) — counted as background
+const TINT_MAX: u8 = 80;
 
 /// a run of a profile: [start, end) and its ink
 struct Run {
@@ -123,11 +128,19 @@ fn bright_region(pg: &Page, blur: &img::Gray, t: u8) -> Option<(Mask, f64)> {
     Some((Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() }, share))
 }
 
-/// the sheet in one feature image (`feat`, brighter = sheet): the largest bright region (Otsu on it blurred); when that
-/// is (almost) the whole image, the split was dark objects against the rest (seals on a grey background): Otsu again on
-/// the bright part. None = no such region (it covers the whole image), or the text ink is not denser on it than off it
-/// (a bright background, a dark page)
-fn sheet_in(pg: &Page, text: &[bool], feat: &img::Gray) -> Option<Mask> {
+/// a sheet candidate: its mask, how much denser the text is on it than off it — by ink and by blobs (a colour chart's
+/// patches are dense ink but few blobs) — and the share of the text blobs on it
+struct Candidate {
+    m: Mask,
+    denser: f64,
+    blobs_denser: f64,
+    most: f64,
+}
+
+/// the sheet candidate in one feature image (`feat`, brighter = sheet): the largest bright region (Otsu on it
+/// blurred); when that is (almost) the whole image, the split was dark objects against the rest (seals on a grey
+/// background): Otsu again on the bright part. None = no such region (it covers the whole image)
+fn sheet_in(pg: &Page, text: &[bool], feat: &img::Gray) -> Option<Candidate> {
     let (w, h) = (pg.w(), pg.h());
     let blur = img::blur(feat, SHEET_BLUR);
     let t = img::otsu(&blur);
@@ -152,14 +165,23 @@ fn sheet_in(pg: &Page, text: &[bool], feat: &img::Gray) -> Option<Mask> {
         }
     }
     let (den_on, den_off) = (on as f64 / share, off as f64 / (1.0 - share));
-    if den_on < SHEET_DENSER * den_off {
-        return None;
+    let (mut b_on, mut b_all) = (0usize, 0usize);
+    for c in 1..pg.n {
+        if text[c] {
+            b_all += 1;
+            if m.px[(pg.cy[c] as usize).min(h - 1) * w + (pg.cx[c] as usize).min(w - 1)] {
+                b_on += 1;
+            }
+        }
     }
-    Some(m)
+    let most = b_on as f64 / b_all.max(1) as f64;
+    let blobs_denser = (most / share) / ((1.0 - most) / (1.0 - share)).max(f64::MIN_POSITIVE);
+    Some(Candidate { m, denser: den_on / den_off.max(f64::MIN_POSITIVE), blobs_denser, most })
 }
 
 /// a sheet lying inside the photo: a rectangle (it fills ≥ SHEET_FILL of its box) of ≥ SHEET_MIN of the image, the
-/// background on all four sides — not a tinted patch of a paper that fills the scan
+/// background on three sides at least (a page may run off one edge of the scan) — not a tinted patch of a paper that
+/// fills the scan
 fn framed(pg: &Page, m: &Mask) -> bool {
     let (w, h) = (m.w, m.h);
     let (mut x0, mut y0, mut x1, mut y1, mut area) = (w, h, 0, 0, 0usize);
@@ -174,15 +196,22 @@ fn framed(pg: &Page, m: &Mask) -> bool {
         }
     }
     let e = (SHEET_CLOSE * pg.pitch) as usize;
-    let inside = x0 > e && y0 > e && x1 + e < w - 1 && y1 + e < h - 1;
-    inside && area as f64 >= SHEET_FILL * ((x1 - x0 + 1) * (y1 - y0 + 1)) as f64 && area as f64 >= SHEET_MIN * (w * h) as f64
+    let free = [x0 > e, y0 > e, x1 + e < w - 1, y1 + e < h - 1].iter().filter(|&&f| f).count();
+    free >= 3 && area as f64 >= SHEET_FILL * ((x1 - x0 + 1) * (y1 - y0 + 1)) as f64 && area as f64 >= SHEET_MIN * (w * h) as f64
 }
 
 /// THE SHEET on a photo: the parchment or paper against its background — seals, colour charts and rulers beside it lie
-/// outside. First by brightness (a sheet on a darker background); then by colour (`chroma`, the RGB spread at the
-/// page's work px: a tinted parchment on a neutral grey background as bright as it), only a framed one
+/// outside. First by brightness (a sheet on a darker background): the text denser on it, by ink and by blobs (not a
+/// bright background around a dark page, not a colour chart). Then by its tint (`chroma`, the RGB spread at the page's
+/// work px, printed colours above TINT_MAX left out): a tinted paper on a white scanner bed or a neutral grey background
+/// as bright as it, only a framed one — there a chart's patches and a ruler's ticks off it may be the denser ink
 fn sheet(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<Mask> {
-    sheet_in(pg, text, &pg.grey).or_else(|| sheet_in(pg, text, chroma).filter(|m| framed(pg, m)))
+    let by_light = sheet_in(pg, text, &pg.grey).filter(|c| c.denser >= SHEET_DENSER && c.blobs_denser >= SHEET_DENSER);
+    let by_tint = || {
+        let tint = img::Gray { w: chroma.w, h: chroma.h, px: chroma.px.iter().map(|&v| if v > TINT_MAX { 0 } else { v }).collect() };
+        sheet_in(pg, text, &tint).filter(|c| c.most >= SHEET_TINT_MOST && framed(pg, &c.m))
+    };
+    by_light.or_else(by_tint).map(|c| c.m)
 }
 
 /// the text crop of an analysed page → [x0, y0, x1, y1] in the page's image px; None = no text ink
