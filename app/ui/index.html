@@ -11,7 +11,7 @@
 <body>
   <div class="edgeband" aria-hidden="true"></div>
   <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn, Page /
-       Auto, Cancel / Apply, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (the model
+       Auto, Apply / Cancel, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (the model
        input's size, zoom, the preset beside Read). Upright: the app row (logo · Help · Settings) on top, then the three;
        on its side two lines — Crop · Adjust, then logo · Read row · Help · Settings · preset · Read. Every control keeps its place: a control
        that cannot act is greyed out, never hidden -->
@@ -32,8 +32,8 @@
         <button class="btn small" id="textCropBtn" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
       </span>
       <span class="seg" id="cropAct">
-        <button class="ib" id="cropCancelBtn" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
         <button class="ib" id="cropApplyBtn" title="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
+        <button class="ib" id="cropCancelBtn" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
       </span>
       <span class="seg">
         <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
@@ -327,7 +327,7 @@
         <ol>
           <li><b>Open</b> an image, or drop it on the image pane.</li>
           <li>The tools come in three rows: <b>Crop</b> (what part of the image), <b>Adjust</b> (how it looks to the model), <b>Read</b>. On a phone's side the first two share a line.</li>
-          <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then ✓ (Apply); ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
+          <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then the green ✓ (Apply); the red ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
           <li><b>Adjust</b> row: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out.</li>
           <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
           <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>

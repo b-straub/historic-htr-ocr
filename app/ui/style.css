@@ -383,6 +383,14 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 #appRow { order: 5; gap: 2px; }
 #presetBox { order: 6; }
 #readBtn { order: 7; }
+/* Apply / Cancel: the usual green ✓ and red ✕, filled while a rectangle waits — the same in both themes (white on
+   the solid colour) */
+#cropAct { gap: 4px; }
+#cropApplyBtn:not(:disabled) { background: #16a34a; color: #fff; }
+#cropCancelBtn:not(:disabled) { background: #dc2626; color: #fff; }
+#cropApplyBtn:not(:disabled):hover { background: #15803d; }
+#cropCancelBtn:not(:disabled):hover { background: #b91c1c; }
+#cropAct svg { stroke-width: 2.6; }
 .croplabel { color: var(--muted); font-size: 12px; padding: 0 2px 0 4px; }
 /* the Scale: label · slider · Auto in one segment; the slider gives way first */
 #scaleSeg { display: flex; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; max-width: 320px; }
