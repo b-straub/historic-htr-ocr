@@ -1,8 +1,8 @@
 # OCR Lite — Copyright (c) 2026 Bernhard Straub
 # SPDX-License-Identifier: MIT
 #
-# The full CI on every push and pull request: app/ci.sh (test, build, site, browser) — the same script a local check
-# runs. Also callable (workflow_call): pages.yml runs THIS job first and deploys only what it built and tested.
+# The CI on every push and pull request: app/ci.sh test, build, site — the same script a local check runs. The browser
+# tests (app/ci.sh browser) run locally before a tag, not here: their timing on a shared runner made tag pushes fail. Also callable (workflow_call): pages.yml runs THIS job first and deploys only what it built and tested.
 # The Pages artifact (_site) is kept as the workflow artifact "site" for that deploy.
 name: CI
 
@@ -72,11 +72,6 @@ jobs:
 
       - name: Site (Pages artifact + link check)
         run: app/ci.sh site
-
-      - name: Browser tests (headless Chrome, no GPU / no model)
-        env:
-          CHROME: /usr/bin/google-chrome
-        run: app/ci.sh browser
 
       - name: Keep the site
         uses: actions/upload-artifact@v7

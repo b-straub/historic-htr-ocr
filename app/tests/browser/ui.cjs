@@ -156,10 +156,10 @@ const cropTool = (page, id) => page.click(id);
     return { src: i.src.slice(0, 40), pts };
   });
   const before = await sample();
-  await page.evaluate(() => { window.__ops = []; });
+  const src0 = await page.evaluate(() => document.getElementById("img").src);
   await page.click('[data-op="pencil"]');
-  await page.waitForFunction(() => window.__ops.some((o) => o.includes("pencil")));
-  await new Promise((r) => setTimeout(r, 400));
+  // the pencil preview shown (a slow runner: the request is sent long before its image arrives)
+  await page.waitForFunction((s) => { const i = document.getElementById("img"); return i.src !== s && i.complete && i.naturalWidth > 0; }, { timeout: 30000 }, src0);
   const after = await sample();
   console.log("before", JSON.stringify(before.pts), "after", JSON.stringify(after.pts));
   ok(after.pts.every((p) => Math.abs(p[0] - p[1]) <= 3 && Math.abs(p[1] - p[2]) <= 3 && p[1] >= 245), "pencil: paper → grey ≈ 255 everywhere (left and right of the gradient)");
