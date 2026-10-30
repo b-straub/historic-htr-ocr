@@ -11,9 +11,9 @@
 <body>
   <div class="edgeband" aria-hidden="true"></div>
   <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn, Page /
-       Auto, Cancel / Apply, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (preset, the
-       model input's size, zoom, Read). Upright: the app row (logo · Help · Settings) on top, then the three; on its side
-       two lines — Crop · Adjust, then logo · Read row · Help · Settings · Read. Every control keeps its place: a control
+       Auto, Cancel / Apply, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (the model
+       input's size, zoom, the preset beside Read). Upright: the app row (logo · Help · Settings) on top, then the three;
+       on its side two lines — Crop · Adjust, then logo · Read row · Help · Settings · preset · Read. Every control keeps its place: a control
        that cannot act is greyed out, never hidden -->
   <header class="titlebar">
     <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
@@ -57,7 +57,6 @@
     </div>
     <span class="rowbreak"></span>
     <div class="row" id="readRow">
-      <label class="select"><select id="presetSel" title="decoding preset"></select></label>
       <!-- the image (or crop) and the model input's size; the detail is its tooltip (a tap shows it in the status line) -->
       <span class="meta" id="bakeInfo"></span>
       <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
@@ -71,6 +70,7 @@
       <button class="ib ghost" id="helpBtn" title="Help"><i data-icon="help"></i></button>
       <button class="ib ghost" id="settingsBtn" title="Settings"><i data-icon="gear"></i></button>
     </span>
+    <label class="select" id="presetBox"><select id="presetSel" title="decoding preset"></select></label>
     <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
   </header>
 

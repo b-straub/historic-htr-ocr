@@ -409,7 +409,8 @@ const cropTool = (page, id) => page.click(id);
       const r = (id) => document.getElementById(id).getBoundingClientRect();
       const top = ["aboutBtn", "cropRow", "adjustRow", "readRow"].map((id) => Math.round(r(id).top));
       const cut = ["scaleInfo", "bakeInfo"].filter((id) => { const e = document.getElementById(id); return e.scrollWidth > e.clientWidth; });
-      return { top, rows: top.every((t, k) => k === 0 || t > top[k - 1]), readLine: Math.abs(r("readBtn").top - r("readRow").top) < 8,
+      const beside = r("readBtn").left - r("presetBox").right;
+      return { top, rows: top.every((t, k) => k === 0 || t > top[k - 1]), readLine: Math.abs(r("readBtn").top - r("readRow").top) < 8 && beside >= 0 && beside < 16,
         right: Math.max(...["cropRow", "adjustRow", "readBtn"].map((id) => r(id).right)), vw: innerWidth, slider: Math.round(r("scaleSlider").width),
         h: Math.round(document.querySelector(".titlebar").getBoundingClientRect().height), cut };
     });
@@ -487,10 +488,11 @@ const cropTool = (page, id) => page.click(id);
       const mid = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return (r.top + r.bottom) / 2; };
       const spread = (ids) => Math.max(...ids.map(mid)) - Math.min(...ids.map(mid));
       const cut = ["scaleInfo", "bakeInfo"].filter((id) => { const e = document.getElementById(id); return e.scrollWidth > e.clientWidth; });
-      return { one: spread(["cropRow", "adjustRow"]), two: spread(["aboutBtn", "paneTabs", "readRow", "settingsBtn", "readBtn"]), below: mid("readRow") > mid("cropRow") + 20,
-        right: document.getElementById("readBtn").getBoundingClientRect().right, vw: innerWidth, cut };
+      return { one: spread(["cropRow", "adjustRow"]), two: spread(["aboutBtn", "paneTabs", "readRow", "settingsBtn", "presetBox", "readBtn"]), below: mid("readRow") > mid("cropRow") + 20,
+        right: document.getElementById("readBtn").getBoundingClientRect().right, vw: innerWidth, cut,
+        beside: document.getElementById("readBtn").getBoundingClientRect().left - document.getElementById("presetBox").getBoundingClientRect().right };
     });
-    ok(row.one < 3 && row.two < 3 && row.below && row.right <= row.vw && row.cut.length === 0,
+    ok(row.one < 3 && row.two < 3 && row.below && row.right <= row.vw && row.cut.length === 0 && row.beside >= 0 && row.beside < 16,
       `phone on its side: two lines (${row.one.toFixed(1)} / ${row.two.toFixed(1)} px apart), Read at ${Math.round(row.right)} of ${row.vw}, cut: ${row.cut.join(" ") || "none"}`);
     await page.click("#paneTabs [data-tab=text]");
     await new Promise((r) => setTimeout(r, 200));
