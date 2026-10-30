@@ -431,6 +431,15 @@ const cropTool = async (page, id) => {
     await new Promise((r) => setTimeout(r, 800));
     const sC = await scale();
     ok(sC.info === s2.info && !sC.off, `contrast keeps the Scale: "${s2.info}" → "${sC.info}"`);
+    // contrast is on or off, never stacked: a second press takes it out again
+    const cOn = await page.evaluate(() => document.querySelector('[data-op="autoContrast"]').classList.contains("on"));
+    await page.evaluate(() => { window.__ops = []; });
+    await page.click('[data-op="autoContrast"]');
+    await page.waitForFunction(() => window.__ops.some((o) => o.startsWith("[")));
+    await new Promise((r) => setTimeout(r, 500));
+    const cOps = await page.evaluate(() => window.__ops.join(" "));
+    const cOff = await page.evaluate(() => !document.querySelector('[data-op="autoContrast"]').classList.contains("on"));
+    ok(cOn && cOff && !cOps.includes("autoContrast"), `contrast toggles: on, then off with the chain ${cOps}`);
     await slide(px(s1.info));
     const s3 = await scale();
     ok(!sA.auto && px(s2.info) === 9 && by(s2.info) < by(s1.info) && s2.auto && s3.info === s1.info,

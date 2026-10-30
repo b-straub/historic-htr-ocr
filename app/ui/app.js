@@ -237,8 +237,18 @@ async function refresh() {
   applyState();
   measureSize(); // a new image / step: the Scale's range measured again on a crop
 }
+// contrast / pencil are on or off, never stacked: a second press takes the step out again (they change no geometry,
+// so the crops after them keep their pixels)
+const FILTERS = new Set(["autoContrast", "pencil"]);
 function pushOp(op) {
   if (!S.prev) return;
+  const on = S.ops.findIndex((o) => o.op === op.op);
+  if (FILTERS.has(op.op) && on >= 0) {
+    crumb(`${op.op} off`);
+    S.ops.splice(on, 1);
+    refresh();
+    return;
+  }
   crumb(op.op === "crop" ? `crop ${op.w}×${op.h} at ${op.x},${op.y}` : op.op);
   S.ops.push(op);
   refresh();
@@ -1499,6 +1509,11 @@ function applyState() {
   const stepsWhy = !img ? noImg : busy ? BUSY_WHY : cropping ? cropWhy : "Finding the crop…";
   for (const b of document.querySelectorAll("[data-op]")) {
     enable(b, steps, stepsWhy);
+    if (FILTERS.has(b.dataset.op)) {
+      const on = S.ops.some((o) => o.op === b.dataset.op);
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
   }
   // Page / Auto: with an image, also on a cropped one (they start from the uncropped image) and over a rectangle
   const crop = img && !S.finding && !busy;

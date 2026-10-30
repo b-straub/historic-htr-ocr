@@ -67,7 +67,8 @@ i[data-icon] svg { width: 100%; height: 100%; }
 .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ── buttons ───────────────────────────────────────── */
-button { font: inherit; color: inherit; cursor: default; }
+/* manipulation: no double-tap zoom on iOS — quick presses on one button zoomed the page and the next press hit another */
+button { font: inherit; color: inherit; cursor: default; touch-action: manipulation; }
 /* min-height, not height: a label that wraps (a narrow screen held upright) makes the button taller, never spills out */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 3px 12px; text-align: center;

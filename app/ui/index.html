@@ -18,8 +18,8 @@
       <button class="ib" data-op="rotateRight" title="Rotate right"><i data-icon="rotr"></i></button>
       <button class="ib" data-op="rotate180" title="Rotate 180°"><i data-icon="flip"></i></button>
       <span class="div"></span>
-      <button class="ib" data-op="autoContrast" title="Auto contrast (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
-      <button class="ib" data-op="pencil" title="Pencil preset: flatten paper · green channel"><i data-icon="pencil"></i></button>
+      <button class="ib" data-op="autoContrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
+      <button class="ib" data-op="pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
       <span class="div"></span>
       <button class="ib" id="cropBtn" title="Crop: Page · Auto in the image head, in place of the Scale"><i data-icon="autocrop"></i></button>
       <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
@@ -277,7 +277,7 @@
       </section>
       <section data-step="done" hidden>
         <p><b>Ready — open an image and press Read.</b></p>
-        <p class="hint">Crop to the text first (the crop bar under the image: a Page mode finds the paper, Draw takes a rectangle by hand); Contrast or Pencil help with faint ink or uneven paper.</p>
+        <p class="hint">Crop to the text first (the crop button in the title bar: Page or Auto, then adjust the rectangle); Contrast or Pencil help with faint ink or uneven paper.</p>
         <div class="dlgfoot">
           <button type="button" class="btn" id="suDone">Close</button>
           <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i>Open an image</button>
@@ -315,7 +315,7 @@
         <ol>
           <li><b>Open</b> an image, or drop it on the image pane.</li>
           <li><b>Crop</b>: the crop button opens <b>Page</b> and <b>Auto</b> above the image. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then <b>Crop</b>; Cancel drops it. On a cropped image Page and Auto start again from the uncropped one.</li>
-          <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper. Undo / back to the original beside them.</li>
+          <li>If needed: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out. Undo / back to the original beside them.</li>
           <li><b>Scale</b> (above the image): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. The line beside it: crop · scale · scaled size · letter height.</li>
           <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
           <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
