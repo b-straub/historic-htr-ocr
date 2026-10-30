@@ -539,9 +539,9 @@ $("scaleAutoBtn").onclick = () => {
   }
   drawScale();
 };
-// the status after the tools: the crop (or the image), the factor from it to the model input, the average glyph height
-// there — "1300 × 800 · ×1.2 · 23 px"; the scaled size, line height and model input in its tooltip (a tap shows it in
-// the status line). The scaled size = the preview's bake scale × the Scale's factor, as bake_scaled makes it (inside
+// the status after the tools: the crop (or the image), the factor from it to the model input, the scaled size, the
+// average glyph height there — "1300 × 800 · ×1.2 · 1560 × 960 · 23 px"; the line height and the model input in its
+// tooltip (a tap shows it in the status line). The scaled size = the preview's bake scale × the Scale's factor, as bake_scaled makes it (inside
 // the 1540 px edge by the range; imageops::plan pads it to 56 px and the 28 px grid)
 function drawBakeInfo() {
   const p = S.prev;
@@ -552,7 +552,7 @@ function drawBakeInfo() {
   const w = f === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * f)), h = f === 1 ? b.scaledH : Math.max(1, Math.round(b.scaledH * f));
   const ok = r !== null && r.none === undefined;
   const by = `×${Number((w / p.w).toFixed(2))}`;
-  $("bakeInfo").textContent = `${p.w} × ${p.h} · ${by}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
+  $("bakeInfo").textContent = `${p.w} × ${p.h} · ${by} · ${w} × ${h}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
   let fw = w, fh = h;
   if (Math.min(fw, fh) < 56) {
     if (fw <= fh) { fw = 56; } else { fh = 56; }
