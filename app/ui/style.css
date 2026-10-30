@@ -392,6 +392,11 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 /* a fixed width ("×0.56 · 43 px"): the slider never moves when the text changes */
 #scaleInfo { flex: 0 0 auto; width: 82px; font-variant-numeric: tabular-nums; }
 #bakeInfo { flex: 1 1 0; }
+/* a phone on its side: a free strip above the first line — iOS pulls Control Center down from the top edge (on the
+   right, where the Scale's slider sits) and a drag there moved the slider */
+@media (orientation: landscape) and (max-height: 500px) {
+  .titlebar { padding-top: max(14px, env(safe-area-inset-top, 0px)); }
+}
 /* upright: the app row on top, then Crop, Adjust, the Read row with Read at its end */
 @media (orientation: portrait) {
   .titlebar .brand { order: 0; }

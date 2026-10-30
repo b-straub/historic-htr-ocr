@@ -498,7 +498,7 @@ const cropTool = (page, id) => page.click(id);
     await new Promise((r) => setTimeout(r, 200));
     const b = await where();
     await page.screenshot({ path: `${OUT}/13b_phone_landscape_text.png` });
-    ok(a.stacked && a.tabsInBar && a.bar < 110 && b.bar < 60, `phone on its side: image ${JSON.stringify(a)} · text (the Read line only) ${JSON.stringify(b)}`);
+    ok(a.stacked && a.tabsInBar && a.bar < 110 && b.bar < 70, `phone on its side: image ${JSON.stringify(a)} · text (the Read line only) ${JSON.stringify(b)}`);
     await page.click("#paneTabs [data-tab=image]");
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   }
