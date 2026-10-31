@@ -16,8 +16,8 @@ const OUT = require("./lib.cjs").outDir("state");
 // every control of the state table (app.js) by a short name
 const C = {
   open: "#openBtn", rotL: '[data-op="rotateLeft"]', rotR: '[data-op="rotateRight"]', rot180: '[data-op="rotate180"]',
-  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]', crop: "#pageCropBtn",
-  find: "#textCropBtn", cropCancel: "#cropCancelBtn", cropApply: "#cropApplyBtn", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
+  contrast: '[data-op="autoContrast"]', pencil: '[data-op="pencil"]',
+  find: "#textCropBtn", side: "#sideBtn", cropCancel: "#cropCancelBtn", cropApply: "#cropApplyBtn", imgUndo: "#imgUndoBtn", reset: "#resetBtn", preset: "#presetSel", help: "#helpBtn",
   settings: "#settingsBtn", about: "#aboutBtn", read: "#readBtn", zoomOut: "#zoomOutBtn", zoomIn: "#zoomInBtn",
   fit: "#zoomFitBtn", fmt: "#fmtSeg button", gap: "#gapBtn", tab: "#tabBtn", undo: "#undoBtn", redo: "#redoBtn",
   markup: "#markupBtn", copy: "#copyBtn", save: "#saveBtn", saveTxt: '[data-save="txt"]', saveHtml: '[data-save="html"]',
@@ -28,23 +28,28 @@ const ALL = Object.keys(C);
 const ALWAYS = ["help", "about"];
 const EDIT = ["fmt", "gap", "tab", "markup"];
 const STEPS = ["rotL", "rotR", "rot180", "contrast", "pencil"];
-const CROPMENU = ["crop", "find"];
+const CROPMENU = ["find", "side"];
+// an image opened: Auto's rectangle waits for ✓ / ✕ (the synthetic image has no writing: the whole image); before a crop
+// is applied the turns and filters stay on (Auto runs again after them), Read waits for the crop
+const DUE = [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "cropCancel", "cropApply", "zoomIn", "save", "savePng"];
+const CROPPED = [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"];
 const E = {
   noImg: [...ALWAYS, "open", "preset", "settings", ...EDIT],
-  noModelImg: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng"],
-  img: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read"],
-  imgZoomed: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "zoomOut", "fit", "save", "savePng", "read"],
-  crop: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...CROPMENU, "cropCancel", "cropApply", "zoomIn", "save", "savePng"],
-  stepped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
-  // cropped: Page / Auto still on (they start from the uncropped image)
-  cropped: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
+  noModelImg: DUE,
+  due: DUE,
+  dueStepped: [...DUE, "imgUndo", "reset"],
+  // the rectangle cancelled: no crop yet — Auto brings it back, Read waits
+  img: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng"],
+  // cropped: Auto still on (it starts from the uncropped image)
+  cropped: CROPPED,
+  croppedZoomed: [...CROPPED, "zoomOut", "fit"],
   // a read: About off (its re-layout during a read ended in crashes on the iPhone), Help stays
   starting: ["help", "zoomIn"],
   reading: ["help", "zoomIn", "read"],
   stopping: ["help", "zoomIn"],
-  text: [...ALWAYS, "open", "preset", "settings", ...EDIT, ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read", "undo", "copy", "saveTxt", "saveHtml"],
-  markupText: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read", "copy", "saveTxt", "saveHtml"],
-  markupEmpty: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "zoomIn", "save", "savePng", "read"],
+  text: [...CROPPED, "undo", "copy", "saveTxt", "saveHtml"],
+  markupText: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read", "copy", "saveTxt", "saveHtml"],
+  markupEmpty: [...ALWAYS, "open", "preset", "settings", "markup", ...STEPS, ...CROPMENU, "imgUndo", "reset", "zoomIn", "save", "savePng", "read"],
 };
 
 let srv = null;
@@ -126,9 +131,11 @@ const cropTool = (page, id) => page.click(id);
       const i = document.getElementById("img");
       return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").dataset.tip.startsWith(`${w} ×`);
     }, { timeout: 60000 }, w, before);
+    // Auto's rectangle comes up by itself
+    await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 60000 });
     await sleep(300);
   };
-  // the bar's rows keep every control in place: the crop (Page · Auto), Cancel · Apply and the Scale always shown
+  // the bar's rows keep every control in place: the crop (Auto · ▾), Cancel · Apply and the Scale always shown
   const cropCtl = (page) => page.evaluate(() => ["cropSeg", "cropAct", "scaleSeg"].filter((id) => document.getElementById(id).offsetParent !== null).join(" "));
   const ALLCTL = "cropSeg cropAct scaleSeg";
 
@@ -183,15 +190,26 @@ const cropTool = (page, id) => page.click(id);
   }
   await check(page, "no image", E.noImg, /^Open an image first$/);
 
-  // ── a fresh large image: the Scale in the image head (the crop behind the title bar's crop button) ──
+  // ── a fresh large image: Auto's rectangle at once, Read waits for the crop ──
   await open(page, BIG);
   ok(await cropCtl(page) === ALLCTL, `a fresh image: crop, Cancel · Apply and the Scale in their places (${await cropCtl(page)})`);
-  await check(page, "image", E.img, /^Read the image/);
+  await check(page, "image · Auto's rectangle", E.due, /^Apply or cancel the crop first/);
   await page.screenshot({ path: `${OUT}/image_desktop_light.png` });
+  await page.click("#cropCancelBtn");
+  ok(await cropCtl(page) === ALLCTL && await page.evaluate(() => document.getElementById("rect").hidden), "Cancel → the rectangle gone");
+  await check(page, "rectangle cancelled", E.img, /^Crop first/);
+  // a turn before the crop: Auto again
+  await page.click('[data-op="rotateLeft"]');
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("2000 ×") && !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 60000 });
+  await check(page, "turned · Auto's rectangle again", E.dueStepped);
+  await page.evaluate(() => { window.__ops = []; });
+  await page.click("#cropApplyBtn");
+  await page.waitForFunction(() => window.__ops.some((o) => o.includes('"crop"')));
+  await check(page, "cropped", E.cropped, /^Read the image/);
   // dialogs: modal — nothing changes behind them
   await page.click("#settingsBtn");
   await page.waitForFunction(() => document.getElementById("settingsDlg").open);
-  await check(page, "image · Settings open", E.img);
+  await check(page, "cropped · Settings open", E.cropped);
   // expert mode off (the default): no preset list, no preset editor, Read uses the default preset whatever the list
   // holds; on: both shown, Read uses the list's — the choice kept across
   const presets = () => page.evaluate(() => ({ box: getComputedStyle(document.getElementById("presetBox")).display !== "none",
@@ -212,37 +230,20 @@ const cropTool = (page, id) => page.click(id);
   await page.evaluate(() => document.getElementById("expertChk").click()); // off again: the default for the rest
   await page.click("#settingsCancel");
   await page.click("#zoomInBtn");
-  await check(page, "image · zoomed", E.imgZoomed);
+  await check(page, "cropped · zoomed", E.croppedZoomed);
   await page.click("#zoomFitBtn");
-  await page.click('[data-op="rotateLeft"]');
-  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("2000 ×"));
-  await check(page, "image · one step", E.stepped);
-
-  // ── reopen: Page → crop mode, the whole image pending → Cancel ──
-  await open(page, BIG);
-  await check(page, "image (reopened, steps cleared)", E.img);
-  await cropTool(page, "#pageCropBtn");
-  ok(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping") && !document.getElementById("rect").hidden) && await cropCtl(page) === ALLCTL,
-    `Page → crop mode, a rectangle, nothing moved (${await cropCtl(page)})`);
-  await check(page, "pending crop", E.crop, /^Apply or cancel the crop first/);
-  await page.click("#cropCancelBtn");
-  ok(await cropCtl(page) === ALLCTL && await page.evaluate(() => document.getElementById("rect").hidden), "Cancel → the rectangle gone");
-  await check(page, "crop cancelled", E.img);
-
-  // ── reopen: Auto → the text crop (no writing in the synthetic image: the whole image to adjust) → Crop ──
-  await open(page, BIG);
+  // Auto on a cropped image: from the uncropped one (a crop is due again); ✕ puts the crop back
   await cropTool(page, "#textCropBtn");
-  await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-  ok(await page.evaluate(() => document.getElementById("rect").classList.contains("auto") && !document.getElementById("rect").hidden), "Auto → a dashed rectangle");
-  await check(page, "found crop pending", E.crop, /^Apply or cancel the crop first/);
-  await page.evaluate(() => { window.__ops = []; });
-  await page.click("#cropApplyBtn");
-  await page.waitForFunction(() => window.__ops.some((o) => o.includes('"crop"')));
-  await check(page, "cropped", E.cropped);
+  await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 60000 });
+  ok(await page.evaluate(() => document.getElementById("rect").classList.contains("auto")), "Auto → a dashed rectangle");
+  await check(page, "Auto on the cropped image", E.dueStepped, /^Apply or cancel the crop first/);
+  await page.click("#cropCancelBtn");
+  await page.waitForFunction(() => document.getElementById("rect").hidden);
+  await sleep(300);
+  await check(page, "Auto cancelled: the crop back", E.cropped);
 
-  // ── reopen: a crop by hand (Page, its corner dragged in) ──
+  // ── reopen: a crop by hand (Auto's rectangle, its corner dragged in) ──
   await open(page, BIG);
-  await cropTool(page, "#pageCropBtn");
   {
     const r = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
     await page.mouse.move(r.right - 1, r.bottom - 1);
@@ -256,8 +257,7 @@ const cropTool = (page, id) => page.click(id);
   ok(await cropCtl(page) === ALLCTL, "after a crop: every control in its place");
   await check(page, "cropped by hand", E.cropped);
 
-  // ── reopen: Read → starting → reading → Stop → stopping → idle ──
-  await open(page, BIG);
+  // ── Read (the image cropped by hand) → starting → reading → Stop → stopping → idle ──
   if (!real) {
     R.skip("Read → Stop: the starting / reading / stopping states and the Read labels (5 checks) need a read that runs — set OCR_LITE_MODEL_DIR");
   } else {
@@ -291,6 +291,8 @@ const cropTool = (page, id) => page.click(id);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([process.env.OCR_LITE_READ_IMAGE]);
   await page.waitForFunction((b) => document.getElementById("bakeInfo").dataset.tip !== b, { timeout: 30000 }, before);
+  await page.waitForFunction(() => !document.getElementById("cropApplyBtn").disabled, { timeout: 60000 });
+  await page.click("#cropApplyBtn"); // Auto's rectangle: Read needs the crop
   await sleep(300);
   // Stop before the text (the image encode runs ~10 s here): the engine released at once, the read ends within seconds
   await page.click("#readBtn");
@@ -334,7 +336,7 @@ const cropTool = (page, id) => page.click(id);
     document.getElementById("markupBtn").click();
     await new Promise((r) => setTimeout(r, 200));
   });
-  await check(page, "image · no text", E.img);
+  await check(page, "cropped · no text", E.cropped);
   await page.click("#editor");
   await page.keyboard.type("Hallo Welt");
   await sleep(200);

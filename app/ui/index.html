@@ -12,7 +12,7 @@
   <div class="edgeband" aria-hidden="true"></div>
   <!-- the texts: data-i18n* keys of ui/lang/<language>.json (English here, the current language set at start); the
        longer ones ([data-slot]: Help, the tips, the licences) from ui/lang/help.<language>.html (ui/i18n.js) -->
-  <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn, Page /
+  <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn,
        Auto, Apply / Cancel, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (the model
        input's size, zoom, the preset beside Read). Upright: the app row (logo · How to · Help · Settings) on top, then the three;
        on its side two lines — Crop · Adjust, then logo · Read row · How to · Help · Settings · preset · Read. Every control keeps its place: a control
@@ -27,11 +27,20 @@
         <button class="ib" data-op="rotateRight" data-i18n-tip="rot.right" data-tip="Rotate right"><i data-icon="rotr"></i></button>
         <button class="ib" data-op="rotate180" data-i18n-tip="rot.180" data-tip="Rotate 180°"><i data-icon="flip"></i></button>
       </span>
-      <!-- the crop (app.js crop): Page = the whole image, Auto = the text block found — a rectangle to adjust, then
-           Cancel or Apply -->
+      <!-- the crop (app.js crop): Auto = the text block found, by itself when an image opens — a rectangle to adjust,
+           then Cancel or Apply (Read waits for the crop) -->
       <span class="seg" id="cropSeg">
-        <button class="btn small" id="pageCropBtn" data-i18n="crop.page" data-i18n-tip="crop.page.title" data-tip="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
-        <button class="btn small" id="textCropBtn" data-i18n="crop.auto" data-i18n-tip="crop.auto.title" data-tip="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
+        <button class="btn small" id="textCropBtn" data-i18n="crop.side.auto" data-i18n-tip="crop.auto.title" data-tip="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
+        <!-- the text crop's mode for book spreads (app.js cropSide): Auto · Left · Right · Double — the button above names it -->
+        <span class="menuwrap">
+          <button class="ib sidebtn" id="sideBtn" data-i18n-tip="crop.side.tip" data-i18n-aria="crop.side.aria" aria-haspopup="menu">▾</button>
+          <span class="menu" id="sideMenu" role="menu" hidden>
+            <button data-side="auto" role="menuitemradio" data-i18n="crop.side.auto">Auto</button>
+            <button data-side="left" role="menuitemradio" data-i18n="crop.side.left">Left</button>
+            <button data-side="right" role="menuitemradio" data-i18n="crop.side.right">Right</button>
+            <button data-side="double" role="menuitemradio" data-i18n="crop.side.double">Double</button>
+          </span>
+        </span>
       </span>
       <span class="seg" id="cropAct">
         <button class="ib" id="cropApplyBtn" data-i18n-tip="crop.apply.title" data-i18n-aria="crop.apply.aria" data-tip="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
@@ -68,15 +77,19 @@
         <button class="ib" id="zoomFitBtn" data-i18n-tip="zoom.fit" data-tip="Fit the image to the pane"><i data-icon="fit"></i></button>
       </span>
     </div>
-    <span class="row" id="appRow">
-      <!-- How to: the five steps + tips (for the first visit; the empty image pane shows the same steps) -->
-      <button class="btn small" id="howBtn" data-i18n-tip="howto.title" data-tip="How to use OCR Lite — the five steps"><i data-icon="book"></i><span class="howlabel" data-i18n="howto">How to</span></button>
-      <button class="ib ghost" id="helpBtn" data-i18n-tip="help" data-tip="Help"><i data-icon="help"></i></button>
-      <button class="ib ghost" id="settingsBtn" data-i18n-tip="settings" data-tip="Settings"><i data-icon="gear"></i></button>
-    </span>
-    <!-- expert mode only (app.js expert; off: every read uses the default preset) -->
-    <label class="select expert-only" id="presetBox"><select id="presetSel" data-tip="decoding preset"></select></label>
-    <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
+    <!-- the bar's end: How to · Help · Settings · preset · Read — one cluster at the right end on a computer (style.css);
+         on a phone its parts are placed one by one (display: contents) -->
+    <div id="barEnd">
+      <span class="row" id="appRow">
+        <!-- How to: the five steps + tips (for the first visit; the empty image pane shows the same steps) -->
+        <button class="btn small" id="howBtn" data-i18n-tip="howto.title" data-tip="How to use OCR Lite — the five steps"><i data-icon="book"></i><span class="howlabel" data-i18n="howto">How to</span></button>
+        <button class="ib ghost" id="helpBtn" data-i18n-tip="help" data-tip="Help"><i data-icon="help"></i></button>
+        <button class="ib ghost" id="settingsBtn" data-i18n-tip="settings" data-tip="Settings"><i data-icon="gear"></i></button>
+      </span>
+      <!-- expert mode only (app.js expert; off: every read uses the default preset) -->
+      <label class="select expert-only" id="presetBox"><select id="presetSel" data-tip="decoding preset"></select></label>
+      <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
+    </div>
   </header>
 
   <main>

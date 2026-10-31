@@ -360,6 +360,9 @@ const commands = {
   text_crop({ ops }) {
     return imageWork("textCrop", { ops });
   },
+  text_crop_side({ ops, side }) {
+    return imageWork("textCropSide", { ops, side });
+  },
   glyph_height({ ops }) {
     return imageWork("glyphHeight", { ops });
   },

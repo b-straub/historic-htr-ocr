@@ -77,6 +77,10 @@ const commands = {
   textCrop({ ops }) {
     return [JSON.parse(ocr.text_crop(JSON.stringify(ops))), []];
   },
+  /// the text crop for a side of a book spread ("auto" | "left" | "right" | "double"): the crop + the gutter (or null)
+  textCropSide({ ops, side }) {
+    return [JSON.parse(ocr.text_crop_side(JSON.stringify(ops), side)), []];
+  },
   bakedPng({ ops }) {
     const png = ocr.baked_png(JSON.stringify(ops));
     return [png, [png.buffer]];

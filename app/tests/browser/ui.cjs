@@ -9,6 +9,12 @@ const { launch, serve, outDir, results, testImages, REPO } = require("./lib.cjs"
 const R = results("ui");
 const ok = R.ok;
 const cropTool = (page, id) => page.click(id);
+// Auto pressed: its rectangle up (the synthetic image has no writing — the whole image)
+const autoRect = async (page) => {
+  await page.click("#textCropBtn");
+  await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+  await new Promise((r) => setTimeout(r, 200));
+};
 (async () => {
   const OUT = outDir("ui");
   const srv = await serve(8801);
@@ -25,8 +31,10 @@ const cropTool = (page, id) => page.click(id);
   await page.evaluateOnNewDocument(() => {
     const post = Worker.prototype.postMessage;
     window.__ops = [];
+    window.__cmds = []; // the image worker's commands (+ a side crop's side)
     Worker.prototype.postMessage = function (m, ...r) {
       if (m && Array.isArray(m.ops)) window.__ops.push(JSON.stringify(m.ops));
+      if (m && typeof m.cmd === "string") window.__cmds.push(m.side === undefined ? m.cmd : `${m.cmd}:${m.side}`);
       return post.call(this, m, ...r);
     };
   });
@@ -65,6 +73,16 @@ const cropTool = (page, id) => page.click(id);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([IMG]);
   await page.waitForFunction(() => { const i = document.getElementById("img"); return i.complete && i.naturalWidth > 0 && !document.getElementById("stage").hidden; });
+  // Auto's rectangle comes up by itself; Read waits for the crop — cancelled here: the zoom checks below run outside
+  // the crop mode
+  await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+  // (Read's why: the missing model comes first here — the crop's whys: tests/browser/state.cjs)
+  const onOpen = await page.evaluate(() => ({ read: document.getElementById("readBtn").disabled, auto: document.getElementById("textCropBtn").classList.contains("primary"),
+    apply: !document.getElementById("cropApplyBtn").disabled }));
+  await page.click("#cropCancelBtn");
+  const afterCancel0 = await page.evaluate(() => ({ rect: !document.getElementById("rect").hidden, auto: document.getElementById("textCropBtn").classList.contains("primary") }));
+  ok(onOpen.read && onOpen.auto && onOpen.apply && !afterCancel0.rect && afterCancel0.auto,
+    `on open: Auto's rectangle up, ✓ on, Read off, Auto marked; ✕ → no rectangle, Auto still marked`);
   await new Promise((r) => setTimeout(r, 300));
   // the opened image lives in the image worker: the page's own wasm memory stays small (it held ~100 MiB for this
   // 3000 × 2000 image, ~400 MiB for a 24 MP photo, when the page decoded it itself)
@@ -122,10 +140,25 @@ const cropTool = (page, id) => page.click(id);
   const none = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, info: document.getElementById("bakeInfo").textContent }));
   ok(/no writing found/.test(none.st) && none.rect && none.info === "3000 × 2000", `Auto on the synthetic image: ${none.st} ("${none.info}")`);
   await page.click("#cropCancelBtn");
-  await cropTool(page, "#pageCropBtn");
+  // Auto's ▾: the menu (Auto · Left · Right · Double, the current one marked); Right → the button says so, the side crop
+  // runs at once; back to Auto
+  await page.click("#sideBtn");
+  const menu = await page.evaluate(() => ({ open: !document.getElementById("sideMenu").hidden, items: [...document.querySelectorAll("#sideMenu button")].map((b) => b.textContent + (b.classList.contains("on") ? "*" : "")).join(" ") }));
+  await page.screenshot({ path: `${OUT}/02b_side_menu.png` });
+  await page.evaluate(() => { window.__cmds = []; });
+  await page.click('#sideMenu [data-side="right"]');
+  await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent) && window.__cmds.includes("textCropSide:right"), { timeout: 30000 });
+  const right = await page.evaluate(() => ({ label: document.getElementById("textCropBtn").textContent, menu: document.getElementById("sideMenu").hidden }));
+  ok(menu.open && menu.items === "Auto* Left Right Double" && right.label === "Right" && right.menu, `side menu: ${menu.items} → Right: "${right.label}", the side crop ran`);
+  await page.click("#cropCancelBtn");
+  await page.click("#sideBtn");
+  await page.click('#sideMenu [data-side="auto"]');
+  await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent) && document.getElementById("textCropBtn").textContent === "Auto");
+  await page.click("#cropCancelBtn");
+  await autoRect(page);
   const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), cancel: !document.getElementById("cropCancelBtn").disabled,
     scale: document.getElementById("scaleSlider").disabled, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
-  ok(ctl0.mode && ctl0.cancel && ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Page → crop mode, the whole image ("${ctl0.info}"), ✕ · ✓ on, the Scale off`);
+  ok(ctl0.mode && ctl0.cancel && ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Auto (no writing) → crop mode, the whole image ("${ctl0.info}"), ✕ · ✓ on, the Scale off`);
   // at 200 %: the image's lower right corner scrolled into view, the right edge dragged 40 px left, the bottom 30 px up
   await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft = p.scrollWidth; p.scrollTop = p.scrollHeight; });
   await new Promise((r) => setTimeout(r, 200));
@@ -166,15 +199,16 @@ const cropTool = (page, id) => page.click(id);
   ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropApplyBtn").disabled && document.getElementById("cropCancelBtn").disabled), "after ✓ the mode is left, ✕ · ✓ off");
   ok(s.zoom === "100 %", `after the crop: back to fit (${s.zoom}), ${s.info}`);
   await page.screenshot({ path: `${OUT}/04_cropped.png` });
-  // a cropped image: Page starts from the uncropped one, Cancel puts the crop back
-  await cropTool(page, "#pageCropBtn");
+  // a cropped image: Auto starts from the uncropped one, Cancel puts the crop back
+  await autoRect(page);
   await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×") && !document.getElementById("rect").hidden);
   await page.click("#cropCancelBtn");
   await page.waitForFunction((w) => document.getElementById("bakeInfo").dataset.tip.startsWith(`${w} ×`), {}, got.w);
-  ok(true, "a cropped image: Page shows the whole image again, Cancel puts the crop back");
-  // reset, pencil
+  ok(true, "a cropped image: Auto shows the whole image again, Cancel puts the crop back");
+  // reset (Auto's rectangle again — cancelled), pencil
   await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×") && !document.getElementById("rect").hidden);
+  await page.click("#cropCancelBtn");
   await new Promise((r) => setTimeout(r, 300));
   const sample = () => page.evaluate(async () => {
     const i = document.getElementById("img");
@@ -194,6 +228,9 @@ const cropTool = (page, id) => page.click(id);
   ok(after.pts.every((p) => Math.abs(p[0] - p[1]) <= 3 && Math.abs(p[1] - p[2]) <= 3 && p[1] >= 245), "pencil: paper → grey ≈ 255 everywhere (left and right of the gradient)");
   ok(before.pts[1][1] < 200, "before pencil the left paper was darker");
   await page.screenshot({ path: `${OUT}/05_pencil.png` });
+  // a filter before the crop: Auto ran again — its rectangle cancelled, the checks below run outside the crop mode
+  await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+  await page.click("#cropCancelBtn");
   // sharp preview at 8× (keeps the pencil chain)
   for (let k = 0; k < 10; k++) await zoomBtn("#zoomInBtn");
   await page.waitForFunction(() => document.getElementById("img").naturalWidth === 3000, { timeout: 15000 }).catch(() => {});
@@ -231,20 +268,20 @@ const cropTool = (page, id) => page.click(id);
     ok(!rectVis && Math.abs(s1.sl - s0.sl + 50) < 2 && Math.abs(s1.st - s0.st + 40) < 2, `no crop mode: one finger pans ${(s1.sl - s0.sl).toFixed(0)}, ${(s1.st - s0.st).toFixed(0)}, no rect`);
     s = s1;
   }
-  // zoomed in, Page leaves the image where it is
+  // zoomed in, Auto leaves the image where it is
   await zoomBtn("#zoomInBtn");
   const at0 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
-  await cropTool(page, "#pageCropBtn");
+  await autoRect(page);
   await new Promise((r) => setTimeout(r, 300));
   const at1 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
   await page.click("#cropCancelBtn");
   await zoomBtn("#zoomFitBtn");
-  ok(Math.abs(at1.left - at0.left) < 0.5 && Math.abs(at1.top - at0.top) < 0.5 && Math.abs(at1.width - at0.width) < 0.5, `Page keeps the zoomed image in place: ${at0.left.toFixed(1)},${at0.top.toFixed(1)} → ${at1.left.toFixed(1)},${at1.top.toFixed(1)}`);
-  await cropTool(page, "#pageCropBtn");
+  ok(Math.abs(at1.left - at0.left) < 0.5 && Math.abs(at1.top - at0.top) < 0.5 && Math.abs(at1.width - at0.width) < 0.5, `Auto keeps the zoomed image in place: ${at0.left.toFixed(1)},${at0.top.toFixed(1)} → ${at1.left.toFixed(1)},${at1.top.toFixed(1)}`);
+  await autoRect(page);
   await page.keyboard.press("Escape");
   ok(!(await page.evaluate(() => document.getElementById("stage").classList.contains("cropping"))), "Esc leaves the crop mode");
   // without a keyboard: Cancel is the way out; a tap on the waiting Read says why
-  await cropTool(page, "#pageCropBtn");
+  await autoRect(page);
   const bar = await page.evaluate(() => !document.getElementById("cropCancelBtn").disabled);
   const rb = await page.evaluate(() => { const r = document.getElementById("readBtn").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
   await page.touchscreen.tap(rb.x, rb.y);
@@ -253,7 +290,7 @@ const cropTool = (page, id) => page.click(id);
   const left = await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropCancelBtn").disabled);
   ok(bar && /^Read waits: /.test(why) && left, `✕ on, a tap on Read: "${why}", ✕ leaves the mode`);
   // one finger drags the rectangle's lower right corner in
-  await cropTool(page, "#pageCropBtn");
+  await autoRect(page);
   await page.evaluate(() => { window.__ops = []; });
   const s2 = await st();
   const D2 = s2.w / W;
@@ -271,8 +308,8 @@ const cropTool = (page, id) => page.click(id);
   // while a corner is dragged a second finger neither zooms nor pans: the rectangle goes on (the original back first)
   await page.waitForFunction(() => document.getElementById("zoomVal").textContent === "100 %");
   await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×"));
-  await cropTool(page, "#pageCropBtn");
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×") && !document.getElementById("rect").hidden);
+  await new Promise((r) => setTimeout(r, 300));
   const g0 = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + 1, y: r.y + 1 }; });
   const v0 = await page.evaluate(() => { const p = document.getElementById("imgPane"); return { zoom: document.getElementById("zoomVal").textContent, sl: p.scrollLeft, st: p.scrollTop }; });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...g0, id: 7 }] });
@@ -298,7 +335,7 @@ const cropTool = (page, id) => page.click(id);
     };
     const afterCancel = await pinchOut();
     await zoomBtn("#zoomFitBtn");
-    await cropTool(page, "#pageCropBtn");
+    await autoRect(page);
     const inCrop = await pinchOut();
     const rectAfter = await page.evaluate(() => { const r = document.getElementById("rect").getBoundingClientRect(), i = document.getElementById("img").getBoundingClientRect(); return !document.getElementById("rect").hidden && Math.abs(r.width - i.width) < 1.5; });
     await page.click("#cropCancelBtn");
@@ -337,6 +374,27 @@ const cropTool = (page, id) => page.click(id);
   await page.keyboard.press("Escape");
   const sel = await page.evaluate(() => { const s = document.getElementById("presetSel"); return { sw: s.scrollWidth, cw: s.clientWidth, v: s.value, w: s.getBoundingClientRect().width }; });
   console.log("preset select", JSON.stringify(sel));
+  // the desktop bar (style.css, one flow): its groups pack from the left, the end cluster at the right — per line at
+  // most one gap (the spacer) wider than twice the normal gap; never wider than the window
+  for (const w of [1280, 1920]) {
+    await page.setViewport({ width: w, height: 900, deviceScaleFactor: 1 });
+    await new Promise((r) => setTimeout(r, 300));
+    const bar = await page.evaluate(() => {
+      const groups = [".titlebar > .brand", "#cropRow", "#adjustRow", "#readRow", "#barEnd"].map((s) => document.querySelector(s).getBoundingClientRect());
+      const lines = [];
+      for (const g of groups) {
+        const line = lines.find((l) => Math.abs(l.top - g.top) < 8);
+        if (line) line.items.push(g); else lines.push({ top: g.top, items: [g] });
+      }
+      const wide = lines.map((l) => {
+        const xs = l.items.sort((a, b) => a.left - b.left);
+        return xs.slice(1).filter((g, k) => g.left - xs[k].right > 24).length;
+      });
+      const t = document.querySelector(".titlebar");
+      return { lines: lines.length, wide, over: t.scrollWidth > t.clientWidth };
+    });
+    ok(bar.wide.every((n) => n <= 1) && !bar.over, `desktop bar at ${w} px: ${bar.lines} line(s), wide gaps per line ${bar.wide.join(" / ")}, overflow ${bar.over}`);
+  }
   for (const w of [1366, 1180, 1032, 1024, 834, 820]) {
     await page.setViewport({ width: w, height: 900, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     await new Promise((r) => setTimeout(r, 200));
@@ -356,7 +414,8 @@ const cropTool = (page, id) => page.click(id);
     await page.click("#suClose");
     const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch.accept([IMG]);
-    await page.waitForFunction(() => !document.getElementById("stage").hidden);
+    await page.waitForFunction(() => !document.getElementById("stage").hidden && !document.getElementById("rect").hidden, { timeout: 30000 });
+    await page.click("#cropCancelBtn"); // Auto's rectangle: these checks run outside the crop mode
     await new Promise((r) => setTimeout(r, 500));
     const st = () => page.evaluate(() => ({
       img: getComputedStyle(document.getElementById("imgCard")).display !== "none",
@@ -385,7 +444,7 @@ const cropTool = (page, id) => page.click(id);
     await zoomBtn("#zoomFitBtn");
     await new Promise((r) => setTimeout(r, 300));
     const top0 = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().top);
-    await cropTool(page, "#pageCropBtn");
+    await autoRect(page);
     const geo = await page.evaluate(() => ({ p: document.getElementById("imgPane").getBoundingClientRect().toJSON(), i: document.getElementById("img").getBoundingClientRect().toJSON() }));
     const from = { x: geo.p.left + 4, y: geo.p.top + 4 }, to = { x: geo.i.left + geo.i.width / 2, y: geo.i.top + geo.i.height / 2 };
     await page.mouse.move(from.x, from.y); await page.mouse.down(); await page.mouse.move(to.x, to.y, { steps: 5 }); await page.mouse.up();
@@ -400,13 +459,13 @@ const cropTool = (page, id) => page.click(id);
     // a real page (the synthetic image has no measurable writing)
     const [ch2] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").dataset.tip.startsWith("1176"));
+    await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("1176") && !document.getElementById("rect").hidden, { timeout: 30000 });
     // Auto on a real page: a text block inside the image (this example is cropped tight already: almost all of it)
     await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
-    const tc = await page.evaluate(() => ({ st: document.getElementById("status").textContent, rect: !document.getElementById("rect").hidden, nat: [document.getElementById("img").naturalWidth, document.getElementById("img").naturalHeight] }));
-    const m = /^Text crop: (\d+) × (\d+) at \((\d+), (\d+)\)/.exec(tc.st);
-    ok(m && tc.rect && +m[1] <= tc.nat[0] && +m[2] <= tc.nat[1], `Auto on humboldt_17r: ${tc.st}`);
+    const tc = await page.evaluate(() => ({ st: document.getElementById("status").textContent, size: document.getElementById("bakeInfo").textContent, rect: !document.getElementById("rect").hidden, nat: [document.getElementById("img").naturalWidth, document.getElementById("img").naturalHeight] }));
+    const m = /^(\d+) × (\d+)$/.exec(tc.size);
+    ok(m && tc.rect && /adjust the rectangle/.test(tc.st) && +m[1] <= tc.nat[0] && +m[2] <= tc.nat[1], `Auto on humboldt_17r: ${tc.size} · ${tc.st}`);
     await page.click("#cropCancelBtn");
     // the zoom stops where the image's layer would pass 6144 device px (a phone ended its page with a larger one)
     const fitPx = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return Math.max(r.width, r.height) * devicePixelRatio; });

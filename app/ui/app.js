@@ -216,6 +216,7 @@ async function openPath(src) {
   crumb(`open ${o.stem} ${o.w}×${o.h}`);
   status(`${o.stem} · ${o.w} × ${o.h}`);
   await refresh();
+  await textCrop(); // a crop is due: Auto puts its rectangle up at once
 }
 // every preview request gets a number; only the latest one's answer is shown (a sharp preview still being made when
 // the chain changes is dropped)
@@ -250,22 +251,35 @@ async function refresh() {
 // contrast / pencil are on or off, never stacked: a second press takes the step out again (they change no geometry,
 // so the crops after them keep their pixels)
 const FILTERS = new Set(["autoContrast", "pencil"]);
-function pushOp(op) {
+// before the crop (a crop is due) a turn or a filter changes what Auto sees: its rectangle is found again
+async function pushOp(op) {
   if (!S.prev) return;
+  const again = op.op !== "crop" && !hasCrop();
   const on = S.ops.findIndex((o) => o.op === op.op);
   if (FILTERS.has(op.op) && on >= 0) {
     crumb(`${op.op} off`);
     S.ops.splice(on, 1);
-    refresh();
-    return;
+  } else {
+    crumb(op.op === "crop" ? `crop ${op.w}×${op.h} at ${op.x},${op.y}` : op.op);
+    S.ops.push(op);
   }
-  crumb(op.op === "crop" ? `crop ${op.w}×${op.h} at ${op.x},${op.y}` : op.op);
-  S.ops.push(op);
-  refresh();
+  await refresh();
+  if (again) {
+    await textCrop();
+  }
 }
 document.querySelectorAll("[data-op]").forEach((b) => b.addEventListener("click", () => pushOp({ op: b.dataset.op })));
 $("imgUndoBtn").onclick = () => { if (S.ops.length) { crumb("undo"); S.ops.pop(); refresh(); } };
-$("resetBtn").onclick = () => { if (S.ops.length) { crumb("reset"); S.ops = []; uncropped = null; refresh(); } };
+// back to the original: the uncropped image again, so Auto's rectangle comes up again (an undo of a crop does not)
+$("resetBtn").onclick = async () => {
+  if (S.ops.length) {
+    crumb("reset");
+    S.ops = [];
+    uncropped = null;
+    await refresh();
+    await textCrop();
+  }
+};
 async function pickImage() {
   crumb("picker open"); // iOS puts the app in the background while the picker is up
   const p = await host.pickImage();
@@ -370,11 +384,11 @@ async function sharpen() {
 }
 $("img").addEventListener("load", () => sharpen());
 
-// crop: only in the crop mode (Page / Auto put a rectangle up — explicitly, since a zoom gesture drew crops); there
+// crop: only in the crop mode (Auto puts a rectangle up — explicitly, since a zoom gesture drew crops); there
 // press-drag-release adjusts the rectangle or draws a new one; Crop / Enter applies, Cancel / Esc drops it and leaves the
 // mode. Outside the mode a drag pans the image.
 let cropMode = false;
-// Page / Auto on a cropped image start from the uncropped one: the chain before (Cancel puts it back), else null
+// Auto on a cropped image starts from the uncropped one: the chain before (Cancel puts it back), else null
 let uncropped = null;
 let pending = null; // { x, y, w, h } in prepared-image pixels
 let drag = null;    // the rectangle being drawn: { id, start, cur, prev } (points in prepared-image pixels)
@@ -610,7 +624,7 @@ function setCropMode(on) {
 }
 $("cropApplyBtn").onclick = () => applyCrop();
 $("cropCancelBtn").onclick = () => dropCrop();
-// Cancel / Esc: the rectangle gone — a crop taken off for it (Page / Auto on a cropped image) back
+// Cancel / Esc: the rectangle gone — a crop taken off for it (Auto on a cropped image) back
 function dropCrop() {
   cancelCrop();
   if (uncropped !== null) {
@@ -798,8 +812,8 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   });
   pane.addEventListener("gestureend", (ev) => ev.preventDefault());
 })();
-// Page / Auto: a rectangle (dashed) in the crop mode — its edges adjust it, Crop applies it. Page = the whole image,
-// Auto = the text crop (the page's main text block, ocr-layout crop.rs). On a cropped image both start from the
+// Auto: a rectangle (dashed) in the crop mode — its edges adjust it, ✓ applies it: the text crop (the page's main
+// text block, ocr-layout crop.rs), the whole image when no writing is found. On a cropped image it starts from the
 // uncropped one (its other steps kept)
 function showPending(r) {
   drag = null;
@@ -816,19 +830,45 @@ async function uncrop() {
   S.ops = S.ops.filter((o) => o.op !== "crop");
   await refresh();
 }
-$("pageCropBtn").onclick = async () => {
-  await uncrop();
-  showPending({ x: 0, y: 0, w: S.prev.w, h: S.prev.h });
-  status(t("st.page", { w: S.prev.w, h: S.prev.h }), "ok");
+// the text crop's mode (▾ beside Auto): Auto, or a side of a book spread — Left, Right, Double (both pages); the button
+// names it and repeats it; kept for the next images of this page (a new page starts at Auto)
+let cropSide = "auto";
+function drawCropSide() {
+  const b = $("textCropBtn");
+  b.dataset.i18n = `crop.side.${cropSide}`;
+  b.textContent = t(b.dataset.i18n);
+  b.dataset.i18nTip = cropSide === "auto" ? "crop.auto.title" : `crop.side.${cropSide}.tip`;
+  setTip(b, t(b.dataset.i18nTip));
+  for (const m of $("sideMenu").querySelectorAll("button")) {
+    m.classList.toggle("on", m.dataset.side === cropSide);
+    m.setAttribute("aria-checked", String(m.dataset.side === cropSide));
+  }
+  applyState(); // the button's own tip back under a why
+}
+$("sideBtn").onclick = (e) => {
+  e.stopPropagation();
+  $("sideMenu").hidden = !$("sideMenu").hidden;
 };
-$("textCropBtn").onclick = async () => {
+document.addEventListener("click", () => { $("sideMenu").hidden = true; });
+for (const m of $("sideMenu").querySelectorAll("button")) {
+  m.onclick = () => {
+    $("sideMenu").hidden = true;
+    cropSide = m.dataset.side;
+    crumb(`crop side ${cropSide}`);
+    drawCropSide();
+    $("textCropBtn").click();
+  };
+}
+// Auto: the text crop in the chosen mode — by itself when an image opens (and after Back to the original), and on a
+// press (again after ✕, or on a cropped image: from the uncropped one)
+async function textCrop() {
   await uncrop();
   status(t("st.finding"), "busy");
   S.finding = true;
   applyState();
   let r;
   try {
-    r = await call("text_crop", { ops: S.ops });
+    r = await call("text_crop_side", { ops: S.ops, side: cropSide });
   } finally {
     S.finding = false;
     applyState();
@@ -841,8 +881,11 @@ $("textCropBtn").onclick = async () => {
     return;
   }
   showPending(r);
-  status(t("st.cropFound", { w: r.w, h: r.h, x: r.x, y: r.y }), "ok");
-};
+  // a side: the page gutter found (the crop is that page / both), or not (the crop is Auto's whole text block)
+  const side = cropSide === "auto" ? "" : t(r.gutter === null ? "st.noGutter" : "st.gutterFound");
+  status(`${t("st.cropFound")}${side}`, "ok");
+}
+$("textCropBtn").onclick = () => textCrop();
 
 document.addEventListener("keydown", (e) => {
   if ((!pending && !cropMode) || document.activeElement === $("editor") || document.querySelector("dialog[open]")) return;
@@ -1508,25 +1551,25 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //
 //   control                        enabled when                                   disabled → tip says
 //   Open (+ drop, the empty pane)  not busy                                       busy: "Wait for the read to end"
-//   rotate ×3, contrast, pencil    image · no crop mode / pending · not finding   "Open an image first" · "Finish the
-//                                  · not busy                                     crop first (✓ / ✕)" · busy ·
-//                                                                                 "Finding the crop…"
-//   Page, Auto                     image · not finding · not busy                 "Open an image first" · busy ·
+//   rotate ×3, contrast, pencil    image · no crop mode / pending (before a crop  "Open an image first" · "Finish the
+//                                  is applied: also with Auto's rectangle up —    crop first (✓ / ✕)" · busy ·
+//                                  Auto runs again after them) · not finding ·    "Finding the crop…"
+//                                  not busy
+//   Auto, Auto's ▾ (side)          image · not finding · not busy                 "Open an image first" · busy ·
 //                                                                                 "Finding the crop…"
 //   ✕ cancel crop                  a rectangle shows (or is being drawn)          "Nothing to cancel …"
 //   ✓ apply crop                   a rectangle shows                              "Nothing to crop …"
-//   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own tip
-//                                  not finding · not busy
+//   image undo, reset              a step to undo · as the steps                  as the steps; no step: its own tip
 //   preset select (expert mode)    not busy                                       busy (the running read keeps its own)
 //   Help, How to                   always
 //   About, Fit                     not busy (their re-layout during a read ended in crashes on the iPhone)
 //   Settings                       not busy (the model store must not change      busy
 //                                  under a read)
 //   Read                           image · model ready · no crop mode / pending   no model: its why (e.g. "Set up the
-//                                  · not finding · not starting                   model first") · "Open an image first" ·
-//                                                                                 "Apply or cancel the crop first" ·
-//                                                                                 "Finding the crop…" · starting:
-//                                                                                 "Checking before the read…"
+//                                  · not finding · not starting · a crop applied  model first") · "Open an image first" ·
+//                                  (Auto's rectangle comes up when an image       "Apply or cancel the crop first" ·
+//                                  opens: read the crop, not the whole scan)      "Finding the crop…" · "Crop first…" ·
+//                                                                                 starting: "Checking before the read…"
 //     reading → "Stop" (enabled) · stopping → "Stopping…" (disabled)
 //   zoom out, fit                  image · zoom > 100 %
 //   zoom in                        image · zoom < 800 %
@@ -1559,7 +1602,9 @@ function applyState() {
   const cropWhy = t("why.cropFirst");
   // the title bar
   enable($("openBtn"), !busy, busyWhy());
-  const steps = img && !cropping && !S.finding && !busy;
+  // the turns and filters: also while Auto's rectangle waits as long as no crop is applied (they change what Auto sees;
+  // it runs again after them — pushOp)
+  const steps = img && (!cropping || !cropped) && !S.finding && !busy;
   const stepsWhy = !img ? noImg : busy ? busyWhy() : cropping ? cropWhy : t("why.finding");
   for (const b of document.querySelectorAll("[data-op]")) {
     enable(b, steps, stepsWhy);
@@ -1569,11 +1614,11 @@ function applyState() {
       b.setAttribute("aria-pressed", String(on));
     }
   }
-  // Page / Auto: with an image, also on a cropped one (they start from the uncropped image) and over a rectangle
+  // Auto: with an image, also on a cropped one (it starts from the uncropped image) and over a rectangle
   const crop = img && !S.finding && !busy;
   const cropWhy2 = !img ? noImg : busy ? busyWhy() : t("why.finding");
-  enable($("pageCropBtn"), crop, cropWhy2);
   enable($("textCropBtn"), crop, cropWhy2);
+  enable($("sideBtn"), crop, cropWhy2);
   enable($("imgUndoBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("resetBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   // Cancel / Apply: while a rectangle shows (Apply once it is drawn)
@@ -1586,7 +1631,9 @@ function applyState() {
   enable($("scaleSlider"), scaling, sizeWhy);
   enable($("scaleAutoBtn"), scaling && !S.size.autoDone, scaling ? t("why.autoDone") : sizeWhy);
   enable($("settingsBtn"), !busy, busyWhy());
-  drawReadBtn(img, cropping);
+  drawReadBtn(img, cropping, cropped);
+  // Auto stands out while a crop is due (✓ is the green one while its rectangle waits)
+  $("textCropBtn").classList.toggle("primary", img && !cropped);
   // the image card
   enable($("zoomOutBtn"), img && zoom > 1);
   enable($("zoomFitBtn"), img && zoom > 1);
@@ -1630,7 +1677,7 @@ document.addEventListener("click", (e) => {
   }
 });
 // the Read button: Read / Stop / Stopping… (the label is rebuilt only when it changes) + enabled + the why
-function drawReadBtn(img, cropping) {
+function drawReadBtn(img, cropping, cropped) {
   const btn = $("readBtn");
   const mode = S.stopping ? "stopping" : S.reading ? "reading" : S.starting ? "starting" : "idle";
   if (btn.dataset.state !== mode) {
@@ -1655,7 +1702,8 @@ function drawReadBtn(img, cropping) {
     : !S.model.ready ? S.model.why
       : !img ? t("why.openFirst")
         : cropping ? t("why.applyOrCancel")
-          : S.finding ? t("why.finding") : "";
+          : S.finding ? t("why.finding")
+            : !cropped ? t("why.cropDue") : "";
   btn.disabled = why !== "";
   btn.dataset.tip = why !== "" ? why : t("read.title", { p: readPreset() });
 }
@@ -1711,6 +1759,7 @@ document.addEventListener("focusout", () => {
   $("backendInfo").textContent = await host.engineLabel(st.backend, st.settings);
   buildFormatBar();
   fillPresetSel();
+  drawCropSide();
   applyState();
   // the host's word on a missing model (not in this browser's storage yet)
   // the crash note first: it clears the device's flag, so the model note below is the current one

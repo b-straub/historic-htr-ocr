@@ -180,7 +180,17 @@ const cropTool = (page, id) => page.click(id);
     } else {
     const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await chooser.accept([IMG]);
-    await page.waitForFunction(() => !document.getElementById("stage").hidden);
+    await page.waitForFunction(() => !document.getElementById("stage").hidden && !document.getElementById("rect").hidden, { timeout: 60000 });
+    // Read waits for a crop: Auto's rectangle widened to the whole image (its corners dragged past the image's) — the
+    // native read it is compared with is of the whole image
+    {
+      const i = await page.evaluate(() => document.getElementById("img").getBoundingClientRect().toJSON());
+      const r = await page.evaluate(() => document.getElementById("rect").getBoundingClientRect().toJSON());
+      await page.mouse.move(r.left, r.top); await page.mouse.down(); await page.mouse.move(i.left - 20, i.top - 20, { steps: 5 }); await page.mouse.up();
+      await page.mouse.move(r.right, r.bottom); await page.mouse.down(); await page.mouse.move(i.right + 20, i.bottom + 20, { steps: 5 }); await page.mouse.up();
+    }
+    await page.click("#cropApplyBtn");
+    await page.waitForFunction(() => !document.getElementById("readBtn").disabled, { timeout: 30000 });
     await page.click("#readBtn");
     await page.waitForFunction(() => document.getElementById("readBtn").classList.contains("stop"), { timeout: 10000 });
     await page.waitForFunction(() => !document.getElementById("readBtn").classList.contains("stop"), { timeout: 300000, polling: 200 });
@@ -196,7 +206,7 @@ const cropTool = (page, id) => page.click(id);
     await page.screenshot({ path: path.join(DIR, "out", "3_read.png") });
     // the Scale: Auto finds the text crop, the slider to its low end (9 px letters) — the read on the scaled input
     await cropTool(page, "#textCropBtn");
-    await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
+    await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     await page.click("#cropApplyBtn");
     await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
     await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
@@ -217,9 +227,12 @@ const cropTool = (page, id) => page.click(id);
     await page.screenshot({ path: path.join(DIR, "out", "3b_read_scaled.png") });
     // after it Read is ready for the next image — and after a reload
     const readState = () => page.evaluate(() => ({ disabled: document.getElementById("readBtn").disabled, why: document.getElementById("readBtn").dataset.tip, status: document.getElementById("status").textContent }));
+    // the next image: Auto's rectangle, then ✓ — Read ready
     const reopen = async () => {
       const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
       await ch.accept([IMG]);
+      await page.waitForFunction(() => !document.getElementById("rect").hidden, { timeout: 60000 });
+      await page.click("#cropApplyBtn");
       await sleep(1500);
     };
     await reopen();

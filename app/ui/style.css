@@ -434,6 +434,13 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 /* Apply / Cancel: the usual green ✓ and red ✕, filled while a rectangle waits — the same in both themes (white on
    the solid colour) */
 #cropAct { gap: 4px; }
+/* Auto's mode: the ▾ right beside it, slim; Auto as wide as its longest mode (the row never moves); the menu drops
+   below (over the image while open, never moving it) */
+#sideBtn { min-width: 20px; padding: 0 3px; font-size: 14px; }
+#textCropBtn { min-width: 58px; }
+#sideMenu { min-width: 130px; }
+#sideMenu button.on::before { content: "✓ "; }
+#sideMenu button:not(.on) { padding-left: 24px; }
 #cropApplyBtn:not(:disabled) { background: #16a34a; color: #fff; }
 #cropCancelBtn:not(:disabled) { background: #dc2626; color: #fff; }
 #cropApplyBtn:not(:disabled):hover { background: #15803d; }
@@ -491,3 +498,20 @@ body.stacked[data-tab="text"] #cropRow, body.stacked[data-tab="text"] #adjustRow
 /* tab mode: the text with less side padding — Fit gets the width */
 body.stacked #editor { padding: 16px 12px; }
 body.stacked #src { padding: 14px 12px; }
+/* a computer, a tablet on its side (not a phone): ONE flow — logo · Crop · Adjust · Read row, then the end cluster
+   (How to · Help · Settings · preset · Read) pushed to the right end by one flexible margin. Whole groups wrap, none
+   stretches or breaks inside; the sizes that change with the image (the Scale's slider, its info, the model input) keep
+   fixed widths, so nothing hops. The phone layouts (above) place the cluster's parts one by one */
+#barEnd { display: contents; }
+@media (orientation: landscape) and (min-height: 501px) {
+  .titlebar { column-gap: 12px; }
+  .titlebar .brand, #cropRow, #adjustRow, #readRow, #appRow, #presetBox, #readBtn { order: 0; }
+  .rowbreak, .appgap { display: none; }
+  .titlebar .brand, #cropRow, #adjustRow, #readRow, #appRow { flex: 0 0 auto; }
+  #scaleSeg { flex: 0 0 auto; width: 300px; max-width: none; }
+  #bakeInfo { flex: 0 0 auto; width: 176px; }
+  /* the zoom first, the size line after it: its fixed width's free end then sits before the flexible margin, not as a
+     hole inside the line */
+  #zoomSeg { order: -1; }
+  #barEnd { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
+}

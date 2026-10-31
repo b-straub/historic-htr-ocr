@@ -133,7 +133,9 @@ let srv = null;
   await page.evaluate(() => { window.__st = []; new MutationObserver(() => window.__st.push(document.getElementById("status").textContent)).observe(document.getElementById("status"), { childList: true, characterData: true, subtree: true }); });
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([IMG]);
-  await page.waitForFunction(() => !document.getElementById("stage").hidden);
+  await page.waitForFunction(() => !document.getElementById("stage").hidden && !document.getElementById("rect").hidden, { timeout: 30000 });
+  await page.click("#cropApplyBtn"); // Auto's rectangle: Read waits for the crop
+  await page.waitForFunction(() => !document.getElementById("readBtn").disabled, { timeout: 30000 });
   await page.click("#readBtn");
   await page.waitForFunction(() => window.__st.some((s) => s.startsWith("Starting")) && !document.getElementById("readBtn").classList.contains("stop"), { timeout: 60000 });
   ok(!(await page.evaluate(() => window.__st.some((s) => /Read needs the model/.test(s)))), `Read allowed after the setup: ${JSON.stringify(await page.evaluate(() => window.__st.slice(-2)))}`);
