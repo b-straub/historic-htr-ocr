@@ -248,7 +248,7 @@ function onWorkerMessage(e) {
   if (m.event === "loaded") { engineLoaded(m.info); return; }
   const w = waiting.get(m.id);
   waiting.delete(m.id);
-  if (m.ok) w.resolve(m.result); else w.reject(m.error);
+  if (m.ok) w.resolve(m.result); else w.reject(m.code === "storageBlocked" ? t("st.storageBlocked") : m.error);
 }
 // the update's reload (pwa.js reloadNow): the engine worker ends before the page goes — its wasm heap and its GPU
 // device (the weights are freed after each read anyway) are not left to be released behind the new page's start

@@ -94,6 +94,7 @@
   "st.spread": " · Doppelseite erkannt: im ▾ Links oder Rechts wählen",
   "st.starting": "Wird gestartet…",
   "st.storage": "Browser-Speicher nicht verfügbar: {e}",
+  "st.storageBlocked": "dieses Fenster darf nichts speichern (ein privates Fenster, oder Cookies und Website-Daten für diese Seite gesperrt) — OCR Lite in einem normalen Fenster öffnen oder Website-Daten für die Seite erlauben",
   "st.needModel": "Zum Lesen fehlt das Modell — es ist noch nicht in diesem Browser",
   "st.checkFailed": "Die Prüfung vor dem Lesen ist fehlgeschlagen: {e}",
   "st.stoppedAway": "Gestoppt: die App ging in den Hintergrund — das Lesen beginnt beim Zurückkehren neu",

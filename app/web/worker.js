@@ -454,6 +454,9 @@ self.onmessage = async (e) => {
     if (!h) throw new Error(`worker: no command ${cmd}`);
     post({ id, ok: true, result: await h(args) });
   } catch (err) {
-    post({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
+    // the browser refuses its storage (OPFS) to this page — a private window, or site data blocked: a code the page
+    // words in its language ("Security error when calling GetDirectory" says nothing to a user)
+    const blocked = err instanceof DOMException && err.name === "SecurityError";
+    post({ id, ok: false, error: err instanceof Error ? err.message : String(err), code: blocked ? "storageBlocked" : null });
   }
 };
