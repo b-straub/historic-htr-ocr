@@ -38,10 +38,10 @@ pub const TARGET_HIGH: f64 = 59.5;
 /// size no gain) — UNMEASURED beyond those pages
 pub const XH_MIN: f64 = 11.0;
 pub const XH_MAX: f64 = 43.0;
-/// Auto's aim for small letters: the trained pages' median glyph height — a page below it is enlarged towards it (never
-/// past the bake's 1540 px edge), a page inside the trained range above it stays as it is (shrinking a 32 px hand to
-/// 21 px cost CER, see XH_MIN)
-pub const XH_AIM: f64 = 23.0;
+/// Auto's aim for small letters: about the trained pages' p75 glyph height (the user's reads came out best at 30 px;
+/// above the median of 23) — a page below it is enlarged towards it (never past the bake's 1540 px edge), a page inside
+/// the trained range above it stays as it is (shrinking a 32 px hand to 21 px cost CER, see XH_MIN)
+pub const XH_AIM: f64 = 30.0;
 /// the slider reaches a little beyond the trained range, never far (4 or 70 px letters read badly) — UNMEASURED
 pub const SLIDE_MIN: f64 = 9.0;
 pub const SLIDE_MAX: f64 = 45.0;
@@ -309,17 +309,17 @@ mod tests {
     fn slider_range() {
         let r = xh_range(20.0, 600.0).expect("a range");
         close(r.lo, 9.0 / 20.0);
-        close(r.auto, 23.0 / 20.0);
+        close(r.auto, 30.0 / 20.0);
         close(r.hi, 45.0 / 20.0);
         // letters inside the trained range above the aim: as they are
-        close(xh_range(30.0, 600.0).expect("a range").auto, 1.0);
+        close(xh_range(35.0, 600.0).expect("a range").auto, 1.0);
         // a small double-page scan's half (14 px letters, 1200 px tall): enlarged up to the 1540 px edge
         close(xh_range(14.0, 1200.0).expect("a range").auto, 1540.0 / 1200.0);
         // a close-up's 80 px letters: auto brings them to 43, the slider to 9 … 45
         let r = xh_range(80.0, 1000.0).expect("a range");
         close(r.auto, 43.0 / 80.0);
         close(r.hi, 45.0 / 80.0);
-        // small letters: auto towards 23 px, the slider up only to the 1540 px edge
+        // small letters: auto towards 30 px, the slider up only to the 1540 px edge
         let r = xh_range(8.0, 1000.0).expect("a range");
         close(r.hi, 1.54);
         close(r.auto, 1.54);

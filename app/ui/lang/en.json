@@ -28,7 +28,7 @@
   "scale": "Scale",
   "scale.aria": "Letter height for the model (px)",
   "scale.title": "The letters' height for the model — the trained pages' letters are 11 … 43 px tall",
-  "scale.auto.title": "Auto scale: small letters enlarged towards the trained pages' median (23 px), large ones down into the trained range (up to 43 px); 23 … 43 px stay at 1:1",
+  "scale.auto.title": "Auto scale: small letters enlarged towards 30 px (where the model reads best), large ones down into the trained range (up to 43 px); 30 … 43 px stay at 1:1",
   "scale.auto.aria": "Auto scale",
   "zoom.title": "zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit",
   "zoom.out": "Zoom out",

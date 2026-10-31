@@ -489,8 +489,8 @@ const autoRect = async (page) => {
     const s1 = await scale();
     const px = (i) => +/· (\d+) px$/.exec(i)[1];
     const by = (i) => +/×([\d.]+)/.exec(i)[1];
-    // the crop gets Auto at once: the letters towards 23 px as far as the slider reaches, the wand used up
-    ok(s0.off && !s0.auto && !/px$/.test(s0.info) && !s1.off && !s1.auto && by(s1.info) > 0 && s1.min === 9 && s1.max <= 45 && px(s1.info) === Math.min(23, s1.max),
+    // the crop gets Auto at once: the letters towards 30 px as far as the slider reaches, the wand used up
+    ok(s0.off && !s0.auto && !/px$/.test(s0.info) && !s1.off && !s1.auto && by(s1.info) > 0 && s1.min === 9 && s1.max <= 45 && px(s1.info) === Math.min(30, s1.max),
       `Scale: off without a crop ("${s0.info}"); a crop gets Auto at once: "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
     // upright the bar is four lines: logo · Help · Settings, then Crop, Adjust, the Read row with Read — each on screen,
     // the sizes not cut

@@ -28,7 +28,7 @@
   "scale": "Skalierung",
   "scale.aria": "Buchstabenhöhe für das Modell (px)",
   "scale.title": "Die Höhe der Buchstaben für das Modell — auf den Trainingsseiten sind sie 11 … 43 px hoch",
-  "scale.auto.title": "Auto-Skalierung: kleine Buchstaben zum Median der Trainingsseiten (23 px) hin vergrößern, große in den trainierten Bereich verkleinern (bis 43 px); 23 … 43 px bleiben 1:1",
+  "scale.auto.title": "Auto-Skalierung: kleine Buchstaben zu 30 px hin vergrößern (dort liest das Modell am besten), große in den trainierten Bereich verkleinern (bis 43 px); 30 … 43 px bleiben 1:1",
   "scale.auto.aria": "Auto-Skalierung",
   "zoom.title": "Zoom — auch ⌘ / Strg + Mausrad, zwei Finger; Doppelklick = einpassen",
   "zoom.out": "Verkleinern",

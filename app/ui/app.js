@@ -504,8 +504,8 @@ COMPACT.addEventListener("change", retab);
 
 // ── Scale: slider · Auto. The slider runs in the letters' height for the model (bake px, steps of 1) over the
 // cropped page's range (glyph_height: ocr-layout scale::xh_range — 9 … 45 px, never past the 1540 px edge); without a
-// crop the image is read as is. Every crop change gets Auto at once (the wand again after a slider move); Auto (letters below 23 px — the trained pages' median —
-// enlarged towards it as far as the 1540 px edge allows, 23 … 43 px at 1:1, larger ones down to 43 px: scale::xh_range)
+// crop the image is read as is. Every crop change gets Auto at once (the wand again after a slider move); Auto (letters below 30 px —
+// enlarged towards it as far as the 1540 px edge allows, 30 … 43 px at 1:1, larger ones down to 43 px: scale::xh_range)
 // is an action, offered again after each crop change or slider move ──
 let sizeSeq = 0;
 const hasCrop = () => S.ops.some((o) => o.op === "crop");
