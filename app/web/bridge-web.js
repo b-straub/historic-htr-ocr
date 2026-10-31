@@ -20,17 +20,17 @@
 //             stay English; stored values (the crash marker's step) are English and worded when shown (stepName)
 import init, * as ocr from "./pkg/ocr_web.js";
 import { osOf, runGpuCheck } from "./gpu-check.js";
-import { LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES, MODEL_TEST } from "./config.js";
-import { t, fixed, getT } from "./i18n.js";
+import { CURRENT, LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES, MODEL_TEST } from "./config.js";
+import { t, fixed, getT, getLang } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS = "ocrlite.settings";
 const USER_PRESETS = "ocrlite.userPresets";
 const MODEL_FILES = ["text-q8_0.gguf", "mmproj-bf16.gguf"];
 const LOCALHOST = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-// the model folder: the Hugging Face repo's resolve/main/ (web/config.js). ?modelBase=<folder> replaces it ONLY on
-// localhost — the build tested against local model files (web/serve.py's /model/); anywhere else it is ignored (and
-// said so on the console)
+// the model folder: the Hugging Face repo's resolve/<the current release's tag>/ (web/config.js). ?modelBase=<folder>
+// replaces it ONLY on localhost — the build tested against local model files (web/serve.py's /model/); anywhere else it
+// is ignored (and said so on the console)
 const MODEL_BASE = (() => {
   const asked = new URLSearchParams(location.search).get("modelBase");
   if (asked === null) {
@@ -595,51 +595,89 @@ function drawMemory() {
 
 export function engineLabel(backend) {
   backendName = backend;
-  const where = httpModel ? t("h.where.stream", { url: httpModel }) : t("h.where.store", { name: MODEL.name });
+  const where = httpModel ? t("h.where.stream", { url: httpModel }) : t("h.where.store", { name: storedLabel(storedVersion) });
   return engine ? `${backend} · ${where} · ${t("h.weightsCompute", { weights: engine.weights, compute: engine.computeLabel })}` : `${backend} · ${where}`;
 }
+
+/// the model as the user sees it: its (translated) name · the current release — the setup (what it downloads)
+export const modelLabel = () => `${t("model.name")} · ${CURRENT.version}`;
+/// the stored model: its name · the version its record names (null: not stored, or stored before versions were recorded)
+const storedLabel = (version) => (version === null ? t("model.name") : `${t("model.name")} · ${version}`);
+// the stored model's version for the status line, set wherever the record is read (drawStore, modelMissing)
+let storedVersion = null;
+const recordVersion = (record) => (record !== null && typeof record.version === "string" ? record.version : null);
+function noteStored(version) {
+  storedVersion = version;
+  $("backendInfo").textContent = engineLabel(backendName);
+}
+/// the release whose MD5 pair the files have (`md5`: { name: hex }), or null
+const releaseOf = (md5) => MODEL.releases.find((r) => MODEL_FILES.every((n) => md5[n] === r.md5[n])) ?? null;
+/// a known release's place in MODEL.releases (0 = the current one), or -1 (not known)
+const releaseIndex = (version) => MODEL.releases.findIndex((r) => r.version === version);
 
 // MiB: for the breadcrumb (English); shownMb: for the user, in the current language's way
 const mb = (b) => `${(b / 2 ** 20).toFixed(1)} MiB`;
 const shownMb = (b) => `${fixed(b / 2 ** 20, 1)} MiB`;
 
+// Settings: the model as ONE entry — name · version (the record's, web/worker.js), the small print (base · size · the
+// date it was stored), the file names (expert mode), its state: not stored · version unknown (stored before versions
+// were recorded: Verify finds it) · a newer release to download. One Verify, one Delete, one Download for the pair
 async function drawStore() {
-  const table = $("opfsTable");
   let files;
   try {
     files = await work("list");
   } catch (e) {
-    table.innerHTML = "";
-    $("opfsQuota").textContent = t("st.storage", { e });
+    $("modelName").textContent = t("model.name");
+    $("modelSmall").textContent = t("st.storage", { e });
     return;
   }
-  const head = document.createElement("tr");
-  head.append(...[t("h.file"), t("h.size"), ""].map((s) => Object.assign(document.createElement("th"), { textContent: s })));
-  table.replaceChildren(head);
-  for (const name of new Set([...MODEL_FILES, ...files.map((f) => f.name)])) {
-    const f = files.find((x) => x.name === name);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${name}</td><td>${f ? shownMb(f.size) : t("h.missing")}</td><td></td>`;
-    if (f) {
-      const b = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: t("h.delete") });
-      b.onclick = async () => {
-        try { await work("delete", { name }); } catch (e) { $("settingsErr").textContent = String(e); }
-        drawStore();
-        modelChanged();
-      };
-      tr.lastChild.append(b);
-    }
-    table.append(tr);
+  const have = files.filter((f) => MODEL_FILES.includes(f.name));
+  const stored = have.length === MODEL_FILES.length;
+  const { record } = await work("source");
+  const version = stored ? recordVersion(record) : null;
+  noteStored(version);
+  const at = releaseIndex(version);
+  const newer = version !== null && at > 0;
+  $("modelName").textContent = storedLabel(version);
+  $("modelFileNames").textContent = have.map((f) => f.name).join(" · ");
+  if (stored) {
+    const bytes = have.reduce((a, f) => a + f.size, 0);
+    const date = new Date(Math.max(...have.map((f) => f.modified))).toLocaleDateString(getLang());
+    $("modelSmall").textContent = t("model.small", { base: MODEL.base, gb: fixed(bytes / 1e9, 1), date });
+  } else {
+    $("modelSmall").textContent = `${MODEL.base} · ${t("model.notStored")}`;
   }
+  $("modelState").textContent = !stored ? "" : version === null ? t("model.versionUnknown") : newer ? t("model.newVersion", { version: CURRENT.version }) : "";
+  // Download: no model (or half of it), or a newer release; Verify and Delete: a model stored
+  $("modelFromHub").hidden = stored && !newer;
+  $("modelFromHub").textContent = newer ? t("model.downloadNew", { version: CURRENT.version }) : t("set.fromHub", { from: MODEL_FROM });
+  $("modelVerify").hidden = !stored;
+  $("modelDelete").hidden = have.length === 0;
   const est = navigator.storage.estimate ? await navigator.storage.estimate() : null;
   const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
   $("opfsQuota").textContent = `${est ? t("h.quota", { used: shownMb(est.usage), quota: shownMb(est.quota) }) : ""}${t(persisted ? "h.persisted" : "h.evict")}`;
-  const { record } = await work("source");
   $("modelSourceWeb").textContent = record === null ? "" : sourceLine(record);
   if (record !== null && !fromAllowedSources(record)) {
     $("modelSourceWeb").textContent += t("h.notUsed", { from: MODEL_FROM });
   }
 }
+// Delete: both files, after a confirm
+$("modelDelete").onclick = async () => {
+  const files = (await work("list")).filter((f) => MODEL_FILES.includes(f.name));
+  if (!confirm(t("model.deleteConfirm", { gb: fixed(files.reduce((a, f) => a + f.size, 0) / 1e9, 1) }))) {
+    return;
+  }
+  $("settingsErr").textContent = "";
+  try {
+    for (const f of files) {
+      await work("delete", { name: f.name });
+    }
+  } catch (e) {
+    $("settingsErr").textContent = String(e);
+  }
+  drawStore();
+  modelChanged();
+};
 /// Settings: where the model in this browser came from
 function sourceLine(record) {
   return record.source === "hub" ? t("h.src.hub", { from: MODEL_FROM }) : record.source === "url" ? t("h.src.url", { url: record.url }) : t(record.source === "upload" ? "h.src.upload" : "h.src.unknown");
@@ -680,7 +718,10 @@ async function busy(job) {
   }
 }
 
-/// the model check: both stored files' MD5 against the release (config.js MODEL.md5) → { ok, damaged: [names], text }
+/// the model check: both stored files' MD5 against the releases (config.js MODEL.releases) → { ok, damaged: [names], text }
+///   a release's pair     intact — its version goes into the record (a model stored before versions were recorded)
+///   the record's release damaged: the files that differ from it
+///   no release           unknown: no guessing which it was meant to be — delete and download again
 /// The worker's per-file progress goes to the status line ("checking … (0.83 GB)…"): its result or error goes there too,
 /// else the last file's line stayed after the check
 export async function verifyModel() {
@@ -691,10 +732,22 @@ export async function verifyModel() {
     emit("ocr:result", { text: t("crash.checkFailed", { e: e instanceof Error ? e.message : e }), ok: false });
     throw e;
   }
-  const damaged = Object.keys(MODEL.md5).filter((name) => got[name] !== MODEL.md5[name]);
-  const r = damaged.length === 0
-    ? { ok: true, damaged, text: t("h.verifyOk") }
-    : { ok: false, damaged, text: t(damaged.length === 1 ? "h.verifyBad1" : "h.verifyBadN", { files: damaged.join(", ") }) };
+  const { record } = await work("source");
+  const release = releaseOf(got);
+  const meant = record !== null && typeof record.version === "string" ? MODEL.releases.find((x) => x.version === record.version) ?? null : null;
+  let r;
+  if (release !== null) {
+    // a model without a record (source "unknown") has none to keep the version in
+    if (record.source !== "unknown" && record.version !== release.version) {
+      await work("setVersion", { version: release.version });
+    }
+    r = { ok: true, damaged: [], text: t("h.verifyOk", { version: release.version }) };
+  } else if (meant !== null) {
+    const damaged = MODEL_FILES.filter((name) => got[name] !== meant.md5[name]);
+    r = { ok: false, damaged, text: t(damaged.length === 1 ? "h.verifyBad1" : "h.verifyBadN", { files: damaged.join(", ") }) };
+  } else {
+    r = { ok: false, damaged: [...MODEL_FILES], text: t("h.verifyUnknown") };
+  }
   emit("ocr:result", { text: r.text, ok: r.ok });
   return r;
 }
@@ -705,6 +758,7 @@ $("modelVerify").onclick = async () => {
   try {
     const r = await verifyModel();
     $("modelProgressText").textContent = r.text;
+    drawStore(); // a version found: the entry names it
   } catch (e) {
     $("settingsErr").textContent = String(e);
     $("modelProgressText").textContent = "";
@@ -732,7 +786,8 @@ async function downloadModel(url) {
   const base = new URL(url.endsWith("/") ? url : `${url}/`, location.href);
   // the model folder (or its localhost test override) → "hub", else "url"
   const own = base.href === new URL(MODEL_BASE, location.href).href;
-  const record = own ? { source: "hub" } : { source: "url", url: base.href };
+  // the hub's record names the release downloaded (Settings shows it, and offers a newer one)
+  const record = own ? { source: "hub", version: CURRENT.version } : { source: "url", url: base.href };
   if (!allows(record.source)) {
     throw new Error(t("h.urlOff", { url: base.href, from: MODEL_FROM }));
   }
@@ -819,9 +874,11 @@ export async function startupNote() {
 async function modelMissing() {
   const files = await work("list");
   if (!MODEL_FILES.every((n) => files.some((f) => f.name === n))) {
+    noteStored(null);
     return true;
   }
   const { record } = await work("source");
+  noteStored(recordVersion(record));
   return !fromAllowedSources(record);
 }
 
@@ -913,7 +970,9 @@ export const setup = {
   },
   /// where the model comes from, for the setup's texts + the project's links
   modelFrom: MODEL_FROM,
-  modelName: MODEL.name,
+  get modelName() {
+    return modelLabel();
+  },
   links: LINKS,
   /// free storage for this site → { free, need } in bytes, or null when the browser does not say
   async room() {

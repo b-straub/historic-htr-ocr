@@ -270,8 +270,15 @@ input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent)
 .menu.pop .switch { color: var(--fg); }
 .poprow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #rect.auto { border-style: dashed; }
-/* the model storage (Settings) */
+/* the model storage (Settings): one entry for the model — name · version, the small print, its state */
 #modelProgress { width: 100%; }
+.modelentry { padding: 10px 12px; margin: 6px 0 8px; border: 1px solid var(--line); border-radius: 10px; }
+.modelentry .mname { font-weight: 600; font-size: 14px; }
+.modelentry .hint { margin: 2px 0 0; }
+.modelentry .mstate { margin-top: 4px; color: var(--accent); font-weight: 500; }
+.modelentry .mstate:empty { display: none; }
+/* expert mode (app.js): the presets and the technical details only then; the bar keeps its places (Read stays last) */
+body:not(.expert) .expert-only { display: none !important; }
 
 /* ── the read's scan overlay (scan.js) over the page image ───────────── */
 .scan { position: absolute; inset: 0; pointer-events: none; border-radius: 4px; overflow: hidden; }

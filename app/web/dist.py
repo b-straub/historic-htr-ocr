@@ -142,7 +142,7 @@ def build(out, model_base=None):
     gpucheck = s.put_hashed("gpu-check.js", read(os.path.join(WEB, "gpu-check.js")))
     config = read(os.path.join(WEB, "config.js"))
     if model_base is not None:
-        config = replace_once(config, "export const MODEL_BASE = `${MODEL.repo}/resolve/main/`;", f'export const MODEL_BASE = "{model_base}";', "web/config.js")
+        config = replace_once(config, "export const MODEL_BASE = `${MODEL.repo}/resolve/${CURRENT.revision}/`;", f'export const MODEL_BASE = "{model_base}";', "web/config.js")
         config = replace_once(config, 'export const MODEL_FROM = "Hugging Face";', f'export const MODEL_FROM = "{TEST_MODEL_FROM}";', "web/config.js")
         config = replace_once(config, "export const MODEL_TEST = false;", "export const MODEL_TEST = true;", "web/config.js")
     config = s.put_hashed("config.js", config)

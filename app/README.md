@@ -59,18 +59,31 @@ read -- x.png --model <folder> --out x`).
 
 ## The model
 
-`web/config.js` is the one place that says where the model comes from: `MODEL` (name, Hugging Face repo, the repo's
-file names) and `MODEL_SOURCES` (only `"hub"` is on; uploading files, another folder URL and `?model=` streaming are
+`web/config.js` is the one place that says where the model comes from: `MODEL` (base name, Hugging Face repo, the
+repo's file names, the releases) and `MODEL_SOURCES` (only `"hub"` is on; uploading files, another folder URL and `?model=` streaming are
 switched off). It points at
 [b-straub/LightOnOCR-3-1B-Historic-German-Handwriting](https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting),
 whose `text-q8_0.gguf` + `mmproj-bf16.gguf` the setup downloads. Another GGUF repo of the same architecture works by
-changing `name` and `repo`, plus `remoteFiles` when its file names differ:
+changing `base`, `repo` and `releases`, plus `remoteFiles` when its file names differ:
 
 ```js
-name: "LightOnOCR-3-1B base model",
+base: "LightOnOCR-3-1B",
 repo: "https://huggingface.co/prithivMLmods/LightOnOCR-3-1B-GGUF",
 remoteFiles: { "text-q8_0.gguf": "LightOnOCR-3-1B.Q8_0.gguf", "mmproj-bf16.gguf": "LightOnOCR-3-1B.mmproj-bf16.gguf" },
 ```
+
+**Releases** are named by date, newest first — the first is the one downloaded:
+
+```js
+releases: [{ version: "2026.10", revision: "model-2026.10", md5: { "text-q8_0.gguf": "…", "mmproj-bf16.gguf": "…" } }],
+```
+
+`revision` is the repo's git revision the files come from (`resolve/<revision>/`): the tag `model-<version>` on the
+Hugging Face repo (made by hand for each release; the repo's `v1.x.y` tags are app versions from the release job). A new
+release goes on top with its own tag and MD5s. Settings shows the model as one entry —
+its translated name (`model.name` in `ui/lang/`) · the version recorded at the download; a model stored before versions
+were recorded shows "version unknown" until Verify finds its MD5 pair among the releases (none: "matches no released
+version" — never guessed); an older release stored offers the current one.
 
 A model stored in the browser is used only when its record (`model-source.json` in OPFS) says it came from an allowed
 source; otherwise the setup downloads the model again.

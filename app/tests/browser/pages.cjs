@@ -120,7 +120,7 @@ const cropTool = (page, id) => page.click(id);
       for await (const [n] of (await root.getDirectoryHandle("models")).entries()) names.push(n);
       return { names: names.sort(), rec: JSON.parse(await (await (await root.getFileHandle("model-source.json")).getFile()).text()) };
     });
-    ok(rec.names.join() === "mmproj-bf16.gguf,text-q8_0.gguf" && rec.rec.source === "hub", `downloaded in ${((Date.now() - t0) / 1000).toFixed(1)} s → ${JSON.stringify(rec)}`);
+    ok(rec.names.join() === "mmproj-bf16.gguf,text-q8_0.gguf" && rec.rec.source === "hub" && rec.rec.version === "2026.10", `downloaded in ${((Date.now() - t0) / 1000).toFixed(1)} s → ${JSON.stringify(rec)}`);
     await page.screenshot({ path: path.join(DIR, "out", "2_done.png") });
     await page.click("#suDone");
     await page.waitForFunction(() => document.getElementById("status").textContent === "Ready", { timeout: 10000 });
@@ -138,6 +138,41 @@ const cropTool = (page, id) => page.click(id);
     // the status line ends with the check's result, not the worker's last "checking …" line
     const after = await page.evaluate(() => document.getElementById("status").textContent);
     ok(/intact|damaged/.test(after) && !/checking/i.test(after), `status line after the check: "${after}"`);
+    // Settings: the model as one entry — name · the version the download recorded; a record without a version (a model
+    // stored before versions were recorded): "version unknown — Verify", and Verify of a pair that is no release's says so
+    const entry = async () => {
+      await page.evaluate(() => document.getElementById("settingsBtn").click());
+      await page.waitForFunction(() => document.getElementById("settingsDlg").open && document.getElementById("modelName").textContent !== "", { timeout: 10000 });
+      await sleep(500);
+      return page.evaluate(() => ({ name: document.getElementById("modelName").textContent, small: document.getElementById("modelSmall").textContent,
+        state: document.getElementById("modelState").textContent, download: !document.getElementById("modelFromHub").hidden }));
+    };
+    const e1 = await entry();
+    ok(e1.name === "Historic German Handwriting · 2026.10" && /^LightOnOCR-3-1B · [\d.]+ GB · stored /.test(e1.small) && e1.state === "" && !e1.download,
+      `model entry: ${JSON.stringify(e1)}`);
+    await page.evaluate(() => document.getElementById("settingsDlg").close());
+    const kept = await page.evaluate(async () => {
+      const fh = await (await navigator.storage.getDirectory()).getFileHandle("model-source.json");
+      const text = await (await fh.getFile()).text();
+      const r = JSON.parse(text);
+      delete r.version;
+      const w = await fh.createWritable();
+      await w.write(JSON.stringify(r));
+      await w.close();
+      return text;
+    });
+    const e2 = await entry();
+    await page.evaluate(() => document.getElementById("modelVerify").click());
+    await page.waitForFunction(() => /intact|damaged|no released version/.test(document.getElementById("modelProgressText").textContent) || document.getElementById("settingsErr").textContent !== "", { timeout: 180000, polling: 500 });
+    const v2 = await page.evaluate(() => document.getElementById("modelProgressText").textContent || document.getElementById("settingsErr").textContent);
+    ok(e2.name === "Historic German Handwriting" && e2.state === "version unknown — Verify" && (real ? /intact: version 2026\.10/.test(v2) : /no released version/.test(v2)),
+      `a record without a version: ${JSON.stringify(e2)} → Verify: ${v2}`);
+    await page.evaluate(() => document.getElementById("settingsDlg").close());
+    await page.evaluate(async (text) => {
+      const w = await (await (await navigator.storage.getDirectory()).getFileHandle("model-source.json")).createWritable();
+      await w.write(text);
+      await w.close();
+    }, kept);
 
     // a read with the real model: must equal the native read
     if (!real) {
@@ -196,10 +231,10 @@ const cropTool = (page, id) => page.click(id);
     ok(!next.disabled && !reloaded.disabled, `Read after a scaled read: next image ${JSON.stringify(next)} · after a reload ${JSON.stringify(reloaded)}`);
     }
 
-    // About / Help / Settings: the open model, no key or preview text
+    // About / Help / Settings: the open model (its version when its record names one), no key or preview text
     await page.click("#aboutBtn");
     const about = await page.evaluate(() => ({ t: document.getElementById("aboutDlg").innerText, links: [...document.querySelectorAll("#aboutDlg a")].map((a) => a.href) }));
-    ok(!FORBIDDEN.test(about.t) && about.links.includes("https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting") && /model in browser storage \(LightOnOCR-3-1B · Historic German Handwriting\)/.test(about.t) && about.links.includes("https://github.com/b-straub/historic-htr-ocr"), "About: HF card + GitHub linked, no key text");
+    ok(!FORBIDDEN.test(about.t) && about.links.includes("https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting") && /model in browser storage \(Historic German Handwriting( · 2026\.10)?\)/.test(about.t) && about.links.includes("https://github.com/b-straub/historic-htr-ocr"), "About: HF card + GitHub linked, no key text");
     ok(/CC BY-SA 4\.0/.test(about.t) && !/Planned release/.test(about.t), "About: CC BY-SA 4.0, not 'planned'");
     await page.screenshot({ path: path.join(DIR, "out", "4_about.png") });
     await page.keyboard.press("Escape");

@@ -192,11 +192,24 @@ const cropTool = (page, id) => page.click(id);
   await page.click("#settingsBtn");
   await page.waitForFunction(() => document.getElementById("settingsDlg").open);
   await check(page, "image · Settings open", E.img);
+  // expert mode off (the default): no preset list, no preset editor, Read uses the default preset whatever the list
+  // holds; on: both shown, Read uses the list's — the choice kept across
+  const presets = () => page.evaluate(() => ({ box: getComputedStyle(document.getElementById("presetBox")).display !== "none",
+    editor: getComputedStyle(document.getElementById("presetSection")).display !== "none", read: document.getElementById("readBtn").title }));
+  await page.evaluate(() => { const s = document.getElementById("presetSel"); s.value = "sampled_T0.1_p0.9"; s.dispatchEvent(new Event("change")); });
+  await sleep(300);
+  const off = await presets();
+  await page.evaluate(() => document.getElementById("expertChk").click());
+  const on = await presets();
+  ok(!off.box && !off.editor && /preset greedy_rp1\.1\)$/.test(off.read) && on.box && on.editor && /preset sampled_T0\.1_p0\.9\)$/.test(on.read),
+    `expert mode: off ${JSON.stringify(off)} · on ${JSON.stringify(on)}`);
+  await page.evaluate(() => { const s = document.getElementById("presetSel"); s.value = "greedy_rp1.1"; s.dispatchEvent(new Event("change")); });
   // Save belongs to the presets: offered only after a preset change
   const saveOff = await page.$eval("#presetSave", (b) => b.disabled);
   await page.click("#presetTable tr.shipped .act button");
   const saveOn = await page.$eval("#presetSave", (b) => !b.disabled);
   ok(saveOff && saveOn, `Settings: Save presets off until a preset changes (${saveOff} → ${saveOn})`);
+  await page.evaluate(() => document.getElementById("expertChk").click()); // off again: the default for the rest
   await page.click("#settingsCancel");
   await page.click("#zoomInBtn");
   await check(page, "image · zoomed", E.imgZoomed);

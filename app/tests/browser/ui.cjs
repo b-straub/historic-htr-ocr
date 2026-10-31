@@ -19,6 +19,8 @@ const cropTool = (page, id) => page.click(id);
   await page.setViewport({ width: 1440, height: 920, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => console.log("pageerror", e.message));
   page.on("console", (m) => { if (m.type() === "error") console.log("console.error", m.text()); });
+  // expert mode on: the preset list and editor are part of the layout checks (off: checked on the phone below)
+  await page.evaluateOnNewDocument(() => { try { localStorage.setItem("ocrlite.expert", "1"); } catch {} });
   // capture every prep chain the bridge hands to the image worker (the crop op): the ops of each worker message
   await page.evaluateOnNewDocument(() => {
     const post = Worker.prototype.postMessage;
@@ -428,6 +430,19 @@ const cropTool = (page, id) => page.click(id);
     });
     ok(head.rows && head.readLine && head.right <= head.vw && head.slider >= 120 && head.cut.length === 0 && head.h < 190,
       `phone bar upright: four lines at ${head.top.join(" / ")} (${head.h} px), slider ${head.slider} px, cut: ${head.cut.join(" ") || "none"}`);
+    // expert mode off: the preset list goes, Read and the rows stay where they are
+    const readAt = () => page.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect();
+      return { read: `${Math.round(r("readBtn").left)},${Math.round(r("readBtn").top)},${Math.round(r("readBtn").width)}`,
+        rows: ["cropRow", "adjustRow", "readRow"].map((id) => Math.round(r(id).top)).join("/"), list: getComputedStyle(document.getElementById("presetBox")).display !== "none" };
+    });
+    const withList = await readAt();
+    await page.evaluate(() => document.getElementById("expertChk").click());
+    const noList = await readAt();
+    await page.screenshot({ path: `${OUT}/11b_phone_expert_off.png` });
+    await page.evaluate(() => document.getElementById("expertChk").click());
+    ok(withList.list && !noList.list && withList.read === noList.read && withList.rows === noList.rows,
+      `expert mode off on the phone: no preset list, Read at ${noList.read} as before (${withList.read}), rows ${noList.rows}`);
     // Auto applied → off until the slider moves; the slider to its low end: smaller at once, Auto offered; the slider
     // back to the crop's own letter height: 1:1 again
     await page.click("#scaleAutoBtn");

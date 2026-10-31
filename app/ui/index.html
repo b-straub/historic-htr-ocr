@@ -74,7 +74,8 @@
       <button class="ib ghost" id="helpBtn" data-i18n-title="help" title="Help"><i data-icon="help"></i></button>
       <button class="ib ghost" id="settingsBtn" data-i18n-title="settings" title="Settings"><i data-icon="gear"></i></button>
     </span>
-    <label class="select" id="presetBox"><select id="presetSel" title="decoding preset"></select></label>
+    <!-- expert mode only (app.js expert; off: every read uses the default preset) -->
+    <label class="select expert-only" id="presetBox"><select id="presetSel" title="decoding preset"></select></label>
     <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
   </header>
 
@@ -215,16 +216,30 @@
           <span class="hint" data-i18n="set.lang.hint">Follows the browser's language unless chosen here; kept in this browser.</span>
         </div>
       </section>
+      <!-- expert mode: the presets and the technical details (.expert-only), applied at once, kept in this browser (app.js) -->
       <section class="group">
-        <h3><span data-i18n="set.model">Model</span> <span class="meta" data-i18n="set.model.meta">this browser's storage (OPFS)</span></h3>
-        <p class="hint" data-i18n="set.model.hint">text-q8_0.gguf + mmproj-bf16.gguf (1.4 GB) — stored once, read from here by the engine; never held in memory as a whole.</p>
-        <div class="tablewrap"><table id="opfsTable"></table></div>
-        <p class="hint" id="opfsQuota"></p>
-        <p class="hint" id="modelSourceWeb"></p>
+        <div class="field">
+          <label class="switch"><input type="checkbox" id="expertChk"><span></span><b data-i18n="set.expert">Expert mode</b></label>
+          <span class="hint" data-i18n="set.expert.hint"></span>
+        </div>
+      </section>
+      <section class="group">
+        <h3><span data-i18n="set.model">Model</span> <span class="meta expert-only" data-i18n="set.model.meta">this browser's storage (OPFS)</span></h3>
+        <p class="hint expert-only" data-i18n="set.model.hint">text-q8_0.gguf + mmproj-bf16.gguf (1.4 GB) — stored once, read from here by the engine; never held in memory as a whole.</p>
+        <!-- the model: ONE entry — name · version, the small print, its state (bridge-web.js drawStore) -->
+        <div class="modelentry" id="modelEntry">
+          <div class="mname" id="modelName"></div>
+          <div class="hint" id="modelSmall"></div>
+          <div class="hint expert-only" id="modelFileNames"></div>
+          <div class="mstate" id="modelState"></div>
+        </div>
+        <p class="hint expert-only" id="opfsQuota"></p>
+        <p class="hint expert-only" id="modelSourceWeb"></p>
         <p class="hint" id="modelOpenHint" data-slot="settings.modelOpen"></p>
         <div class="field wide">
           <button type="button" class="btn primary" id="modelFromHub">Download from Hugging Face</button>
           <button type="button" class="btn" id="modelVerify" data-i18n="set.verify" data-i18n-title="set.verify.title" title="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
+          <button type="button" class="btn" id="modelDelete" data-i18n="model.delete">Delete</button>
         </div>
         <div class="field wide" id="modelOtherSources">
           <label class="btn" for="modelFiles" data-i18n="set.upload">Upload model files…</label>
@@ -234,11 +249,12 @@
         </div>
         <progress id="modelProgress" max="1" value="0" hidden></progress>
         <p class="hint" id="modelProgressText"></p>
-        <p class="hint" id="modelFormatWeb"></p>
-        <p class="hint" id="gpuMemoryWeb"></p>
+        <p class="hint expert-only" id="modelFormatWeb"></p>
+        <p class="hint expert-only" id="gpuMemoryWeb"></p>
       </section>
-      <!-- the presets: the decoder settings' names are technical terms, English in every language; the rest is translated -->
-      <section class="group">
+      <!-- the presets (expert mode only): the decoder settings' names are technical terms, English in every language; the
+           rest is translated -->
+      <section class="group expert-only" id="presetSection">
         <h3 data-i18n="preset.head"></h3>
         <p class="hint" data-i18n="preset.hint"></p>
         <div class="tablewrap" id="presetWrap"><table id="presetTable"></table></div>

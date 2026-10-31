@@ -1173,7 +1173,7 @@ $("readBtn").onclick = async () => {
   status(t("st.starting"), "busy");
   try {
     S.readBake = null;
-    await call("read", { ops: S.ops, preset: $("presetSel").value, factor: S.size.factor });
+    await call("read", { ops: S.ops, preset: readPreset(), factor: S.size.factor });
   } catch { setReading(false); }
 };
 // the checks before a read → true: it may start; false: refused, the status says why
@@ -1307,6 +1307,22 @@ for (const b of $("saveMenu").querySelectorAll("button")) {
 }
 
 // ── settings + presets ────────────────────────────────────────────────
+// expert mode (Settings, kept in this browser, applied at once): the presets (the list beside Read, their editor) and
+// the technical details (.expert-only, style.css). Off: every read uses the default preset — a preset chosen in expert
+// mode is kept for when it is on again
+const EXPERT_KEY = "ocrlite.expert";
+let expert = false;
+try { expert = localStorage.getItem(EXPERT_KEY) === "1"; } catch {}
+document.body.classList.toggle("expert", expert);
+$("expertChk").checked = expert;
+const readPreset = () => (expert ? $("presetSel").value : S.presets.defaultName);
+$("expertChk").onchange = () => {
+  expert = $("expertChk").checked;
+  try { localStorage.setItem(EXPERT_KEY, expert ? "1" : "0"); } catch {}
+  document.body.classList.toggle("expert", expert);
+  crumb(`expert ${expert ? "on" : "off"}`);
+  applyState(); // Read's title names the preset
+};
 // the preset editor: the decoder settings' names are technical terms — English in every language; the rest is translated
 const FIELDS = [
   ["name", "text", "Name"], ["temperature", "number", "Temp"], ["topP", "number", "Top p"], ["repetitionPenalty", "number", "Rep. pen."],
@@ -1405,6 +1421,7 @@ $("settingsBtn").onclick = () => {
   drawPresets();
   $("settingsErr").textContent = "";
   $("langSel").value = getChoice();
+  $("expertChk").checked = expert;
   $("settingsDlg").showModal();
 };
 $("settingsCancel").onclick = () => $("settingsDlg").close();
@@ -1488,7 +1505,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //   ✓ apply crop                   a rectangle shows                              "Nothing to crop …"
 //   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own title
 //                                  not finding · not busy
-//   preset select                  not busy                                       busy (the running read keeps its own)
+//   preset select (expert mode)    not busy                                       busy (the running read keeps its own)
 //   Help, How to                   always
 //   About, Fit                     not busy (their re-layout during a read ended in crashes on the iPhone)
 //   Settings                       not busy (the model store must not change      busy
@@ -1627,7 +1644,7 @@ function drawReadBtn(img, cropping) {
         : cropping ? t("why.applyOrCancel")
           : S.finding ? t("why.finding") : "";
   btn.disabled = why !== "";
-  btn.title = why !== "" ? why : t("read.title", { p: $("presetSel").value });
+  btn.title = why !== "" ? why : t("read.title", { p: readPreset() });
 }
 // can a read start, model-wise? The model in this browser's storage (and WebGPU); asked at start, whenever the model
 // in the browser changes and after a refused read.

@@ -17,8 +17,10 @@
 // "decoding", loadMs, encodeMs?, prefillMs? }; step: { step: "model load" } as each read's weight upload starts — the
 // page's crash marker, bridge-web.js; gpuFatal: { kind, message } — the GPU device was lost or a GPU error went
 // uncaught: the engine is dead, every further read fails with that message).
-// The model's source record: OPFS root model-source.json { source: "hub" | "upload" | "url", url?, files: { <name>:
-// source } } — rewritten whenever a model file is stored or deleted, removed with the last model file.
+// The model's source record: OPFS root model-source.json { source: "hub" | "upload" | "url", url?, version?, files:
+// { <name>: source } } — rewritten whenever a model file is stored or deleted, removed with the last model file. version:
+// the release downloaded (web/config.js MODEL.releases; the page's record at the download), or set by the page's model
+// check when the files' MD5 pair is a release's; absent for a model stored before versions were recorded.
 // The sources allowed (web/config.js MODEL_SOURCES, the page's first message { cmd: "sources", sources }): upload /
 // download / an HTTP model refused for a source not listed — and all of them before the page said.
 import init, * as ocr from "./pkg/ocr_web.js";
@@ -52,7 +54,10 @@ async function opfsList() {
   const dir = await modelDir();
   const out = [];
   for await (const [name, h] of dir.entries()) {
-    if (h.kind === "file") out.push({ name, size: (await h.getFile()).size });
+    if (h.kind === "file") {
+      const f = await h.getFile();
+      out.push({ name, size: f.size, modified: f.lastModified });
+    }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -394,6 +399,14 @@ const handlers = {
     return out;
   },
   async source() { return effectiveSource(); },
+  // the model check found the files to be the release `version` (their MD5 pair): kept in the record
+  async setVersion({ version }) {
+    const record = await readSource();
+    if (record === null) {
+      throw new Error("setVersion: no model record");
+    }
+    await writeSource({ ...record, version });
+  },
   async load({ source }) { return ensureEngine(source); },
   async memory() { return memory(); },
   async memoryTest({ bytes }) { return memoryTest(bytes); },
