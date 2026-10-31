@@ -1,12 +1,14 @@
 // OCR Lite — Copyright (c) 2026 Bernhard Straub
 // SPDX-License-Identifier: MIT
 //
-// The deployed browser build's service worker hook-up (dist only — web/dist.py links it into index.html):
+// The deployed browser build's service worker hook-up (dist only — web/dist.py links it into index.html, next to
+// ui/i18n.js for its texts):
 // registers sw.js, and when a new deploy has been installed in the background, shows a small banner
 // "New version available — Reload". Nothing is reloaded on its own: a running read is never interrupted; the click
 // activates the worker waiting at that moment (postMessage skipWaiting) and reloads once it has taken over. The worker
 // is looked up at the click, not when the banner appeared: a deploy that lands while the banner shows replaces the
 // waiting worker, and the earlier one turns redundant (a message to it does nothing).
+import { t } from "./i18n.js";
 const $ = (id) => document.getElementById(id);
 
 function reading() {
@@ -25,12 +27,12 @@ let wanted = false;
 function offer(reg) {
   if ($("updBar")) return;
   const bar = Object.assign(document.createElement("div"), { id: "updBar", className: "updbar" });
-  const text = Object.assign(document.createElement("span"), { textContent: "New version available" });
-  const btn = Object.assign(document.createElement("button"), { type: "button", className: "btn small primary", textContent: "Reload" });
-  const later = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: "Later" });
+  const text = Object.assign(document.createElement("span"), { textContent: t("upd.new") });
+  const btn = Object.assign(document.createElement("button"), { type: "button", className: "btn small primary", textContent: t("upd.reload") });
+  const later = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: t("upd.later") });
   btn.onclick = () => {
-    if (reading()) { text.textContent = "A read is running — reload when it is done"; return; }
-    if ($("editor").textContent.trim() && !confirm("Reload now? The text on the right is not saved.")) return;
+    if (reading()) { text.textContent = t("upd.busy"); return; }
+    if ($("editor").textContent.trim() && !confirm(t("upd.confirm"))) return;
     if (reg.waiting === null) { reloadNow(); return; } // already taken over (e.g. by another window)
     wanted = true;
     reg.waiting.postMessage("skipWaiting");

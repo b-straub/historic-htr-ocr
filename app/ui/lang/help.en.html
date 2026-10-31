@@ -1,0 +1,68 @@
+<!-- OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT -->
+<!-- the longer texts in English: one <template data-slot> per [data-slot] place of index.html (ui/i18n.js puts them in;
+     every language file has the same slots). The short texts: lang/en.json -->
+<template data-slot="help">
+<h3>Setup</h3>
+<p>OCR Lite needs the model (1.4 GB) in this browser's storage — the setup checks the device and downloads it once from Hugging Face. An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage: set it up inside the app you use.</p>
+<p>The model is <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">LightOnOCR-3-1B · Historic German Handwriting</a> (open, CC BY-SA 4.0). About the project, the output format and the source: <a href="https://b-straub.github.io/historic-htr-ocr/" target="_blank" rel="noopener">the project page</a> and <a href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">GitHub</a> (questions and reading errors worth reporting: its issues).</p>
+<h3>Workflow</h3>
+<ol>
+  <li><b>Open</b> an image, or drop it on the image pane.</li>
+  <li>The tools come in three rows: <b>Crop</b> (what part of the image), <b>Adjust</b> (how it looks to the model), <b>Read</b>. On a phone's side the first two share a line.</li>
+  <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then the green ✓ (Apply); the red ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
+  <li><b>Adjust</b> row: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out.</li>
+  <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
+  <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
+  <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
+  <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
+</ol>
+<h3>Phone, and tablet upright</h3>
+<p>Image and Text are two tabs (a bar at the bottom; on a phone's side after the logo); each keeps its zoom and scroll, and shows only its own tools. A new image opens on Image, a read switches to Text as its text begins.</p>
+<h3>Zoom</h3>
+<p>− / + / fit above the image<span class="kbd">; ⌘ / ctrl + wheel or a trackpad pinch</span>; two fingers on a touch screen. A drag pans; a <span class="kbd">double-click or </span>double-tap fits. The text zooms the same way (two fingers<span class="kbd">, ⌘ / ctrl + wheel</span>); Fit starts it again from the whole line width.</p>
+<h3>Status line</h3>
+<p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset. "stopped: the app went to the background" = switching apps stops a read; read again.</p>
+<h3>Language</h3>
+<p>OCR Lite speaks English and German and follows the browser's language; Settings can choose one.</p>
+<h3>Offline</h3>
+<p>Once downloaded, the model stays in this browser's storage and OCR Lite reads without a connection. Settings shows the stored files; deleting them frees the 1.4 GB.</p>
+<h3>Devices</h3>
+<p>A read takes about 1.8 GB of GPU memory, given back when it ends: iPad and Mac with Apple silicon are fine; iPhone is experimental (tested: iPhone 16 Pro, 43 tokens/s; iPhone 18 Pro, 80 tokens/s). On iPhone and iPad the device check also tests the memory, before the download. Chrome / Edge 113+, Safari 26+.</p>
+<p><b>Check this device</b> tests the GPU (WebGPU, its limits, a 1-second speed test) and estimates the reading speed. A laptop with two GPUs may run the browser on the slower built-in one — the check then says how to switch to the graphics card.</p>
+<h3>Tech preview</h3>
+<p>Reading in the browser with WebGPU is work in progress; on phones and tablets OCR Lite is not production-ready yet. Edits are not kept: a crash or a reload loses the text on the right — copy or save what you change. Real editing, with the work kept, is the next major step. A read interrupted by switching to another app starts again from the beginning when you come back.</p>
+<h3>Privacy</h3>
+<p>Everything runs on this device: images and texts never leave it.</p>
+</template>
+<template data-slot="howto.tips">
+<li>Faint ink: switch Contrast ◐ on.</li>
+<li>Uneven, stained or yellowed paper: switch Pencil on.</li>
+<li>A page on its side or upside down: turn it first with the arrows.</li>
+<li>Very small or very large writing: crop first, then the wand (Auto scale).</li>
+<li>The text repeats or never ends: crop tighter — one page, one text block — and read again.</li>
+<li>Edits are not kept yet: copy or save the text before closing the app.</li>
+</template>
+<template data-slot="about.ocrlite">
+MIT — Copyright (c) 2026 Bernhard Straub. Covers this app's code only, not the model.
+</template>
+<template data-slot="about.model">
+— open, under <b>CC BY-SA 4.0</b>;
+    a fine-tune of <a class="ext" href="https://huggingface.co/lightonai/LightOnOCR-3-1B" target="_blank" rel="noopener">LightOnOCR-3-1B</a> (LightOn, Apache-2.0).
+    Project, source and issues: <a class="ext" href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">github.com/b-straub/historic-htr-ocr</a>.
+</template>
+<template data-slot="about.data">
+Trained only on openly licensed editions and archives (the list of the model card):
+</template>
+<template data-slot="about.footnote">
+¹ Licence clarification in process: move to CC BY 4.0 (without ShareAlike).<br>
+    Digitisations of the Staatsbibliothek zu Berlin: „Staatsbibliothek zu Berlin – Preußischer Kulturbesitz",
+    <a class="ext" href="https://digital.staatsbibliothek-berlin.de" target="_blank" rel="noopener">https://digital.staatsbibliothek-berlin.de</a> (Public Domain Mark 1.0).
+    The MIT-licensed datasets (DH Uni Bern) are used under the MIT licence. No images or transcriptions are
+    redistributed with the model or this app.
+</template>
+<template data-slot="about.components">
+and further Rust crates under open-source licences — mostly MIT / Apache-2.0, some BSD, ISC, Zlib, Unicode-3.0, MPL-2.0
+</template>
+<template data-slot="settings.modelOpen">
+The model is open (CC BY-SA 4.0): downloaded once from its <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">Hugging Face repository</a>, then read from this browser's storage, offline too.
+</template>

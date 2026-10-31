@@ -49,6 +49,8 @@
 /* `hidden` must win over every component display rule (.empty / .menu.pop set display: flex — they stayed visible) */
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
+/* hidden until ui/i18n.js has put the texts of the page's language in */
+html:not(.i18n) body { visibility: hidden; }
 body {
   background: var(--bg);
   color: var(--fg);
@@ -154,9 +156,26 @@ body.stacked main { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 #img { display: block; border-radius: 4px; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18); -webkit-user-drag: none; pointer-events: none; }
 #stage.zoomed #img { border-radius: 0; box-shadow: none; }
 #rect { position: absolute; border: 1.5px solid var(--accent); border-radius: 2px; box-shadow: 0 0 0 9999px rgba(10, 14, 22, 0.45); pointer-events: none; }
-.empty { margin: auto; text-align: center; color: var(--muted); font-size: 15px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.empty i[data-icon] { width: 44px; height: 44px; color: var(--faint); margin-bottom: 6px; }
+.empty { margin: auto; text-align: center; color: var(--muted); font-size: 15px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .empty .sub { font-size: 12px; color: var(--faint); }
+/* the five steps (the empty pane, cloned into the How to dialog): number · the control as it looks · what to do */
+.howsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.empty .howsteps { padding: 16px 18px; border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); max-width: 440px; }
+.howsteps li { display: grid; grid-template-columns: 26px 72px minmax(0, 1fr); align-items: center; gap: 10px; }
+.howsteps .hn { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px; }
+.howsteps .hic { display: flex; gap: 4px; justify-content: center; }
+.chip { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px; padding: 0 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card); color: var(--fg); font-size: 12px; font-weight: 500; }
+.chip.ok { background: #16a34a; color: #fff; border-color: transparent; }
+.chip.ok svg { stroke-width: 2.6; }
+.chip.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.howsteps .ht { display: flex; flex-direction: column; gap: 1px; }
+.howsteps .ht b { color: var(--fg); font-size: 14px; font-weight: 600; }
+.howsteps .ht span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.helpbody .howsteps { margin: 6px 0 10px; }
+.tips { margin: 0 0 6px; padding-left: 20px; }
+.tips li { margin-bottom: 4px; }
 .empty a { color: var(--accent); text-decoration: none; }
 .imgwrap.dragover { outline: 2px dashed var(--accent); outline-offset: -10px; }
 
@@ -381,6 +400,8 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 .appgap { display: none; }
 #readRow { order: 4; flex: 1 1 0; }
 #appRow { order: 5; gap: 2px; }
+/* How to: labelled and tinted — the way in for a first visit; a phone on its side keeps only its icon */
+#howBtn { background: var(--accent-soft); color: var(--accent); border-color: transparent; margin-right: 4px; }
 #presetBox { order: 6; }
 #readBtn { order: 7; }
 /* Apply / Cancel: the usual green ✓ and red ✕, filled while a rectangle waits — the same in both themes (white on
@@ -404,6 +425,8 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
    right, where the Scale's slider sits) and a drag there moved the slider */
 @media (orientation: landscape) and (max-height: 500px) {
   .titlebar { padding-top: max(14px, env(safe-area-inset-top, 0px)); }
+  .howlabel { display: none; }
+  #howBtn { padding: 2px 8px; }
 }
 /* upright: the app row on top, then Crop, Adjust, the Read row with Read at its end */
 @media (orientation: portrait) {

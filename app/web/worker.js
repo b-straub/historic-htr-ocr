@@ -37,7 +37,9 @@ function allowSource(source) {
 }
 
 const post = (m) => self.postMessage(m);
-const status = (text) => post({ event: "status", text });
+// a status line as what + its numbers ({ what: "load", bytes, from } · { what: "verify", name, bytes }): the page words
+// it in its language (bridge-web.js statusText)
+const status = (line) => post({ event: "status", ...line });
 // ocr-wgpu's fatal GPU events (ocr-web calls this global): at once to the page, a read running or not
 self.ocrGpuFatal = (kind, message) => post({ event: "gpuFatal", kind, message });
 
@@ -291,7 +293,7 @@ async function readOnce(src, { rgb, w, h, preset, seed }) {
   try {
     const total = files.reduce((a, f) => a + f.size, 0);
     const state = { done: 0, shown: 0 };
-    status(`loading the model (${(total / 1e9).toFixed(2)} GB) from ${src.kind === "opfs" ? "browser storage" : src.base}`);
+    status({ what: "load", bytes: total, from: src.kind === "opfs" ? null : src.base });
     post({ event: "step", step: "model load" });
     const [t, m] = files;
     const rf = new ocr.ReadFiles(t.size, counted(t.read, t.name, total, state), m.size, counted(m.read, m.name, total, state));
@@ -401,7 +403,7 @@ const handlers = {
     try {
       const out = {};
       for (const f of files) {
-        status(`checking ${f.name} (${(f.size / 1e9).toFixed(2)} GB)…`);
+        status({ what: "verify", name: f.name, bytes: f.size });
         out[f.name] = ocr.md5_file(f.name, f.size, f.read);
       }
       return out;

@@ -1,0 +1,68 @@
+<!-- OCR Lite — Copyright (c) 2026 Bernhard Straub · SPDX-License-Identifier: MIT -->
+<!-- the longer texts in German: one <template data-slot> per [data-slot] place of index.html (ui/i18n.js puts them in;
+     every language file has the same slots). The short texts: lang/de.json -->
+<template data-slot="help">
+<h3>Einrichtung</h3>
+<p>OCR Lite braucht das Modell (1,4 GB) im Speicher dieses Browsers — die Einrichtung prüft das Gerät und lädt das Modell einmal von Hugging Face herunter. Eine installierte App (Home-Bildschirm, Dock, Chrome- / Edge-App) hat einen eigenen Speicher: die Einrichtung in der App durchführen, die genutzt wird.</p>
+<p>Das Modell ist <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">LightOnOCR-3-1B · Historic German Handwriting</a> (offen, CC BY-SA 4.0). Mehr zum Projekt, zum Ausgabeformat und zum Quellcode: <a href="https://b-straub.github.io/historic-htr-ocr/" target="_blank" rel="noopener">die Projektseite</a> und <a href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">GitHub</a> (Fragen und meldenswerte Lesefehler: dort unter Issues).</p>
+<h3>Ablauf</h3>
+<ol>
+  <li><b>Öffnen</b>: ein Bild öffnen oder auf die Bildfläche ziehen.</li>
+  <li>Die Werkzeuge stehen in drei Reihen: <b>Zuschnitt</b> (welcher Teil des Bildes), <b>Anpassen</b> (wie das Modell das Bild sieht), <b>Lesen</b>. Beim quer gehaltenen Handy teilen sich die ersten beiden eine Zeile.</li>
+  <li>Reihe <b>Zuschnitt</b>: das Bild drehen, dann <b>Seite</b> oder <b>Auto</b>. Seite legt ein Rechteck um das ganze Bild, Auto um den gefundenen Textblock. Ränder oder Ecken des Rechtecks ziehen, um es anzupassen, innen ziehen, um es zu verschieben, dann das grüne ✓ (übernehmen); das rote ✕ bricht ab. Auf einem zugeschnittenen Bild beginnen Seite und Auto wieder beim unbeschnittenen. Rückgängig und „zurück zum Original“ am Ende der Reihe.</li>
+  <li>Reihe <b>Anpassen</b>: <b>Kontrast</b> für blasse Tinte, <b>Bleistift</b> für ungleichmäßiges Papier — beide sind ein oder aus, ein zweiter Druck nimmt sie wieder heraus.</li>
+  <li><b>Skalierung</b> (Reihe Anpassen): wie groß die Buchstaben beim Modell ankommen. Ohne Zuschnitt wird das Bild gelesen, wie es ist. Auf einem zugeschnittenen Bild stellt der Regler die Buchstabenhöhe in px ein — von 9 bis 45 px (das Modell hat mit Buchstaben von 11 … 43 px Höhe gelernt), und nie über die 1540 px Eingabe des Modells hinaus; erreicht der Regler 9 px nicht, enger zuschneiden. Jede Änderung des Zuschnitts beginnt bei 1:1 (der Zuschnitt in seiner eigenen Größe). Der Zauberstab (<b>Auto-Skalierung</b>) bringt die Buchstaben in den trainierten Bereich (1:1, wenn sie schon darin liegen) — eine Nahaufnahme wird kleiner, winzige Schrift größer; nach jeder Änderung von Zuschnitt oder Regler steht er wieder bereit. Daneben: der Faktor zum Modell und die Buchstabenhöhe dort; die Reihe Lesen zeigt Bild (oder Zuschnitt) → Größe der Modelleingabe.</li>
+  <li><b>Lesen</b> — der Text läuft nach und nach ein; Stopp beendet das Lesen sofort (der Text bis dahin bleibt).</li>
+  <li><b>Bearbeiten</b>: die Format-Knöpfe, ▨ für Unleserliches, Markup für den Rohtext. <b>Einpassen</b> (standardmäßig an) zeigt jede Zeile wie geschrieben, den Text auf die Breite der Fläche verkleinert.</li>
+  <li><b>Speichern</b>: das Markup (.txt), die gestaltete Seite (.html) oder das Eingabebild des Modells (.png).</li>
+</ol>
+<h3>Handy und Tablet hochkant</h3>
+<p>Bild und Text sind zwei Reiter (eine Leiste unten; beim quer gehaltenen Handy nach dem Logo); jeder behält Zoom und Bildlauf und zeigt nur seine eigenen Werkzeuge. Ein neues Bild öffnet sich unter Bild; beim Lesen wechselt die Ansicht zu Text, sobald der Text beginnt.</p>
+<h3>Zoom</h3>
+<p>− / + / einpassen über dem Bild<span class="kbd">; ⌘ / Strg + Mausrad oder zwei Finger auf dem Trackpad</span>; zwei Finger auf einem Touchscreen. Ziehen verschiebt das Bild; <span class="kbd">ein Doppelklick oder </span>doppeltes Tippen passt es ein. Der Text zoomt genauso (zwei Finger<span class="kbd">, ⌘ / Strg + Mausrad</span>); Einpassen beginnt wieder bei der ganzen Zeilenbreite.</p>
+<h3>Statuszeile</h3>
+<p><b>Laden</b> die Gewichte des Modells auf die GPU (bei jedem Lesen) · <b>Bild</b> die Seite kodiert · <b>prefill</b> den Prompt gelesen · <b>tok/s</b> die Lesegeschwindigkeit. „Token-Limit erreicht“ = das Lesen ist entgleist: enger zuschneiden oder ein anderes Preset versuchen. „Gestoppt: die App ging in den Hintergrund“ = ein App-Wechsel stoppt das Lesen; neu lesen.</p>
+<h3>Sprache</h3>
+<p>OCR Lite spricht Deutsch und Englisch und folgt der Sprache des Browsers; in den Einstellungen lässt sich eine Sprache fest wählen.</p>
+<h3>Offline</h3>
+<p>Einmal heruntergeladen, bleibt das Modell im Speicher dieses Browsers, und OCR Lite liest ohne Verbindung. Die Einstellungen zeigen die gespeicherten Dateien; sie zu löschen gibt die 1,4 GB frei.</p>
+<h3>Geräte</h3>
+<p>Ein Lesevorgang braucht etwa 1,8 GB GPU-Speicher, der danach wieder frei wird: iPad und Mac mit Apple-Chip sind gut geeignet; das iPhone ist experimentell (getestet: iPhone 16 Pro, 43 Tokens/s; iPhone 18 Pro, 80 Tokens/s). Auf iPhone und iPad prüft die Geräteprüfung vor dem Download auch den Speicher. Chrome / Edge 113+, Safari 26+.</p>
+<p><b>Dieses Gerät prüfen</b> testet die GPU (WebGPU, ihre Grenzen, ein Geschwindigkeitstest von einer Sekunde) und schätzt die Lesegeschwindigkeit. Ein Laptop mit zwei GPUs lässt den Browser manchmal auf der langsameren eingebauten laufen — die Prüfung sagt dann, wie man auf die Grafikkarte umschaltet.</p>
+<h3>Technische Vorschau</h3>
+<p>Lesen im Browser mit WebGPU ist noch in Arbeit; auf Handys und Tablets ist OCR Lite noch nicht ausgereift. Änderungen werden nicht behalten: ein Absturz oder Neuladen verliert den Text rechts — Geändertes kopieren oder speichern. Richtiges Bearbeiten, bei dem die Arbeit erhalten bleibt, ist der nächste große Schritt. Ein Lesevorgang, der durch den Wechsel in eine andere App unterbrochen wurde, beginnt beim Zurückkehren von vorn.</p>
+<h3>Datenschutz</h3>
+<p>Alles läuft auf diesem Gerät: Bilder und Texte verlassen es nie.</p>
+</template>
+<template data-slot="howto.tips">
+<li>Blasse Tinte: Kontrast ◐ einschalten.</li>
+<li>Fleckiges, ungleichmäßiges oder vergilbtes Papier: Bleistift einschalten.</li>
+<li>Seite liegt quer oder steht auf dem Kopf: zuerst mit den Pfeilen drehen.</li>
+<li>Sehr kleine oder sehr große Schrift: zuerst zuschneiden, dann der Zauberstab (Auto-Skalierung).</li>
+<li>Der Text wiederholt sich oder endet nicht: enger zuschneiden — eine Seite, ein Textblock — und neu lesen.</li>
+<li>Änderungen werden noch nicht behalten: den Text vor dem Schließen kopieren oder speichern.</li>
+</template>
+<template data-slot="about.ocrlite">
+MIT — Copyright (c) 2026 Bernhard Straub. Gilt nur für den Code dieser App, nicht für das Modell.
+</template>
+<template data-slot="about.model">
+— offen, unter <b>CC BY-SA 4.0</b>;
+    feinabgestimmt aus <a class="ext" href="https://huggingface.co/lightonai/LightOnOCR-3-1B" target="_blank" rel="noopener">LightOnOCR-3-1B</a> (LightOn, Apache-2.0).
+    Projekt, Quellcode und Issues: <a class="ext" href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">github.com/b-straub/historic-htr-ocr</a>.
+</template>
+<template data-slot="about.data">
+Trainiert nur mit offen lizenzierten Editionen und Archiven (die Liste der Model Card):
+</template>
+<template data-slot="about.footnote">
+¹ Lizenzklärung läuft: Wechsel zu CC BY 4.0 (ohne ShareAlike).<br>
+    Digitalisate der Staatsbibliothek zu Berlin: „Staatsbibliothek zu Berlin – Preußischer Kulturbesitz",
+    <a class="ext" href="https://digital.staatsbibliothek-berlin.de" target="_blank" rel="noopener">https://digital.staatsbibliothek-berlin.de</a> (Public Domain Mark 1.0).
+    Die MIT-lizenzierten Datensätze (DH Uni Bern) werden unter der MIT-Lizenz genutzt. Weder Bilder noch Transkriptionen
+    werden mit dem Modell oder dieser App weitergegeben.
+</template>
+<template data-slot="about.components">
+und weitere Rust-Crates unter Open-Source-Lizenzen — meist MIT / Apache-2.0, einige BSD, ISC, Zlib, Unicode-3.0, MPL-2.0
+</template>
+<template data-slot="settings.modelOpen">
+Das Modell ist offen (CC BY-SA 4.0): einmal aus seinem <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">Hugging-Face-Repository</a> heruntergeladen, dann aus dem Speicher dieses Browsers gelesen, auch offline.
+</template>

@@ -5,6 +5,7 @@
 // Everything heavy happens in Rust (ocr-web's wasm); this file keeps the prep chain and wires events.
 // The host is web/bridge-web.js (ocr-web wasm + a WebGPU worker) — commands, events, file pick / drop / save, the
 // host's settings.
+import { t, fixed, upTo, applyI18n, setChoice, getChoice, getLang } from "./i18n.js";
 import { scanOverlay } from "./scan.js";
 import { setupDialog } from "./setup.js";
 import * as host from "./bridge-web.js";
@@ -39,6 +40,8 @@ const ICONS = {
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5"/><circle cx="12" cy="16.8" r=".6" fill="currentColor"/>',
   textsize: '<path d="m10 19 5-14 5 14"/><path d="M11.8 14h6.4"/><path d="m2 19 3.3-8 3.3 8"/><path d="M3.2 16.2h4.2"/>',
   wand: '<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>',
+  book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 7h8"/><path d="M8 11h6"/>',
+  type: '<path d="M4 6h16"/><path d="M4 11h11"/><path d="M4 16h7"/><path d="M18 13v8"/><path d="M16 13h4"/><path d="M16 21h4"/>',
   autocrop: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/><path d="m11 11 3 3" stroke-dasharray="1 2"/>',
 };
 function paintIcons(scope = document) {
@@ -61,7 +64,7 @@ const S = {
   stopping: false,  // Stop pressed, the engine's ocr:done / ocr:error not yet in
   starting: false,  // Read pressed: the checks before the read (model in storage, its source) run
   finding: false,   // Find crop runs (auto_crop)
-  model: { ready: false, why: "Checking the model…" }, // can a read start? why not (checkModel)
+  model: { ready: false, why: t("why.checkingModel") }, // can a read start? why not (checkModel)
   streamed: "",
   settings: null,
   presets: null,    // { shipped, defaultName, user }
@@ -146,7 +149,7 @@ async function verifyAfterCrash() {
   }
   const line = $("crashCheck");
   line.classList.remove("err");
-  line.textContent = "Checking the stored model…";
+  line.textContent = t("crash.checking");
   try {
     const r = await host.verifyModel();
     crumb(`model check: ${r.ok ? "intact" : `damaged (${r.damaged.join(", ")})`}`);
@@ -156,7 +159,7 @@ async function verifyAfterCrash() {
       status(r.text, "err");
     }
   } catch (e) {
-    line.textContent = `The model check failed: ${e instanceof Error ? e.message : e}`;
+    line.textContent = t("crash.checkFailed", { e: e instanceof Error ? e.message : e });
     line.classList.add("err");
   }
 }
@@ -166,13 +169,13 @@ function showCrashNote(crash) {
   if (!crash && !lastCrash) {
     return;
   }
-  $("crashWhat").textContent = crash ?? `The page before ended without unloading (a crash, or the system freed the app); last action: ${lastCrash.at(-1) ?? "none"}.`;
+  $("crashWhat").textContent = crash ?? t("crash.what", { last: lastCrash.at(-1) ?? t("crash.none") });
   $("crashCheck").textContent = "";
   $("crashCopy").hidden = !lastCrash;
-  $("crashCopy").textContent = "Copy the last actions";
+  $("crashCopy").textContent = t("crash.copy");
   $("crashCopy").onclick = () => {
     const trail = [`OCR Lite — the page before ended without unloading (${navigator.userAgent})`, ...lastCrash].join("\n");
-    navigator.clipboard.writeText(trail).then(() => { $("crashCopy").textContent = "Copied"; });
+    navigator.clipboard.writeText(trail).then(() => { $("crashCopy").textContent = t("crash.copied"); });
   };
   $("crashDlg").showModal();
   if (crash) {
@@ -186,7 +189,7 @@ let openSeq = 0;
 async function openPath(src) {
   // Open is disabled while busy (applyState); a drop or the setup's "open an image" can still arrive
   if (isBusy()) {
-    status(BUSY_WHY, "err");
+    status(busyWhy(), "err");
     return;
   }
   let o;
@@ -475,6 +478,9 @@ COMPACT.addEventListener("change", retab);
 let sizeSeq = 0;
 const hasCrop = () => S.ops.some((o) => o.op === "crop");
 const sized = () => S.size.range !== null && S.size.range.none === undefined;
+// a result without a measure ({ none, code } of glyph_height / text_crop, ocr-web) in words: from its code; `none` is
+// the detail for the trail
+const noneWhy = (r) => t(`none.${r.code}`, r);
 // 1:1 kept inside the range (letters beyond 9 … 45 px: the nearest end)
 const asIs = () => Math.min(S.size.range.hi, Math.max(S.size.range.lo, 1));
 // the letters' size is geometry: measured on the crop and the turns only — contrast / pencil change the ink's threshold,
@@ -504,7 +510,8 @@ async function measureSize() {
   if (seq !== sizeSeq) return;
   S.size.range = r;
   if (r.none !== undefined) {
-    status(`Scale: ${r.none} — the image is read as is`, "err");
+    crumb(`scale: ${r.none}`);
+    status(t("st.scaleNone", { why: noneWhy(r) }), "err");
   } else {
     S.size.factor = asIs();
     crumb(`scale ×${S.size.factor.toFixed(2)} (letters ${Math.round(r.xh)} px, ${r.lo.toFixed(2)} … ${r.hi.toFixed(2)})`);
@@ -554,14 +561,14 @@ function drawBakeInfo() {
   const rb = drag ? dragBox(drag) : pending;
   if (rb) {
     $("bakeInfo").textContent = `${rb.w} × ${rb.h}`;
-    $("bakeInfo").title = `${p.w} × ${p.h} — the rectangle ${rb.w} × ${rb.h} at (${rb.x}, ${rb.y})`;
+    $("bakeInfo").title = t("bake.rect", { w: p.w, h: p.h, rw: rb.w, rh: rb.h, x: rb.x, y: rb.y });
     $("scaleInfo").textContent = "";
     return;
   }
   const b = p.bake, f = S.size.factor, r = S.size.range;
   const w = f === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * f)), h = f === 1 ? b.scaledH : Math.max(1, Math.round(b.scaledH * f));
   const ok = r !== null && r.none === undefined;
-  const by = `×${Number((w / p.w).toFixed(2))}`;
+  const by = `×${upTo(w / p.w, 2)}`;
   // the Read row: the image (or crop) → the model input ("from" goes on a narrow phone); the Adjust row: the factor and
   // the letters' height there
   $("bakeInfo").replaceChildren(Object.assign(document.createElement("span"), { className: "from", textContent: `${p.w} × ${p.h} → ` }), `${w} × ${h}`);
@@ -570,9 +577,9 @@ function drawBakeInfo() {
   if (Math.min(fw, fh) < 56) {
     if (fw <= fh) { fw = 56; } else { fh = 56; }
   }
-  const why = r === null ? (hasCrop() ? " · measuring the letters…" : " · the Scale works on a cropped image") : r.none !== undefined ? ` · ${r.none}` : "";
-  const lines = ok ? `, glyph height ${Math.round(r.xh * f)} px, line height ${Math.round(r.pitch * f)} px` : "";
-  $("bakeInfo").title = `${p.w} × ${p.h} scaled ${by} to ${w} × ${h}${lines}; model input ${Math.ceil(fw / 28) * 28} × ${Math.ceil(fh / 28) * 28} (white pad to the 28 px grid)${why}`;
+  const why = r === null ? t(hasCrop() ? "bake.measuring" : "bake.noCrop") : r.none !== undefined ? ` · ${noneWhy(r)}` : "";
+  const lines = ok ? t("bake.lines", { xh: Math.round(r.xh * f), lh: Math.round(r.pitch * f) }) : "";
+  $("bakeInfo").title = t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, lines, mw: Math.ceil(fw / 28) * 28, mh: Math.ceil(fh / 28) * 28, why });
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -803,11 +810,11 @@ async function uncrop() {
 $("pageCropBtn").onclick = async () => {
   await uncrop();
   showPending({ x: 0, y: 0, w: S.prev.w, h: S.prev.h });
-  status(`Page: ${S.prev.w} × ${S.prev.h} — drag its edges, then ✓`, "ok");
+  status(t("st.page", { w: S.prev.w, h: S.prev.h }), "ok");
 };
 $("textCropBtn").onclick = async () => {
   await uncrop();
-  status("Finding the text…", "busy");
+  status(t("st.finding"), "busy");
   S.finding = true;
   applyState();
   let r;
@@ -820,11 +827,12 @@ $("textCropBtn").onclick = async () => {
   if (r.none !== undefined) {
     // no writing found: the whole image to adjust by hand
     showPending({ x: 0, y: 0, w: S.prev.w, h: S.prev.h });
-    status(`Text crop: no writing found (${r.none}) — the whole image instead, drag its edges`, "ok");
+    crumb(`text crop: ${r.none}`);
+    status(t("st.cropNone", { why: noneWhy(r) }), "ok");
     return;
   }
   showPending(r);
-  status(`Text crop: ${r.w} × ${r.h} at (${r.x}, ${r.y}) — ✓ to apply, ✕ to cancel`, "ok");
+  status(t("st.cropFound", { w: r.w, h: r.h, x: r.x, y: r.y }), "ok");
 };
 
 document.addEventListener("keydown", (e) => {
@@ -835,18 +843,29 @@ document.addEventListener("keydown", (e) => {
 
 // ── text: rendered editor + markup view ───────────────────────────────
 const renderHtml = (text) => invoke("render", { text });
+const FMT_NAMED = new Set(["del", "ins", "u", "sup", "sub"]);
 function buildFormatBar() {
   const sample = { del: "<del>S</del>", ins: "<ins>A</ins>", u: "<u>U</u>", sup: "x<sup>2</sup>", sub: "x<sub>2</sub>" };
-  const name = { del: "Strike", ins: "Insertion", u: "Underline", sup: "Superscript", sub: "Subscript" };
   for (const p of S.marks.pairs) {
     const b = document.createElement("button");
     b.className = "ib fmt";
     b.dataset.tag = p.tag;
     b.innerHTML = sample[p.tag] ?? p.tag;
-    b.title = `${name[p.tag] ?? p.tag} — written ${p.open}…${p.close}`;
     b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the editor's selection
     b.onclick = () => S.editor.toggle(p.tag).then(applyState);
     $("fmtSeg").append(b);
+  }
+  titleFormatBar();
+}
+// the format buttons' titles in the current language (enable() keeps a control's own title in data-title)
+function titleFormatBar() {
+  for (const p of S.marks.pairs) {
+    const b = $("fmtSeg").querySelector(`[data-tag="${p.tag}"]`);
+    const title = t("fmt.title", { name: FMT_NAMED.has(p.tag) ? t(`fmt.${p.tag}`) : p.tag, open: p.open, close: p.close });
+    b.title = title;
+    if (b.dataset.title !== undefined) {
+      b.dataset.title = title;
+    }
   }
 }
 for (const id of ["gapBtn", "tabBtn", "undoBtn", "redoBtn"]) $(id).addEventListener("mousedown", (e) => e.preventDefault());
@@ -984,7 +1003,7 @@ function warnEdit() {
     }
     sessionStorage.setItem(EDIT_WARNED, "1");
   } catch {}
-  alert("Tech preview: OCR Lite does not keep your edits yet — a crash or a reload loses the text on the right. Copy or save what you change.\n\nReal editing, with the work kept, is the next major step.");
+  alert(t("warn.edit"));
 }
 $("editor").addEventListener("input", warnEdit);
 $("src").addEventListener("input", warnEdit);
@@ -1151,7 +1170,7 @@ $("readBtn").onclick = async () => {
     zoomTo(1, paneCentre());
   }
   setReading(true);
-  status("Starting…", "busy");
+  status(t("st.starting"), "busy");
   try {
     S.readBake = null;
     await call("read", { ops: S.ops, preset: $("presetSel").value, factor: S.size.factor });
@@ -1165,11 +1184,11 @@ async function readChecks() {
   try {
     missing = await host.setup.modelMissing();
   } catch (e) {
-    status(`browser storage unavailable: ${e instanceof Error ? e.message : e}`, "err");
+    status(t("st.storage", { e: e instanceof Error ? e.message : e }), "err");
     return false;
   }
   if (missing) {
-    status("Read needs the model — it is not in this browser yet", "err", SETUP_LINK);
+    status(t("st.needModel"), "err", SETUP_LINK);
     await checkModel();
     return false;
   }
@@ -1184,7 +1203,7 @@ async function readChecks() {
   try {
     gate = await host.modelGate();
   } catch (e) {
-    status(`the check before the read failed: ${e instanceof Error ? e.message : e}`, "err");
+    status(t("st.checkFailed", { e: e instanceof Error ? e.message : e }), "err");
     return false;
   }
   if (!gate.ok) {
@@ -1199,15 +1218,15 @@ listen("ocr:result", (e) => status(e.payload.text, e.payload.ok ? "ok" : "err"))
 // the read's phase times so far (ocr-decode Phase / ReadStats): "load 0.9 s · image 6.5 s · prefill 1.5 s"; loadMs =
 // the browser engine's weight load for this read (it frees the weights after each read); without encodeMs the engine
 // (llama.cpp) encodes the image inside its prefill
-const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
+const secs = (ms) => `${fixed(ms / 1000, 1)} s`;
 function phaseTimes(r) {
-  const t = [];
-  if (r.loadMs != null) t.push(`load ${secs(r.loadMs)}`);
-  if (r.encodeMs != null) t.push(`image ${secs(r.encodeMs)}`);
-  if (r.prefillMs != null) t.push(`prefill ${secs(r.prefillMs)}${r.encodeMs == null ? " (with the image)" : ""}`);
-  return t;
+  const out = [];
+  if (r.loadMs != null) out.push(t("phase.load", { t: secs(r.loadMs) }));
+  if (r.encodeMs != null) out.push(t("phase.image", { t: secs(r.encodeMs) }));
+  if (r.prefillMs != null) out.push(`${t("phase.prefill", { t: secs(r.prefillMs) })}${r.encodeMs == null ? t("phase.withImage") : ""}`);
+  return out;
 }
-const PHASES = { encodingImage: "Encoding image…", loadingText: "Loading the text model…", readingPrompt: "Reading prompt…", decoding: "Reading…" };
+const PHASES = new Set(["encodingImage", "loadingText", "readingPrompt", "decoding"]);
 const scan = scanOverlay($("stage"), $("img"));
 listen("ocr:phase", (e) => scan.phase(e.payload, S.readBake));
 // a tap on the model size line: its detail (the tooltip) in the status line — a touch screen shows no tooltip
@@ -1223,7 +1242,7 @@ listen("ocr:input", (e) => {
   crumb(`input ${w}×${h}${factor === 1 ? "" : ` ×${factor.toFixed(2)}`}`);
 });
 listen("ocr:phase", (e) => crumb(e.payload.phase)); // read start … encodingImage = the vision weights' load
-listen("ocr:phase", (e) => status([PHASES[e.payload.phase] ?? e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
+listen("ocr:phase", (e) => status([PHASES.has(e.payload.phase) ? t(`phase.${e.payload.phase}`) : e.payload.phase, ...phaseTimes(e.payload)].join(" · "), "busy"));
 listen("ocr:text", (e) => {
   if (S.streamed === "") {
     setTab("text"); // the text begins: it streams in view (stacked: the Text tab)
@@ -1245,11 +1264,11 @@ listen("ocr:done", async (e) => {
   crumb(`memory ${await host.memoryNote()}`);
   const r = e.payload;
   const tps = r.decodeMs > 0 ? (r.outTokens / (r.decodeMs / 1000)).toFixed(0) : "–";
-  const end = r.cancelled ? (stoppedHidden ? " · stopped: the app went to the background" : " · stopped") : r.stoppedOnEog ? "" : " · hit the token limit (runaway?)";
+  const end = r.cancelled ? t(stoppedHidden ? "done.stoppedAway" : "done.stopped") : r.stoppedOnEog ? "" : t("done.limit");
   const total = (r.loadMs ?? 0) + (r.encodeMs ?? 0) + r.prefillMs + r.decodeMs;
   // tokenChoice (the wgpu engine): "gpu" = greedy, chosen on the GPU and run ahead; "cpu" = sampled (llama.cpp: absent)
-  const choice = r.tokenChoice ? [`token choice: ${r.tokenChoice}`] : [];
-  status(`${[...phaseTimes(r), `${r.outTokens.toLocaleString()} tokens`, `${tps} tok/s`, ...choice, `total ${secs(total)}`].join(" · ")}${end}`,
+  const choice = r.tokenChoice ? [t("done.choice", { c: r.tokenChoice })] : [];
+  status(`${[...phaseTimes(r), t("done.tokens", { n: r.outTokens.toLocaleString(getLang()) }), t("done.tps", { n: tps }), ...choice, t("done.total", { t: secs(total) })].join(" · ")}${end}`,
     !r.stoppedOnEog && !r.cancelled ? "err" : "ok");
 });
 listen("ocr:error", (e) => {
@@ -1259,23 +1278,23 @@ listen("ocr:error", (e) => {
   const stopped = S.stopping && String(e.payload) === "stopped";
   setReading(false);
   if (released) {
-    status("Stopped: the app went to the background — the read starts again when you return", "ok");
+    status(t("st.stoppedAway"), "ok");
   } else if (stopped) {
-    status("Stopped before the text began", "ok");
+    status(t("st.stoppedEarly"), "ok");
   } else {
     status(String(e.payload), "err");
   }
 });
 
 // ── copy / save ───────────────────────────────────────────────────────
-$("copyBtn").onclick = () => navigator.clipboard.writeText(currentMarkup()).then(() => status("Markup copied", "ok"));
+$("copyBtn").onclick = () => navigator.clipboard.writeText(currentMarkup()).then(() => status(t("st.copied"), "ok"));
 $("saveBtn").onclick = (e) => { e.stopPropagation(); $("saveMenu").hidden = !$("saveMenu").hidden; };
 document.addEventListener("click", () => { $("saveMenu").hidden = true; });
 for (const b of $("saveMenu").querySelectorAll("button")) {
   b.onclick = async () => {
     $("saveMenu").hidden = true;
     const ext = b.dataset.save;
-    if (ext === "png" && !S.prev) { status("Open an image first", "err"); return; }
+    if (ext === "png" && !S.prev) { status(t("why.openFirst"), "err"); return; }
     let p;
     try {
       p = await host.saveAs(ext, { stem: S.stem, ops: S.ops, text: currentMarkup() });
@@ -1283,17 +1302,24 @@ for (const b of $("saveMenu").querySelectorAll("button")) {
       status(String(e), "err");
       return;
     }
-    if (p) status(`Saved ${p}`, "ok");
+    if (p) status(t("st.saved", { p }), "ok");
   };
 }
 
 // ── settings + presets ────────────────────────────────────────────────
+// the preset editor: the decoder settings' names are technical terms — English in every language; the rest is translated
 const FIELDS = [
   ["name", "text", "Name"], ["temperature", "number", "Temp"], ["topP", "number", "Top p"], ["repetitionPenalty", "number", "Rep. pen."],
   ["repetitionWindow", "number", "Window"], ["frequencyPenalty", "number", "Freq. pen."], ["maxNewTokens", "number", "Max tokens"],
   ["gtTokenCapFactor", "number", "GT cap ×"],
 ];
 let draftUser = [];
+// the presets differ from the saved ones: Save presets is offered
+let presetsDirty = false;
+function markPresets(dirty) {
+  presetsDirty = dirty;
+  $("presetSave").disabled = !dirty;
+}
 function fillPresetSel() {
   const sel = $("presetSel");
   sel.innerHTML = "";
@@ -1321,9 +1347,14 @@ function presetRow(p, editable, idx) {
     if (type === "number") inp.step = "any";
     inp.value = p[k];
     inp.readOnly = !editable;
-    if (!editable) inp.title = "a shipped preset is read-only — Duplicate makes an editable copy";
+    if (!editable) inp.title = t("preset.readonly");
     if (k === "name") inp.style.width = `${nameCh}ch`;
-    if (editable) inp.oninput = () => { draftUser[idx][k] = type === "number" ? Number(inp.value) : inp.value; };
+    if (editable) {
+      inp.oninput = () => {
+        draftUser[idx][k] = type === "number" ? Number(inp.value) : inp.value;
+        markPresets(true);
+      };
+    }
     td.append(inp);
     tr.append(td);
   }
@@ -1332,15 +1363,20 @@ function presetRow(p, editable, idx) {
   b.type = "button";
   b.className = "btn small";
   if (editable) {
-    b.textContent = "Delete";
-    b.onclick = () => { draftUser.splice(idx, 1); drawPresets(); };
+    b.textContent = t("preset.delete");
+    b.onclick = () => {
+      draftUser.splice(idx, 1);
+      markPresets(true);
+      drawPresets();
+    };
   } else {
-    b.textContent = "Duplicate";
+    b.textContent = t("preset.duplicate");
     b.onclick = () => {
       const names = new Set([...S.presets.shipped, ...draftUser].map((x) => x.name));
       let n = `${p.name}-mine`, k = 2;
       while (names.has(n)) n = `${p.name}-mine${k++}`;
       draftUser.push({ ...p, name: n });
+      markPresets(true);
       drawPresets();
     };
   }
@@ -1351,29 +1387,47 @@ function presetRow(p, editable, idx) {
 // the name column fits the longest preset name (else names are cut off); numbers stay narrow
 let nameCh = 12;
 function drawPresets() {
-  const t = $("presetTable");
+  const table = $("presetTable");
   nameCh = Math.max(12, ...[...S.presets.shipped, ...draftUser].map((p) => p.name.length)) + 3;
-  t.innerHTML = "<tr>" + FIELDS.map(([, , label]) => `<th>${label}</th>`).join("") + "<th></th></tr>";
-  S.presets.shipped.forEach((p, i) => t.append(presetRow(p, false, i)));
-  draftUser.forEach((p, i) => t.append(presetRow(p, true, i)));
+  const head = document.createElement("tr");
+  for (const [, , label] of FIELDS) {
+    head.append(Object.assign(document.createElement("th"), { textContent: label }));
+  }
+  head.append(document.createElement("th"));
+  table.replaceChildren(head);
+  S.presets.shipped.forEach((p, i) => table.append(presetRow(p, false, i)));
+  draftUser.forEach((p, i) => table.append(presetRow(p, true, i)));
 }
 $("settingsBtn").onclick = () => {
   host.settingsOpen(S.settings);
   draftUser = S.presets.user.map((p) => ({ ...p }));
+  markPresets(false);
   drawPresets();
   $("settingsErr").textContent = "";
+  $("langSel").value = getChoice();
   $("settingsDlg").showModal();
 };
 $("settingsCancel").onclick = () => $("settingsDlg").close();
-$("settingsSave").onclick = async () => {
+// the cross or Escape: the other settings (the model URL) are kept; unsaved preset edits are dropped
+$("settingsDlg").addEventListener("close", async () => {
   const next = host.settingsCollect(S.settings);
+  if (JSON.stringify(next) === JSON.stringify(S.settings)) {
+    return;
+  }
   try {
-    S.presets = await invoke("save_user_presets", { user: draftUser });
     await invoke("save_settings", { settings: next });
     S.settings = next;
-    fillPresetSel();
     $("backendInfo").textContent = await host.engineLabel(S.backend, S.settings);
-    $("settingsDlg").close();
+  } catch (e) {
+    status(String(e), "err");
+  }
+});
+$("presetSave").onclick = async () => {
+  try {
+    S.presets = await invoke("save_user_presets", { user: draftUser });
+    fillPresetSel();
+    markPresets(false);
+    $("settingsErr").textContent = "";
   } catch (e) {
     $("settingsErr").textContent = String(e);
   }
@@ -1383,7 +1437,7 @@ $("settingsSave").onclick = async () => {
 async function showAbout() {
   const b = await host.buildInfo();
   $("aboutVersion").textContent = b.version;
-  $("aboutGit").textContent = b.git.endsWith("-dirty") ? `${b.git.slice(0, -6)} + uncommitted changes` : b.git;
+  $("aboutGit").textContent = b.git.endsWith("-dirty") ? t("about.dirty", { git: b.git.slice(0, -6) }) : b.git;
   $("aboutBuilt").textContent = b.built ? new Date(b.built * 1000).toLocaleString() : "—";
   $("aboutEngine").textContent = $("backendInfo").textContent;
   $("aboutDlg").showModal();
@@ -1392,8 +1446,14 @@ $("aboutBtn").onclick = showAbout;
 
 // ── first-run setup + help ────────────────────────────────────────────
 const setup = setupDialog(host.setup, { pickImage, openHelp: () => $("helpDlg").showModal() });
-const SETUP_LINK = { label: "Set up OCR Lite", run: () => { setup.open(); return null; } };
+const SETUP_LINK = { get label() { return t("st.setupLink"); }, run: () => { setup.open(); return null; } };
 $("helpBtn").onclick = () => $("helpDlg").showModal();
+// How to: the steps of the empty pane (cloned at start) + tips; its button opens the full Help
+$("howBtn").onclick = () => $("howDlg").showModal();
+$("howHelpBtn").onclick = () => {
+  $("howDlg").close();
+  $("helpDlg").showModal();
+};
 $("helpSetupBtn").onclick = () => {
   $("helpDlg").close();
   setup.open();
@@ -1429,7 +1489,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own title
 //                                  not finding · not busy
 //   preset select                  not busy                                       busy (the running read keeps its own)
-//   Help                           always
+//   Help, How to                   always
 //   About, Fit                     not busy (their re-layout during a read ended in crashes on the iPhone)
 //   Settings                       not busy (the model store must not change      busy
 //                                  under a read)
@@ -1448,7 +1508,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //   Save ▸                         text or image · not busy
 //     .txt, .html                  text · not busy                                "Nothing to save yet — read an image"
 //     .png (model input)           image · not busy                               "Open an image first"
-const BUSY_WHY = "Wait for the read to end — or Stop it";
+const busyWhy = () => t("why.busy");
 const isBusy = () => S.starting || S.reading || S.stopping;
 // sets a control's state; the why goes into its title while disabled, its own title comes back when enabled
 function enable(el, on, why = "") {
@@ -1465,12 +1525,12 @@ function applyState() {
   const cropped = S.ops.some((o) => o.op === "crop");
   const editing = S.editor !== null && !markupView;
   const text = S.editor !== null && currentMarkup().trim() !== "";
-  const noImg = "Open an image first";
-  const cropWhy = "Finish the crop first (✓ / ✕)";
+  const noImg = t("why.openFirst");
+  const cropWhy = t("why.cropFirst");
   // the title bar
-  enable($("openBtn"), !busy, BUSY_WHY);
+  enable($("openBtn"), !busy, busyWhy());
   const steps = img && !cropping && !S.finding && !busy;
-  const stepsWhy = !img ? noImg : busy ? BUSY_WHY : cropping ? cropWhy : "Finding the crop…";
+  const stepsWhy = !img ? noImg : busy ? busyWhy() : cropping ? cropWhy : t("why.finding");
   for (const b of document.querySelectorAll("[data-op]")) {
     enable(b, steps, stepsWhy);
     if (FILTERS.has(b.dataset.op)) {
@@ -1481,21 +1541,21 @@ function applyState() {
   }
   // Page / Auto: with an image, also on a cropped one (they start from the uncropped image) and over a rectangle
   const crop = img && !S.finding && !busy;
-  const cropWhy2 = !img ? noImg : busy ? BUSY_WHY : "Finding the crop…";
+  const cropWhy2 = !img ? noImg : busy ? busyWhy() : t("why.finding");
   enable($("pageCropBtn"), crop, cropWhy2);
   enable($("textCropBtn"), crop, cropWhy2);
   enable($("imgUndoBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   enable($("resetBtn"), steps && S.ops.length > 0, steps ? "" : stepsWhy);
   // Cancel / Apply: while a rectangle shows (Apply once it is drawn)
-  enable($("cropCancelBtn"), img && cropping && !busy, !img ? noImg : "Nothing to cancel — Page or Auto put up a rectangle");
-  enable($("cropApplyBtn"), img && pending !== null && !busy, !img ? noImg : "Nothing to crop — Page or Auto put up a rectangle");
-  enable($("presetSel"), !busy, BUSY_WHY);
+  enable($("cropCancelBtn"), img && cropping && !busy, !img ? noImg : t("why.noCancel"));
+  enable($("cropApplyBtn"), img && pending !== null && !busy, !img ? noImg : t("why.noApply"));
+  enable($("presetSel"), !busy, busyWhy());
   // the Scale on a measured crop: the slider; Auto until applied (again after a slider move or a crop change)
   const scaling = img && !busy && !cropping && cropped && sized();
-  const sizeWhy = !img ? noImg : busy ? BUSY_WHY : cropping ? cropWhy : !cropped ? "Crop first: the Scale works on a cropped image" : S.size.range === null ? "Measuring the letters…" : S.size.range.none;
+  const sizeWhy = !img ? noImg : busy ? busyWhy() : cropping ? cropWhy : !cropped ? t("why.scaleNeedsCrop") : S.size.range === null ? t("why.measuring") : sized() ? "" : noneWhy(S.size.range);
   enable($("scaleSlider"), scaling, sizeWhy);
-  enable($("scaleAutoBtn"), scaling && !S.size.autoDone, scaling ? "Auto applied — move the slider or change the crop to use it again" : sizeWhy);
-  enable($("settingsBtn"), !busy, BUSY_WHY);
+  enable($("scaleAutoBtn"), scaling && !S.size.autoDone, scaling ? t("why.autoDone") : sizeWhy);
+  enable($("settingsBtn"), !busy, busyWhy());
   drawReadBtn(img, cropping);
   // the image card
   enable($("zoomOutBtn"), img && zoom > 1);
@@ -1503,23 +1563,23 @@ function applyState() {
   enable($("zoomInBtn"), img && zoom < zoomMax() - 0.005);
   // the text card
   for (const b of $("fmtSeg").children) {
-    enable(b, editing && !busy, BUSY_WHY);
+    enable(b, editing && !busy, busyWhy());
   }
-  enable($("gapBtn"), editing && !busy, BUSY_WHY);
-  enable($("tabBtn"), editing && !busy, BUSY_WHY);
-  enable($("undoBtn"), editing && !busy && S.editor.canUndo(), busy ? BUSY_WHY : "");
-  enable($("redoBtn"), editing && !busy && S.editor.canRedo(), busy ? BUSY_WHY : "");
-  enable($("markupBtn"), S.editor !== null && !busy, BUSY_WHY);
+  enable($("gapBtn"), editing && !busy, busyWhy());
+  enable($("tabBtn"), editing && !busy, busyWhy());
+  enable($("undoBtn"), editing && !busy && S.editor.canUndo(), busy ? busyWhy() : "");
+  enable($("redoBtn"), editing && !busy && S.editor.canRedo(), busy ? busyWhy() : "");
+  enable($("markupBtn"), S.editor !== null && !busy, busyWhy());
   // Fit and About stay off while a read runs (their re-layout during a read ended in crashes on the iPhone)
-  enable($("fitBtn"), S.editor !== null && !markupView && !busy, busy ? BUSY_WHY : markupView ? "Fit applies to the rendered text" : "");
-  enable($("aboutBtn"), !busy, BUSY_WHY);
-  enable($("copyBtn"), text && !busy, busy ? BUSY_WHY : "Nothing to copy yet");
-  enable($("saveBtn"), (text || img) && !busy, busy ? BUSY_WHY : "Nothing to save yet — read an image");
+  enable($("fitBtn"), S.editor !== null && !markupView && !busy, busy ? busyWhy() : markupView ? t("why.fitMarkup") : "");
+  enable($("aboutBtn"), !busy, busyWhy());
+  enable($("copyBtn"), text && !busy, busy ? busyWhy() : t("why.noCopy"));
+  enable($("saveBtn"), (text || img) && !busy, busy ? busyWhy() : t("why.noSave"));
   for (const b of $("saveMenu").querySelectorAll("button")) {
     if (b.dataset.save === "png") {
-      enable(b, img && !busy, busy ? BUSY_WHY : noImg);
+      enable(b, img && !busy, busy ? busyWhy() : noImg);
     } else {
-      enable(b, text && !busy, busy ? BUSY_WHY : "Nothing to save yet — read an image");
+      enable(b, text && !busy, busy ? busyWhy() : t("why.noSave"));
     }
   }
 }
@@ -1531,7 +1591,7 @@ document.addEventListener("click", (e) => {
   if (!btn.disabled || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
     return;
   }
-  status(`Read waits: ${btn.title}`, "err");
+  status(t("st.readWaits", { why: btn.title }), "err");
   const at = pending !== null ? $("cropApplyBtn") : cropMode ? $("cropCancelBtn") : null;
   if (at !== null) {
     at.classList.remove("attn");
@@ -1545,42 +1605,42 @@ function drawReadBtn(img, cropping) {
   const mode = S.stopping ? "stopping" : S.reading ? "reading" : S.starting ? "starting" : "idle";
   if (btn.dataset.state !== mode) {
     btn.dataset.state = mode;
-    const label = { idle: ["play", "Read"], starting: ["play", "Read"], reading: ["stop", "Stop"], stopping: ["stop", "Stopping…"] }[mode];
-    btn.innerHTML = `<i data-icon="${label[0]}"></i><span>${label[1]}</span>`;
+    const label = { idle: ["play", "read"], starting: ["play", "read"], reading: ["stop", "read.stop"], stopping: ["stop", "read.stopping"] }[mode];
+    btn.innerHTML = `<i data-icon="${label[0]}"></i><span data-i18n="${label[1]}">${t(label[1])}</span>`;
     paintIcons(btn);
     btn.classList.toggle("stop", mode === "reading" || mode === "stopping");
     btn.classList.toggle("primary", mode === "idle" || mode === "starting");
   }
   if (mode === "reading") {
     btn.disabled = false;
-    btn.title = "Stop the read";
+    btn.title = t("read.stopTitle");
     return;
   }
   if (mode === "stopping") {
     btn.disabled = true;
-    btn.title = "Stopping the read…";
+    btn.title = t("read.stoppingTitle");
     return;
   }
-  const why = mode === "starting" ? "Checking before the read…"
+  const why = mode === "starting" ? t("why.checking")
     : !S.model.ready ? S.model.why
-      : !img ? "Open an image first"
-        : cropping ? "Apply or cancel the crop first (✓ / ✕)"
-          : S.finding ? "Finding the crop…" : "";
+      : !img ? t("why.openFirst")
+        : cropping ? t("why.applyOrCancel")
+          : S.finding ? t("why.finding") : "";
   btn.disabled = why !== "";
-  btn.title = why !== "" ? why : `Read the image (preset ${$("presetSel").value})`;
+  btn.title = why !== "" ? why : t("read.title", { p: $("presetSel").value });
 }
 // can a read start, model-wise? The model in this browser's storage (and WebGPU); asked at start, whenever the model
 // in the browser changes and after a refused read.
 async function checkModel() {
   if (host.setup.noWebGpu) {
-    S.model = { ready: false, why: "Reading needs WebGPU — this browser has none (see Help)" };
+    S.model = { ready: false, why: t("why.noWebGpu") };
   } else {
     try {
       S.model = (await host.setup.modelMissing())
-        ? { ready: false, why: "Set up the model first — it is not in this browser yet" }
+        ? { ready: false, why: t("why.setupModel") }
         : { ready: true, why: "" };
     } catch (e) {
-      S.model = { ready: false, why: `browser storage unavailable: ${e instanceof Error ? e.message : e}` };
+      S.model = { ready: false, why: t("st.storage", { e: e instanceof Error ? e.message : e }) };
     }
   }
   applyState();
@@ -1606,6 +1666,11 @@ document.addEventListener("focusout", () => {
 
 // ── start ─────────────────────────────────────────────────────────────
 (async () => {
+  // the How to dialog shows the empty pane's steps (one copy in index.html)
+  const steps = $("howSteps").cloneNode(true);
+  steps.removeAttribute("id");
+  $("howStepsDlg").replaceWith(steps);
+  applyI18n();
   paintIcons();
   const st = await call("startup");
   S.settings = st.settings;
@@ -1625,7 +1690,7 @@ document.addEventListener("focusout", () => {
   showCrashNote(crash);
   if (closedAway && !crash) {
     crumb("closed by the system in the background");
-    status("iOS closed OCR Lite while it was in the background — the page was loaded again", "ok");
+    status(t("st.iosClosed"), "ok");
   }
   // the setup opens by itself while the model is not in this browser's storage or the browser has no WebGPU (its
   // device check says why)
@@ -1638,8 +1703,27 @@ document.addEventListener("focusout", () => {
 async function showModelNote() {
   const note = await host.startupNote();
   if (note) status(note.text, note.kind, note.setup ? SETUP_LINK : note.link);
-  else status("Ready");
+  else status(t("st.ready"));
 }
+// the language (Settings): applied at once (i18n.js setChoice — the static texts); here what this file wrote itself
+$("langSel").onchange = () => setChoice($("langSel").value);
+window.addEventListener("ocrlite:lang", () => {
+  crumb(`language ${getChoice()}`);
+  $("readBtn").dataset.state = ""; // the Read button's label drawn again
+  if (S.marks !== null) {
+    titleFormatBar();
+  }
+  if ($("settingsDlg").open) {
+    drawPresets();
+  }
+  drawBakeInfo();
+  if (isBusy()) {
+    applyState();
+  } else {
+    showModelNote();
+    checkModel(); // → applyState
+  }
+});
 window.addEventListener("ocrlite:model-changed", () => {
   showModelNote();
   checkModel();

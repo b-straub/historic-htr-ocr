@@ -16,9 +16,12 @@
 //             of memory is flagged, never retried silently
 //   setup     the first-run setup's host side (ui/setup.js): the device check (gpu-check.js), the model's presence,
 //             the download with progress and cancel
+//   texts     what the user reads in the current language (ui/i18n.js t); console lines, breadcrumbs and internal errors
+//             stay English; stored values (the crash marker's step) are English and worded when shown (stepName)
 import init, * as ocr from "./pkg/ocr_web.js";
 import { osOf, runGpuCheck } from "./gpu-check.js";
 import { LINKS, MODEL, MODEL_BASE as HUB_BASE, MODEL_FROM, MODEL_SOURCES, MODEL_TEST } from "./config.js";
+import { t, fixed, getT } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS = "ocrlite.settings";
@@ -59,7 +62,7 @@ const allows = (source) => MODEL_SOURCES.includes(source);
 
 // no WebGPU: the app still starts, so the setup's device check can say why and what to do (gpu-check.js); Read is refused
 // (blockedNote)
-const NO_WEBGPU = "gpu" in navigator ? null : "OCR Lite needs WebGPU — this browser has none (Chrome / Edge 113+, Safari 26+; on Linux Chrome: enable it in chrome://flags)";
+const NO_WEBGPU = "gpu" in navigator ? null : "h.noWebGpu"; // its key: worded when shown
 await init();
 
 const modelParam = new URLSearchParams(location.search).get("model");
@@ -74,7 +77,7 @@ function load(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 function store(key, value) {
-  try { localStorage.setItem(key, value); } catch (e) { throw new Error(`settings not saved: ${e.message}`); }
+  try { localStorage.setItem(key, value); } catch (e) { throw new Error(t("h.notSaved", { e: e.message })); }
 }
 
 // ── crash marker + unsupported device (on an iPhone, Safari died right after the model load and the console showed
@@ -93,8 +96,11 @@ const UNSUPPORTED = "ocrlite.unsupported";
 // 24 × 64 MiB + the largest tensor's block = 1693.6 MiB, the Chrome breadcrumb "GPU pool") + the 32 MiB upload buffer
 // + the readback (32 MiB) ≈ 1758 MiB ≈ 1.8 GB. The largest page (1540 × 1540) peaks at 1533 MiB in use inside it
 // (native, F16 path).
-const GPU_NEED = "about 1.8 GB";
 const STEP = { encodingImage: "image encode", loadingText: "model load (text)", readingPrompt: "prefill", decoding: "decode" };
+// a step as stored (English, the crash marker) → its words; a step stored by an older build that is not here shows as stored
+const STEP_KEY = { "image encode": "h.step.encode", "model load (text)": "h.step.loadText", prefill: "h.step.prefill", decode: "h.step.decode",
+  "model load": "h.step.load", "device check: memory test": "h.step.memTest", "no read (idle)": "h.step.idle" };
+const stepName = (step) => (step in STEP_KEY ? t(STEP_KEY[step]) : step);
 let markerError = null;  // why the crash marker cannot be kept (storage unavailable), shown in Settings
 let currentStep = null;  // the heavy GPU step running now (null: none)
 let gpuDead = null;      // the engine's death this session (gpuFatal): every further read fails with it
@@ -139,31 +145,31 @@ export function takeCrashNote() {
   }
   const u = unsupported;
   markUnsupported(null);
-  const when = new Date(u.time).toLocaleString();
+  const when = new Date(u.time).toLocaleString(getT().lang);
   if (u.cause === "killed" && u.step === MEMORY_TEST_STEP) {
-    return `This device does not have enough memory for OCR Lite: the device check's memory test (${when}) needed ${(MEMORY_TEST_BYTES / 1e9).toFixed(1)} GB of GPU memory and the system ended the app.\n\nOCR Lite runs on Macs and iPads with Apple silicon and on recent iPhones (experimental). You can still try — the next read tries again.`;
+    return t("h.crashMem", { when, gb: fixed(MEMORY_TEST_BYTES / 1e9, 1) });
   }
   const what = u.cause === "killed"
-    ? `OCR Lite stopped during ${u.step} (${when}) — most likely this device ran out of memory.`
-    : `OCR Lite lost the GPU during ${u.step} (${when}): ${u.why}.`;
-  return `${what}\n\nReading in the browser with WebGPU is work in progress: on phones and tablets OCR Lite is not production-ready yet — a crash loses the text on the right, so copy or save what you edited. Real editing, with the work kept, is the next major step.\n\nThe next read tries again.`;
+    ? t("h.crashKilled", { step: stepName(u.step), when })
+    : t("h.crashLost", { step: stepName(u.step), when, why: u.why });
+  return t("h.crashPreview", { what });
 }
 function tryAnyway() {
   markUnsupported(null);
-  return "Device notice cleared — Read tries again";
+  return t("h.cleared");
 }
 function unsupportedNote(u) {
-  const when = new Date(u.time).toLocaleString();
+  const when = new Date(u.time).toLocaleString(getT().lang);
   const what = u.cause === "killed"
-    ? `The last run stopped during ${u.step} without finishing (${when}, build ${u.build}) — most likely this device ran out of memory.`
-    : `The last run lost the GPU during ${u.step} (${when}): ${u.why}.`;
-  return { text: `${what} OCR Lite needs ${GPU_NEED} of GPU memory (an iPad / Mac with Apple silicon, or a desktop GPU).`, kind: "err", link: { label: "Try anyway", run: tryAnyway } };
+    ? t("h.lastKilled", { step: stepName(u.step), when, build: u.build })
+    : t("h.lastLost", { step: stepName(u.step), when, why: u.why });
+  return { text: t("h.needGpu", { what, need: t("h.gpuNeed") }), kind: "err", link: { label: t("h.tryAnyway"), run: tryAnyway } };
 }
 /// why Read is refused now (null: it is not): the unsupported-device notice (with "Try anyway"), else a dead engine
 export function blockedNote() {
-  if (NO_WEBGPU !== null) return { text: NO_WEBGPU, kind: "err", link: null };
+  if (NO_WEBGPU !== null) return { text: t(NO_WEBGPU), kind: "err", link: null };
   if (unsupported) return unsupportedNote(unsupported);
-  if (gpuDead) return { text: `${gpuDead} — the next read starts on a new GPU device`, kind: "err", link: null };
+  if (gpuDead) return { text: t("h.nextDevice", { why: gpuDead }), kind: "err", link: null };
   return null;
 }
 // the app was away (app.js wentAway → awayFromApp) and the engine could not be released (releaseEngine): a GPU loss
@@ -179,7 +185,7 @@ function gpuFatal(m) {
   }
   clearMarker();
   drawMemory();
-  emit("ocr:error", `${m.message} — the read ends; the next one starts on a new GPU device`);
+  emit("ocr:error", t("h.readEnds", { why: m.message }));
 }
 
 // ── the engine worker ────────────────────────────────────────────────
@@ -229,7 +235,7 @@ function emit(event, payload) {
 function onWorkerMessage(e) {
   const m = e.data;
   if (m.event === "text") { emit("ocr:text", m.text); return; }
-  if (m.event === "status") { emit("ocr:status", m.text); return; }
+  if (m.event === "status") { emit("ocr:status", statusText(m)); return; }
   if (m.event === "phase") {
     if (!(m.phase.phase in STEP)) throw new Error(`worker: unknown phase ${m.phase.phase}`);
     setMarker(STEP[m.phase.phase]);
@@ -255,12 +261,24 @@ function work(cmd, args = {}, transfer = []) {
   });
 }
 
+// the worker's status lines (worker.js status: what + its numbers) in words
+function statusText(m) {
+  if (m.what === "load") {
+    return t("h.loadFrom", { gb: fixed(m.bytes / 1e9, 2), from: m.from === null ? t("h.fromStorage") : m.from });
+  }
+  if (m.what === "verify") {
+    return t("h.checkingFile", { name: m.name, gb: fixed(m.bytes / 1e9, 2) });
+  }
+  throw new Error(`worker: unknown status ${m.what}`);
+}
 // model load / upload / download progress: the status bar while reading, the setup while it stores the model, the
 // Settings bar otherwise
 let progressTo = null; // the setup's callback ({ line, fraction }) while it stores the model
 function progress(m) {
   const pct = m.total ? Math.round((100 * m.done) / m.total) : 0;
-  const line = `${m.label === "load" ? "loading the model" : m.label === "upload" ? `storing ${m.name}` : `downloading ${m.name}`} · ${(m.done / 1e6).toFixed(0)}${m.total ? ` / ${(m.total / 1e6).toFixed(0)} MB (${pct} %)` : " MB"}`;
+  const what = m.label === "load" ? t("h.prog.load") : t(m.label === "upload" ? "h.prog.upload" : "h.prog.download", { name: m.name });
+  const done = fixed(m.done / 1e6, 0);
+  const line = `${what} · ${m.total ? t("h.prog.of", { done, total: fixed(m.total / 1e6, 0), pct }) : t("h.prog.mb", { done })}`;
   if (m.label === "load") { emit("ocr:status", line); return; }
   if (progressTo) {
     progressTo({ line, fraction: m.total ? m.done / m.total : 0 });
@@ -331,7 +349,7 @@ const commands = {
         clearMarker();
         const why = gpuDead;
         releaseEngine();
-        emit("ocr:error", why ? `${why} — the next read starts on a new GPU device` : err);
+        emit("ocr:error", why ? t("h.nextDevice", { why }) : err);
       },
     );
     return JSON.parse(b.plan);
@@ -365,7 +383,7 @@ const commands = {
   save_user_presets({ user: list }) {
     const next = JSON.parse(ocr.check_user_presets(JSON.stringify(list)));
     const sel = settings().preset;
-    if (![...next.shipped, ...next.user].some((p) => p.name === sel)) throw new Error(`the selected preset '${sel}' would be gone — pick another first`);
+    if (![...next.shipped, ...next.user].some((p) => p.name === sel)) throw new Error(t("h.presetGone", { name: sel }));
     store(USER_PRESETS, JSON.stringify(next.user));
     presets = next;
     return next;
@@ -524,7 +542,7 @@ export async function modelGate() {
   }
   const { record } = await work("source");
   if (record !== null && !fromAllowedSources(record)) {
-    return { ok: false, note: { text: FOREIGN_MODEL, kind: "err", link: null } };
+    return { ok: false, note: { text: foreignModel(), kind: "err", link: null } };
   }
   gatePassed = true;
   return { ok: true, note: null };
@@ -536,14 +554,14 @@ function fromAllowedSources(record) {
   const sources = record.files ? Object.values(record.files) : [record.source];
   return sources.every(allows);
 }
-const FOREIGN_MODEL = `The model in this browser did not come from ${MODEL_FROM} and is not used`;
+const foreignModel = () => t("h.foreign", { from: MODEL_FROM });
 
 // ── settings: the model in OPFS ───────────────────────────────────────
 // the loaded engine's formats (the worker's "loaded" event): weights = how the files store them, compute = what the
 // GPU computes in — two different things (bf16 vision weights are computed in f16)
 let engine = null;
 let backendName = "WebGPU";
-const formatLine = () => (engine ? `weights: ${engine.weights} · compute: ${engine.computeLabel}${engine.adapter ? ` on ${engine.adapter}` : ""}` : "weights / compute: shown once the model is loaded (first read)");
+const formatLine = () => (engine ? `${t("h.weightsCompute", { weights: engine.weights, compute: engine.computeLabel })}${engine.adapter ? t("h.on", { adapter: engine.adapter }) : ""}` : t("h.formatLater"));
 function engineLoaded(info) {
   engine = info;
   $("backendInfo").textContent = engineLabel(backendName);
@@ -557,49 +575,53 @@ function drawMemory() {
   const parts = [];
   if (engine) {
     if (lastRead) {
-      parts.push(`GPU memory held by the engine: ${mb(lastRead.poolBytes)} (its memory pool, kept from read to read; each read loads its weights into it)`);
+      parts.push(t("h.mem.pool", { mb: shownMb(lastRead.poolBytes) }));
     } else {
-      parts.push(`GPU memory: ${mb(engine.idleBytes)} before the first read`);
+      parts.push(t("h.mem.idle", { mb: shownMb(engine.idleBytes) }));
     }
     if (lastRead) {
       const g = lastRead.gpuMemory;
-      parts.push(`last read: weights ${mb(lastRead.load.weightsBytes)} · peak ${mb(g.peakBytes)} (in its ${g.peakPhase}) · load ${(lastRead.loadMs / 1000).toFixed(1)} s`);
+      parts.push(t("h.mem.last", { weights: shownMb(lastRead.load.weightsBytes), peak: shownMb(g.peakBytes), phase: g.peakPhase, s: fixed(lastRead.loadMs / 1000, 1) }));
     } else {
-      parts.push("weights + peak: shown after the first read");
+      parts.push(t("h.mem.afterFirst"));
     }
   } else {
-    parts.push(`GPU memory: shown once the model is loaded — a full page needs ${GPU_NEED}`);
+    parts.push(t("h.mem.later", { need: t("h.gpuNeed") }));
   }
-  if (gpuDead) parts.push(`the engine is dead: ${gpuDead}`);
-  if (markerError) parts.push(`crash marker off (browser storage: ${markerError})`);
+  if (gpuDead) parts.push(t("h.mem.dead", { why: gpuDead }));
+  if (markerError) parts.push(t("h.mem.marker", { why: markerError }));
   $("gpuMemoryWeb").textContent = parts.join(" · ");
 }
 
 export function engineLabel(backend) {
   backendName = backend;
-  const where = httpModel ? `model streamed from ${httpModel}` : `model in browser storage (${MODEL.name})`;
-  return engine ? `${backend} · ${where} · weights: ${engine.weights} · compute: ${engine.computeLabel}` : `${backend} · ${where}`;
+  const where = httpModel ? t("h.where.stream", { url: httpModel }) : t("h.where.store", { name: MODEL.name });
+  return engine ? `${backend} · ${where} · ${t("h.weightsCompute", { weights: engine.weights, compute: engine.computeLabel })}` : `${backend} · ${where}`;
 }
 
+// MiB: for the breadcrumb (English); shownMb: for the user, in the current language's way
 const mb = (b) => `${(b / 2 ** 20).toFixed(1)} MiB`;
+const shownMb = (b) => `${fixed(b / 2 ** 20, 1)} MiB`;
 
 async function drawStore() {
-  const t = $("opfsTable");
+  const table = $("opfsTable");
   let files;
   try {
     files = await work("list");
   } catch (e) {
-    t.innerHTML = "";
-    $("opfsQuota").textContent = `browser storage unavailable: ${e}`;
+    table.innerHTML = "";
+    $("opfsQuota").textContent = t("st.storage", { e });
     return;
   }
-  t.innerHTML = "<tr><th>File</th><th>Size</th><th></th></tr>";
+  const head = document.createElement("tr");
+  head.append(...[t("h.file"), t("h.size"), ""].map((s) => Object.assign(document.createElement("th"), { textContent: s })));
+  table.replaceChildren(head);
   for (const name of new Set([...MODEL_FILES, ...files.map((f) => f.name)])) {
     const f = files.find((x) => x.name === name);
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${name}</td><td>${f ? mb(f.size) : "— missing"}</td><td></td>`;
+    tr.innerHTML = `<td>${name}</td><td>${f ? shownMb(f.size) : t("h.missing")}</td><td></td>`;
     if (f) {
-      const b = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: "Delete" });
+      const b = Object.assign(document.createElement("button"), { type: "button", className: "btn small", textContent: t("h.delete") });
       b.onclick = async () => {
         try { await work("delete", { name }); } catch (e) { $("settingsErr").textContent = String(e); }
         drawStore();
@@ -607,20 +629,20 @@ async function drawStore() {
       };
       tr.lastChild.append(b);
     }
-    t.append(tr);
+    table.append(tr);
   }
   const est = navigator.storage.estimate ? await navigator.storage.estimate() : null;
   const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
-  $("opfsQuota").textContent = `${est ? `${mb(est.usage)} used of ${mb(est.quota)} · ` : ""}${persisted ? "kept (persistent storage granted)" : "the browser may evict it under storage pressure"}`;
+  $("opfsQuota").textContent = `${est ? t("h.quota", { used: shownMb(est.usage), quota: shownMb(est.quota) }) : ""}${t(persisted ? "h.persisted" : "h.evict")}`;
   const { record } = await work("source");
   $("modelSourceWeb").textContent = record === null ? "" : sourceLine(record);
   if (record !== null && !fromAllowedSources(record)) {
-    $("modelSourceWeb").textContent += ` · not used: only a model downloaded from ${MODEL_FROM} reads — download it`;
+    $("modelSourceWeb").textContent += t("h.notUsed", { from: MODEL_FROM });
   }
 }
 /// Settings: where the model in this browser came from
 function sourceLine(record) {
-  return record.source === "hub" ? `from ${MODEL_FROM}` : record.source === "url" ? `from ${record.url}` : record.source === "upload" ? "uploaded" : "of unknown origin";
+  return record.source === "hub" ? t("h.src.hub", { from: MODEL_FROM }) : record.source === "url" ? t("h.src.url", { url: record.url }) : t(record.source === "upload" ? "h.src.upload" : "h.src.unknown");
 }
 
 // the model in this browser changed (stored / deleted): the page re-asks startupNote for its status line (else, after
@@ -647,7 +669,7 @@ async function busy(job) {
   for (const id of ["modelFiles", "modelDownload", "modelFromHub"]) $(id).disabled = true;
   try {
     await storeModel(job);
-    $("modelProgressText").textContent = "done";
+    $("modelProgressText").textContent = t("h.done");
   } catch (e) {
     $("settingsErr").textContent = String(e);
     $("modelProgressText").textContent = "";
@@ -666,20 +688,20 @@ export async function verifyModel() {
   try {
     got = await work("verifyModel");
   } catch (e) {
-    emit("ocr:result", { text: `The model check failed: ${e instanceof Error ? e.message : e}`, ok: false });
+    emit("ocr:result", { text: t("crash.checkFailed", { e: e instanceof Error ? e.message : e }), ok: false });
     throw e;
   }
   const damaged = Object.keys(MODEL.md5).filter((name) => got[name] !== MODEL.md5[name]);
   const r = damaged.length === 0
-    ? { ok: true, damaged, text: "The stored model is intact (both files match the release)." }
-    : { ok: false, damaged, text: `The stored model is damaged: ${damaged.join(", ")} ${damaged.length === 1 ? "differs" : "differ"} from the release. Delete the model (Settings) and download it again.` };
+    ? { ok: true, damaged, text: t("h.verifyOk") }
+    : { ok: false, damaged, text: t(damaged.length === 1 ? "h.verifyBad1" : "h.verifyBadN", { files: damaged.join(", ") }) };
   emit("ocr:result", { text: r.text, ok: r.ok });
   return r;
 }
 $("modelVerify").onclick = async () => {
   $("settingsErr").textContent = "";
   $("modelVerify").disabled = true;
-  $("modelProgressText").textContent = "checking the stored model…";
+  $("modelProgressText").textContent = t("crash.checking");
   try {
     const r = await verifyModel();
     $("modelProgressText").textContent = r.text;
@@ -693,7 +715,7 @@ $("modelVerify").onclick = async () => {
 
 $("modelFiles").onchange = () => {
   if (!allows("upload")) {
-    $("settingsErr").textContent = `uploading model files is switched off — download the model from ${MODEL_FROM}`;
+    $("settingsErr").textContent = t("h.uploadOff", { from: MODEL_FROM });
     return;
   }
   const files = [...$("modelFiles").files];
@@ -702,7 +724,7 @@ $("modelFiles").onchange = () => {
   if (wrong.length) { $("settingsErr").textContent = wrongFiles(wrong); return; }
   busy(() => work("upload", { files }));
 };
-const wrongFiles = (wrong) => `${wrong.map((f) => f.name).join(", ")}: the model files are ${MODEL_FILES.join(" + ")}`;
+const wrongFiles = (wrong) => t("h.wrongFiles", { names: wrong.map((f) => f.name).join(", "), files: MODEL_FILES.join(" + ") });
 /// both model files from a folder URL into OPFS (Settings and the setup). The download streams each file straight
 /// into OPFS (worker.js download — also from the Hugging Face repo: its resolve URLs answer a browser fetch with CORS,
 /// through the redirect to its CDN)
@@ -712,7 +734,7 @@ async function downloadModel(url) {
   const own = base.href === new URL(MODEL_BASE, location.href).href;
   const record = own ? { source: "hub" } : { source: "url", url: base.href };
   if (!allows(record.source)) {
-    throw new Error(`${base.href}: downloading from another folder is switched off — the model comes from ${MODEL_FROM}`);
+    throw new Error(t("h.urlOff", { url: base.href, from: MODEL_FROM }));
   }
   // the hub repo may name the files differently (web/config.js MODEL.remoteFiles); stored under MODEL_FILES either way.
   // A test override (?modelBase=) holds MODEL_FILES itself
@@ -724,16 +746,26 @@ function downloadFrom(url) {
 }
 $("modelDownload").onclick = () => {
   const base = $("modelUrl").value.trim();
-  if (!base) { $("settingsErr").textContent = "enter the URL of a folder holding both model files"; return; }
+  if (!base) { $("settingsErr").textContent = t("h.enterUrl"); return; }
   downloadFrom(base);
 };
-$("modelFromHub").textContent = `Download from ${MODEL_FROM}`;
-// a test build: the model's source in Settings is this server's folder, the Hugging Face repo stays linked as its origin
-if (MODEL_TEST) {
-  const hint = $("modelOpenHint");
-  const repo = hint.querySelector("a");
-  hint.replaceChildren(`A test build: the model is downloaded once from this server (${new URL(MODEL_BASE, location.href).pathname}), then read from this browser's storage, offline too — a copy of the open model (CC BY-SA 4.0) from its `, repo, ".");
+// the texts this file put on the page, in the current language — at start and when it changes (Settings, i18n.js)
+function drawTexts() {
+  $("modelFromHub").textContent = t("set.fromHub", { from: MODEL_FROM });
+  // a test build: the model's source in Settings is this server's folder, the Hugging Face repo stays linked as its origin
+  if (MODEL_TEST) {
+    const hint = $("modelOpenHint");
+    const repo = hint.querySelector("a");
+    hint.replaceChildren(t("h.testHint", { path: new URL(MODEL_BASE, location.href).pathname }), repo, ".");
+  }
+  if ($("settingsDlg").open) {
+    $("modelFormatWeb").textContent = formatLine();
+    drawMemory();
+    drawStore();
+  }
 }
+drawTexts();
+window.addEventListener("ocrlite:lang", drawTexts);
 $("modelFromHub").onclick = () => downloadFrom(MODEL_BASE);
 
 /// version / commit / build time for the About box: stamped into index.html by web/dist.py; the dev server has none
@@ -761,17 +793,17 @@ export async function buildInfo() {
 /// the status bar's note at startup instead of "Ready" (null: Ready) — { text, kind, link, setup? }; setup: the model is
 /// not in this browser yet, the page links its setup (ui/setup.js, which gets the model)
 export async function startupNote() {
-  if (NO_WEBGPU !== null) return { text: NO_WEBGPU, kind: "err", link: null, setup: true };
+  if (NO_WEBGPU !== null) return { text: t(NO_WEBGPU), kind: "err", link: null, setup: true };
   if (!httpModel) {
     let missing;
     try {
       missing = await modelMissing();
     } catch (e) {
-      return { text: `browser storage unavailable: ${e}`, kind: "err", link: null };
+      return { text: t("st.storage", { e }), kind: "err", link: null };
     }
     if (missing) {
       const { record } = await work("source");
-      return { text: record !== null && !fromAllowedSources(record) ? FOREIGN_MODEL : "No model in this browser yet", kind: "err", link: null, setup: true };
+      return { text: record !== null && !fromAllowedSources(record) ? foreignModel() : t("h.noModel"), kind: "err", link: null, setup: true };
     }
   }
   if (unsupported) return unsupportedNote(unsupported);
@@ -815,13 +847,14 @@ export const setup = {
   /// the device check (gpu-check.js) → its verdict; onStep(verdict) once the adapter passed, before the benchmark
   async gpuCheck(onStep) {
     if (SKIP_GPU_CHECK) {
-      return { verdict: "ok", headline: "Device check skipped (test: ?gpuCheck=skip on localhost)", detected: [], problems: [], notes: [], hints: [] };
+      return { verdict: "ok", headline: t("h.checkSkip"), detected: [], problems: [], notes: [], hints: [] };
     }
     const env = {
       ua: navigator.userAgent,
       maxTouchPoints: navigator.maxTouchPoints,
       secure: window.isSecureContext,
       flagged: unsupported ? unsupportedNote(unsupported).text : null,
+      t: getT(),
     };
     // a first check right after a fresh install often failed, threw or came out slow (the browser's GPU process and the
     // test shaders cold — iPhone 18 Pro in Safari: an error at the first check, the retry passed); a second one, all anew
@@ -836,7 +869,7 @@ export const setup = {
       firstError = e;
     }
     if (firstError !== null || (r.verdict !== "ok" && facts(r))) {
-      onStep({ verdict: "pending", headline: "Checking this device's GPU again (the first run is often cold)…", detected: [], problems: [], notes: [], hints: [] });
+      onStep({ verdict: "pending", headline: t("h.checkAgain"), detected: [], problems: [], notes: [], hints: [] });
       await new Promise((res) => setTimeout(res, RETRY_PAUSE_MS));
       const again = await runGpuCheck(navigator.gpu, env, onStep);
       if (r === null || RANK[again.verdict] >= RANK[r.verdict]) {
@@ -850,9 +883,9 @@ export const setup = {
       setMarker(MEMORY_TEST_STEP);
       try {
         const m = await work("memoryTest", { bytes: MEMORY_TEST_BYTES });
-        r.notes.push(`Memory test passed: ${(m.bytes / 1e9).toFixed(1)} GB of GPU memory written and held (what a read of the largest page uses) in ${(m.ms / 1000).toFixed(1)} s.`);
+        r.notes.push(t("h.memTestOk", { gb: fixed(m.bytes / 1e9, 1), s: fixed(m.ms / 1000, 1) }));
       } catch (e) {
-        r.notes.push(`Memory test failed: ${e instanceof Error ? e.message : e}`);
+        r.notes.push(t("h.memTestFail", { e: e instanceof Error ? e.message : e }));
       } finally {
         clearMarker();
         freshWorker();
@@ -900,7 +933,7 @@ export const setup = {
   /// model files picked by the user (both, or the one still missing)
   upload(files, onProgress) {
     if (!allows("upload")) {
-      return Promise.reject(new Error(`uploading model files is switched off — the model comes from ${MODEL_FROM}`));
+      return Promise.reject(new Error(t("h.uploadOff", { from: MODEL_FROM })));
     }
     const wrong = files.filter((f) => !MODEL_FILES.includes(f.name));
     if (wrong.length) {

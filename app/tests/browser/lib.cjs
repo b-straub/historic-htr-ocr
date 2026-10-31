@@ -63,7 +63,8 @@ function chrome() {
 }
 
 async function launch(extra = {}) {
-  const args = ["--enable-unsafe-webgpu", "--window-size=1440,920"];
+  // English: the tests read the English texts (the German check sets its page's navigator.languages itself)
+  const args = ["--enable-unsafe-webgpu", "--window-size=1440,920", "--lang=en-US", "--accept-lang=en-US"];
   if (process.platform === "linux") {
     // CI runners (Ubuntu 24.04) restrict the user namespaces Chrome's sandbox needs
     args.push("--no-sandbox");

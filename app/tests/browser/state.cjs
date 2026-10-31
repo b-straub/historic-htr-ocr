@@ -192,6 +192,11 @@ const cropTool = (page, id) => page.click(id);
   await page.click("#settingsBtn");
   await page.waitForFunction(() => document.getElementById("settingsDlg").open);
   await check(page, "image · Settings open", E.img);
+  // Save belongs to the presets: offered only after a preset change
+  const saveOff = await page.$eval("#presetSave", (b) => b.disabled);
+  await page.click("#presetTable tr.shipped .act button");
+  const saveOn = await page.$eval("#presetSave", (b) => !b.disabled);
+  ok(saveOff && saveOn, `Settings: Save presets off until a preset changes (${saveOff} → ${saveOn})`);
   await page.click("#settingsCancel");
   await page.click("#zoomInBtn");
   await check(page, "image · zoomed", E.imgZoomed);

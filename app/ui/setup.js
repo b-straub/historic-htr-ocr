@@ -17,6 +17,7 @@
 //            where the host allows them (api.canUpload — web/config.js MODEL_SOURCES; switched off)
 //   done     open an image and press Read
 // Nothing is remembered: closed without a model, the setup is due again, and Read refuses with a link back here.
+import { t, fixed } from "./i18n.js";
 
 /// the platform for the install hint, from the user agent + touch points (iPadOS Safari reports a Mac user agent: a
 /// "Mac" with a touch screen is an iPad) → "ios" | "mac-safari" | "chrome" | "edge" | "firefox" | "other"
@@ -42,15 +43,16 @@ export function platformOf(ua, maxTouchPoints) {
   return "other";
 }
 
-// one short block per platform; `none`: this browser cannot install web apps
+// one short block per platform (its text: i18n.js su.hint.<id>); `none`: this browser cannot install web apps
 const HINTS = {
-  ios: { title: "iPad / iPhone", text: "Tap Share (the square with the arrow) → Add to Home Screen → Add, then open OCR Lite from the Home Screen." },
-  "mac-safari": { title: "Mac · Safari", text: "File → Add to Dock… → Add (Safari 17 or later), then open OCR Lite from the Dock." },
-  chrome: { title: "Chrome", text: "Click the install icon at the right of the address bar, or menu ⋮ → Cast, save and share → Install OCR Lite… (Android: ⋮ → Add to Home screen), then open OCR Lite from your apps." },
-  edge: { title: "Edge", text: "Click the install icon in the address bar, or menu … → Apps → Install OCR Lite, then open OCR Lite from your apps." },
-  firefox: { title: "Firefox", text: "Firefox cannot install web apps — OCR Lite runs in this tab.", none: true },
-  other: { title: "Other browsers", text: "No app install known for this browser — OCR Lite runs in this tab.", none: true },
+  ios: { title: () => "iPad / iPhone" },
+  "mac-safari": { title: () => "Mac · Safari" },
+  chrome: { title: () => "Chrome" },
+  edge: { title: () => "Edge" },
+  firefox: { title: () => "Firefox", none: true },
+  other: { title: () => t("su.hint.other.title"), none: true },
 };
+const hintText = (id) => t(`su.hint.${id}`);
 
 // Chrome / Edge offer their install prompt once the page qualifies (manifest + service worker): kept for the Install
 // button. Listened for at import — app.js imports this module before anything else runs.
@@ -66,7 +68,7 @@ function standalone() {
   return window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 }
 
-const gb = (b) => `${(b / 1e9).toFixed(1)} GB`;
+const gb = (b) => `${fixed(b / 1e9, 1)} GB`;
 
 /// the setup dialog for the host's `setup` (bridge-web.js); pickImage = app.js's Open, openHelp = the help dialog →
 /// { open(), check() }
@@ -97,7 +99,7 @@ export function setupDialog(api, { pickImage, openHelp }) {
     const h = HINTS[id];
     const d = document.createElement("div");
     d.className = "suhint";
-    d.append(Object.assign(document.createElement("b"), { textContent: h.title }), Object.assign(document.createElement("p"), { textContent: h.text }));
+    d.append(Object.assign(document.createElement("b"), { textContent: h.title() }), Object.assign(document.createElement("p"), { textContent: hintText(id) }));
     return d;
   }
 
@@ -119,15 +121,15 @@ export function setupDialog(api, { pickImage, openHelp }) {
     $("suGpuAgain").disabled = !done;
     $("suGpuNext").hidden = r.verdict !== "ok";
     $("suGpuAnyway").hidden = r.verdict !== "slow";
-    $("suGpuNext").textContent = checkOnly ? "Close" : "Continue";
-    $("suGpuAnyway").textContent = checkOnly ? "Close" : "Continue anyway";
+    $("suGpuNext").textContent = t(checkOnly ? "close" : "su.next");
+    $("suGpuAnyway").textContent = t(checkOnly ? "close" : "su.anyway");
   }
   async function gpuStep() {
     show("gpu");
     const run = ++checkRun;
     const last = api.lastGpuCheck();
-    $("suGpuLast").textContent = last === null ? "" : `Last check (${new Date(last.time).toLocaleString()}): ${last.headline}`;
-    drawCheck({ verdict: "pending", headline: "Checking this device's GPU…", detected: [], problems: [], notes: [], hints: [] });
+    $("suGpuLast").textContent = last === null ? "" : t("su.lastCheck", { time: new Date(last.time).toLocaleString(), headline: last.headline });
+    drawCheck({ verdict: "pending", headline: t("su.checking"), detected: [], problems: [], notes: [], hints: [] });
     let r;
     try {
       r = await api.gpuCheck((step) => {
@@ -136,7 +138,7 @@ export function setupDialog(api, { pickImage, openHelp }) {
         }
       });
     } catch (e) {
-      r = { verdict: "reject", headline: "The device check failed.", detected: [], problems: [e instanceof Error ? e.message : String(e)], notes: [], hints: [] };
+      r = { verdict: "reject", headline: t("su.checkFailed"), detected: [], problems: [e instanceof Error ? e.message : String(e)], notes: [], hints: [] };
     }
     if (run !== checkRun) {
       return;
@@ -175,9 +177,9 @@ export function setupDialog(api, { pickImage, openHelp }) {
     show("where");
     const none = HINTS[platform].none === true;
     $("suNoInstall").hidden = !none;
-    $("suNoInstall").textContent = HINTS[platform].text;
+    $("suNoInstall").textContent = hintText(platform);
     $("suToInstall").hidden = none;
-    $("suInBrowser").textContent = none ? "Continue" : "Continue in this browser";
+    $("suInBrowser").textContent = t(none ? "su.next" : "su.inBrowser");
     $("suInBrowser").classList.toggle("primary", none);
   }
   function installStep() {
@@ -194,7 +196,7 @@ export function setupDialog(api, { pickImage, openHelp }) {
   window.addEventListener("appinstalled", () => {
     installPrompt = null;
     drawInstallBtn();
-    $("suInstalled").textContent = "Installed — open OCR Lite from your apps and continue the setup there; this tab can be closed.";
+    $("suInstalled").textContent = t("su.installed");
   });
   $("suToInstall").onclick = installStep;
   $("suInBrowser").onclick = () => afterWhere();
@@ -207,7 +209,7 @@ export function setupDialog(api, { pickImage, openHelp }) {
     await p.prompt();
     const choice = await p.userChoice;
     if (choice.outcome === "accepted") {
-      $("suInstalled").textContent = "Installed — open OCR Lite from your apps and continue the setup there; this tab can be closed.";
+      $("suInstalled").textContent = t("su.installed");
     }
   };
 
@@ -225,17 +227,17 @@ export function setupDialog(api, { pickImage, openHelp }) {
     $("suModelErr").textContent = "";
     $("suProgressText").textContent = "";
     $("suNext").hidden = true;
-    $("suDownload").textContent = "Download";
+    $("suDownload").textContent = t("su.download");
     if (!(await api.modelMissing())) {
-      $("suModelNote").textContent = "The model is already in this browser's storage.";
-      $("suDownload").textContent = "Download again";
+      $("suModelNote").textContent = t("su.haveModel");
+      $("suDownload").textContent = t("su.downloadAgain");
       $("suNext").hidden = false;
       return;
     }
-    $("suModelNote").textContent = `The model — ${api.modelName} — (1.4 GB) is downloaded once from ${api.modelFrom} into this browser's storage; later visits read it from there, offline too.`;
+    $("suModelNote").textContent = t("su.modelNote", { name: api.modelName, from: api.modelFrom });
     const room = await api.room();
     if (room !== null && room.free < room.need) {
-      $("suModelErr").textContent = `This browser offers only ${gb(room.free)} of storage for this site — the model needs ${gb(room.need)}. Free space on the device, then download.`;
+      $("suModelErr").textContent = t("su.noRoom", { free: gb(room.free), need: gb(room.need) });
       return;
     }
     if (auto) {
@@ -250,19 +252,19 @@ export function setupDialog(api, { pickImage, openHelp }) {
     setBusy(true);
     $("suModelErr").textContent = "";
     $("suProgress").value = 0;
-    $("suProgressText").textContent = "starting…";
+    $("suProgressText").textContent = t("su.starting");
     try {
       await job();
     } catch (e) {
       setBusy(false);
       $("suProgressText").textContent = "";
       const msg = e instanceof Error ? e.message : String(e);
-      $("suModelErr").textContent = msg === "download cancelled" ? "Download cancelled — the model is not stored." : msg;
+      $("suModelErr").textContent = msg === "download cancelled" ? t("su.cancelled") : msg;
       return;
     }
     setBusy(false);
     if (await api.modelMissing()) {
-      $("suModelErr").textContent = `Still missing: ${api.modelFiles.join(" + ")} are both needed.`;
+      $("suModelErr").textContent = t("su.missing", { files: api.modelFiles.join(" + ") });
       return;
     }
     show("done");

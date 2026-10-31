@@ -220,6 +220,19 @@ const cropTool = (page, id) => page.click(id);
     // the PWA under the sub-path
     const sw = await page.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); return r ? r.scope : null; });
     ok(sw === BASE, `service worker scope ${sw}`);
+    // offline: the language files (ui/lang/) are in the service worker's precache
+    const pre = await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      const urls = [];
+      for (const name of (await caches.keys()).filter((k) => k.startsWith("ocrlite-"))) {
+        for (const r of await (await caches.open(name)).keys()) {
+          urls.push(r.url);
+        }
+      }
+      return urls.filter((u) => u.includes("/lang/")).map((u) => u.split("/").pop());
+    });
+    const want = ["en.", "de.", "help.en.", "help.de."];
+    ok(want.every((w) => pre.some((f) => f.startsWith(w))), `precache: the language files ${pre.join(" ")}`);
     const man = await page.evaluate(async () => { const l = document.querySelector('link[rel="manifest"]'); const r = await fetch(l.href); return { ok: r.ok, m: await r.json(), url: l.href }; });
     ok(man.ok && man.url === `${BASE}manifest.webmanifest` && new URL(man.m.start_url, man.url).href === BASE, `manifest under the sub-path: start_url → ${new URL(man.m.start_url, man.url).href}`);
 

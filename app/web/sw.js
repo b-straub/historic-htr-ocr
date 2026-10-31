@@ -12,7 +12,7 @@
 const VERSION = "__VERSION__";
 const SHELL = __SHELL__;
 const CACHE = `ocrlite-${VERSION}`;
-const HASHED = /\.[0-9a-f]{12}\.(js|css|wasm|png)$/;
+const HASHED = /\.[0-9a-f]{12}\.(js|css|wasm|png|json|html)$/;
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((p) => new Request(p, { cache: "reload" })))));

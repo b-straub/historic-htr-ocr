@@ -3,7 +3,12 @@
 //
 // web/gpu-check.js's pure part in Node: adapter info → integrated / discrete, limits → ok / reject, bandwidth →
 // est. tokens/s → class, the verdicts and hints.   node tests/gpu_check.mjs
+import * as fs from "node:fs";
 import * as g from "../web/gpu-check.js";
+import { translatorFrom } from "../ui/i18n.js";
+
+// the texts the checks expect: English (ui/lang/en.json)
+const T = translatorFrom(JSON.parse(fs.readFileSync(new URL("../ui/lang/en.json", import.meta.url), "utf8")), "en");
 
 let failed = 0;
 function ok(c, m) {
@@ -61,26 +66,26 @@ ok(g.isSoftware({ vendor: "google", architecture: "swiftshader" }, false), "Swif
 ok(g.isSoftware({ vendor: "", description: "Microsoft Basic Render Driver" }, false), "Microsoft Basic Render = software");
 ok(g.isSoftware({ vendor: "intel" }, true), "isFallbackAdapter = software");
 ok(!g.isSoftware({ vendor: "apple", architecture: "metal-3" }, false), "Apple = hardware");
-ok(g.adapterName({ vendor: "intel", architecture: "gen-12lp", description: "" }) === "intel · gen-12lp", "adapterName without description");
+ok(g.adapterName({ vendor: "intel", architecture: "gen-12lp", description: "" }, T) === "intel · gen-12lp", "adapterName without description");
 
 // ── limits ──
 const M3 = { maxBufferSize: 4294967292, maxStorageBufferBindingSize: 4294967292, maxComputeWorkgroupStorageSize: 32768, maxComputeInvocationsPerWorkgroup: 1024, maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupSizeY: 1024, maxStorageBuffersPerShaderStage: 10 };
 const WEBGPU_DEFAULT = { maxBufferSize: 268435456, maxStorageBufferBindingSize: 134217728, maxComputeWorkgroupStorageSize: 16384, maxComputeInvocationsPerWorkgroup: 256, maxComputeWorkgroupSizeX: 256, maxComputeWorkgroupSizeY: 256, maxStorageBuffersPerShaderStage: 8 };
-ok(g.checkLimits(M3, true).fails.length === 0 && g.checkLimits(M3, true).notes.length === 0, "M3 limits: ok, no note");
-const def = g.checkLimits(WEBGPU_DEFAULT, true);
+ok(g.checkLimits(M3, true, T).fails.length === 0 && g.checkLimits(M3, true, T).notes.length === 0, "M3 limits: ok, no note");
+const def = g.checkLimits(WEBGPU_DEFAULT, true, T);
 ok(def.fails.map((f) => f.name).join() === "maxStorageBufferBindingSize", `WebGPU defaults + f16: only the binding fails (16 KB workgroup memory → the f32 path): ${JSON.stringify(def.fails)}`);
-ok(g.checkLimits({ ...WEBGPU_DEFAULT, maxStorageBufferBindingSize: 2147483648 }, false).fails.length === 0, "defaults + 2 GB binding, no f16: ok (the f32 path fits 16 KB)");
-ok(g.checkLimits({ ...WEBGPU_DEFAULT, maxStorageBufferBindingSize: 2147483648 }, true).fails.length === 0, "defaults + 2 GB binding, f16: ok (the f32 path fits 16 KB)");
+ok(g.checkLimits({ ...WEBGPU_DEFAULT, maxStorageBufferBindingSize: 2147483648 }, false, T).fails.length === 0, "defaults + 2 GB binding, no f16: ok (the f32 path fits 16 KB)");
+ok(g.checkLimits({ ...WEBGPU_DEFAULT, maxStorageBufferBindingSize: 2147483648 }, true, T).fails.length === 0, "defaults + 2 GB binding, f16: ok (the f32 path fits 16 KB)");
 for (const [shared, f16, path] of [[16384, true, "f32-workgroup"], [17151, true, "f32-workgroup"], [17152, true, "f16"], [32768, true, "f16"], [32768, false, "f32"], [16384, false, "f32"]]) {
   const got = g.computePath({ ...WEBGPU_DEFAULT, maxComputeWorkgroupStorageSize: shared }, f16);
   ok(got === path, `computePath ${shared} B, f16 ${f16} → ${got} (want ${path})`);
 }
-ok(g.checkLimits({ ...M3, maxComputeWorkgroupStorageSize: 8192 }, true).fails[0].need === 16384, "below 16 KB: even the f32 path does not fit");
-const mid = g.checkLimits({ ...M3, maxStorageBufferBindingSize: 180e6 }, true);
+ok(g.checkLimits({ ...M3, maxComputeWorkgroupStorageSize: 8192 }, true, T).fails[0].need === 16384, "below 16 KB: even the f32 path does not fit");
+const mid = g.checkLimits({ ...M3, maxStorageBufferBindingSize: 180e6 }, true, T);
 ok(mid.fails.length === 0 && /square image needs 189\.1 MB/.test(mid.notes[0]), `binding 180 MB: ok with the square-page note: ${mid.notes[0]}`);
 let threw = false;
 try {
-  g.checkLimits({ maxBufferSize: 1 }, true);
+  g.checkLimits({ maxBufferSize: 1 }, true, T);
 } catch {
   threw = true;
 }
@@ -102,7 +107,7 @@ ok(g.speedClass(25) === "ok" && g.speedClass(24.9) === "slow" && g.speedClass(8)
 ok(g.tokSText(84.4) === "~84" && g.tokSText(400) === "150+", "tokSText");
 
 // ── verdicts ──
-const env = (ua, extra = {}) => ({ ua, maxTouchPoints: 0, secure: true, flagged: null, ...extra });
+const env = (ua, extra = {}) => ({ ua, maxTouchPoints: 0, secure: true, flagged: null, t: T, ...extra });
 const adapter = (info, limits = M3, f16 = true, fallback = false) => ({ info, limits, f16, fallback });
 const FAST = { gbps: ref.gbps, dispatchUs: ref.dispatchUs };
 

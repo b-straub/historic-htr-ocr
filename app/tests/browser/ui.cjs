@@ -33,6 +33,18 @@ const cropTool = (page, id) => page.click(id);
   // the first-run setup opens by itself while the model is missing: closed here (this test needs no model)
   await new Promise((r) => setTimeout(r, 800));
   if (await page.evaluate(() => document.getElementById("setupDlg").open)) await page.click("#suClose");
+  // no image yet: the five steps in the image pane; How to opens them with the tips (English: lib.cjs launches with en-US)
+  const how = await page.evaluate(() => {
+    document.getElementById("howBtn").click();
+    const d = document.getElementById("howDlg");
+    const r = { lang: document.documentElement.lang, pane: document.querySelectorAll("#drop .howsteps li").length,
+      first: document.querySelector("#drop .howsteps li b").textContent, open: d.open, steps: d.querySelectorAll(".howsteps li").length,
+      tips: d.querySelectorAll(".tips li").length };
+    d.close();
+    return r;
+  });
+  ok(how.lang === "en" && how.pane === 5 && how.first === "Open an image" && how.open && how.steps === 5 && how.tips > 0,
+    `no image: ${how.pane} steps in the pane ("${how.first}", lang ${how.lang}); How to: ${how.steps} steps + ${how.tips} tips`);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([IMG]);
   await page.waitForFunction(() => { const i = document.getElementById("img"); return i.complete && i.naturalWidth > 0 && !document.getElementById("stage").hidden; });
@@ -508,6 +520,27 @@ const cropTool = (page, id) => page.click(id);
   console.log("about on the phone", JSON.stringify(scroll));
   ok(scroll.ch <= scroll.vh * 0.9 + 1, "about dialog fits the phone screen (body scrolls)");
   await page.screenshot({ path: `${OUT}/12_phone_about.png` });
+  // German: a browser that prefers it gets the German texts; Settings switches the language at once and back
+  const de = await browser.newPage();
+  const errors = [];
+  de.on("pageerror", (e) => errors.push(e.message));
+  await de.evaluateOnNewDocument(() => Object.defineProperty(navigator, "languages", { get: () => ["de-DE", "de", "en"] }));
+  await de.goto(URL0, { waitUntil: "networkidle0" });
+  await new Promise((r) => setTimeout(r, 800));
+  if (await de.evaluate(() => document.getElementById("setupDlg").open)) await de.click("#suClose");
+  const texts = () => de.evaluate(() => ({ lang: document.documentElement.lang, read: document.getElementById("readBtn").textContent.trim(),
+    step: document.querySelector("#drop .howsteps li b").textContent, how: document.getElementById("howBtn").textContent.trim(),
+    help: document.querySelector('#helpDlg [data-slot="help"] h3').textContent }));
+  const g = await texts();
+  ok(errors.length === 0 && g.lang === "de" && g.read === "Lesen" && g.step === "Bild öffnen" && g.how === "Anleitung" && g.help === "Einrichtung",
+    `German browser: ${JSON.stringify(g)}${errors.length ? ` errors: ${errors.join(" | ")}` : ""}`);
+  await de.click("#settingsBtn");
+  await de.select("#langSel", "en");
+  const toEn = await texts();
+  await de.select("#langSel", "browser");
+  const toBrowser = await texts();
+  ok(toEn.lang === "en" && toEn.read === "Read" && toEn.how === "How to" && toEn.help === "Setup" && toBrowser.lang === "de" && toBrowser.read === "Lesen",
+    `Settings → English: ${toEn.lang} "${toEn.read}"; → as the browser: ${toBrowser.lang} "${toBrowser.read}"`);
   await browser.close();
   srv.kill();
   R.done();

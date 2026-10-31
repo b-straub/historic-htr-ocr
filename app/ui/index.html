@@ -10,48 +10,50 @@
 </head>
 <body>
   <div class="edgeband" aria-hidden="true"></div>
+  <!-- the texts: data-i18n* keys of ui/lang/<language>.json (English here, the current language set at start); the
+       longer ones ([data-slot]: Help, the tips, the licences) from ui/lang/help.<language>.html (ui/i18n.js) -->
   <!-- the bar (style.css "the bar"): the image's tools in three rows by task — 1 Crop (what part: open, turn, Page /
        Auto, Apply / Cancel, undo), 2 Adjust (how it looks to the model: contrast, pencil, Scale), 3 Read (the model
-       input's size, zoom, the preset beside Read). Upright: the app row (logo · Help · Settings) on top, then the three;
-       on its side two lines — Crop · Adjust, then logo · Read row · Help · Settings · preset · Read. Every control keeps its place: a control
+       input's size, zoom, the preset beside Read). Upright: the app row (logo · How to · Help · Settings) on top, then the three;
+       on its side two lines — Crop · Adjust, then logo · Read row · How to · Help · Settings · preset · Read. Every control keeps its place: a control
        that cannot act is greyed out, never hidden -->
   <header class="titlebar">
-    <button type="button" class="brand" id="aboutBtn" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
+    <button type="button" class="brand" id="aboutBtn" data-i18n-title="about.title" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
     <span class="grow appgap"></span>
     <div class="row" id="cropRow">
-      <button class="btn" id="openBtn" title="Open an image"><i data-icon="folder"></i><span class="openlabel">Open</span></button>
+      <button class="btn" id="openBtn" data-i18n-title="open.title" title="Open an image"><i data-icon="folder"></i><span class="openlabel" data-i18n="open">Open</span></button>
       <span class="seg">
-        <button class="ib" data-op="rotateLeft" title="Rotate left"><i data-icon="rotl"></i></button>
-        <button class="ib" data-op="rotateRight" title="Rotate right"><i data-icon="rotr"></i></button>
-        <button class="ib" data-op="rotate180" title="Rotate 180°"><i data-icon="flip"></i></button>
+        <button class="ib" data-op="rotateLeft" data-i18n-title="rot.left" title="Rotate left"><i data-icon="rotl"></i></button>
+        <button class="ib" data-op="rotateRight" data-i18n-title="rot.right" title="Rotate right"><i data-icon="rotr"></i></button>
+        <button class="ib" data-op="rotate180" data-i18n-title="rot.180" title="Rotate 180°"><i data-icon="flip"></i></button>
       </span>
       <!-- the crop (app.js crop): Page = the whole image, Auto = the text block found — a rectangle to adjust, then
            Cancel or Apply -->
       <span class="seg" id="cropSeg">
-        <button class="btn small" id="pageCropBtn" title="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
-        <button class="btn small" id="textCropBtn" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
+        <button class="btn small" id="pageCropBtn" data-i18n="crop.page" data-i18n-title="crop.page.title" title="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
+        <button class="btn small" id="textCropBtn" data-i18n="crop.auto" data-i18n-title="crop.auto.title" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
       </span>
       <span class="seg" id="cropAct">
-        <button class="ib" id="cropApplyBtn" title="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
-        <button class="ib" id="cropCancelBtn" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
+        <button class="ib" id="cropApplyBtn" data-i18n-title="crop.apply.title" data-i18n-aria="crop.apply.aria" title="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
+        <button class="ib" id="cropCancelBtn" data-i18n-title="crop.cancel.title" data-i18n-aria="crop.cancel.aria" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
       </span>
       <span class="seg">
-        <button class="ib" id="imgUndoBtn" title="Undo last image step"><i data-icon="undo"></i></button>
-        <button class="ib" id="resetBtn" title="Back to the original — every image step undone"><i data-icon="reset"></i></button>
+        <button class="ib" id="imgUndoBtn" data-i18n-title="img.undo" title="Undo last image step"><i data-icon="undo"></i></button>
+        <button class="ib" id="resetBtn" data-i18n-title="img.reset" title="Back to the original — every image step undone"><i data-icon="reset"></i></button>
       </span>
     </div>
     <div class="row" id="adjustRow">
       <span class="seg">
-        <button class="ib" data-op="autoContrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
-        <button class="ib" data-op="pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
+        <button class="ib" data-op="autoContrast" data-i18n-title="adj.contrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
+        <button class="ib" data-op="pencil" data-i18n-title="adj.pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
       </span>
       <!-- the Scale (app.js Scale): the slider (the letters' height for the model, px) · Auto — only on a cropped image,
            its range from the crop's letters (ocr-layout scale::xh_range); every crop change starts at 1:1. After it
            what it gives: the factor to the model input and the letters' height there -->
       <span class="seg" id="scaleSeg">
-        <span class="croplabel">Scale</span>
-        <input type="range" id="scaleSlider" step="1" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
-        <button class="ib" id="scaleAutoBtn" title="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
+        <span class="croplabel" data-i18n="scale">Scale</span>
+        <input type="range" id="scaleSlider" step="1" data-i18n-aria="scale.aria" data-i18n-title="scale.title" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
+        <button class="ib" id="scaleAutoBtn" data-i18n-title="scale.auto.title" data-i18n-aria="scale.auto.aria" title="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
       </span>
       <span class="meta" id="scaleInfo"></span>
     </div>
@@ -59,16 +61,18 @@
     <div class="row" id="readRow">
       <!-- the image (or crop) and the model input's size; the detail is its tooltip (a tap shows it in the status line) -->
       <span class="meta" id="bakeInfo"></span>
-      <span class="seg" id="zoomSeg" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
-        <button class="ib" id="zoomOutBtn" title="Zoom out"><i data-icon="zoomout"></i></button>
+      <span class="seg" id="zoomSeg" data-i18n-title="zoom.title" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
+        <button class="ib" id="zoomOutBtn" data-i18n-title="zoom.out" title="Zoom out"><i data-icon="zoomout"></i></button>
         <span class="meta zoomval" id="zoomVal">100 %</span>
-        <button class="ib" id="zoomInBtn" title="Zoom in"><i data-icon="zoomin"></i></button>
-        <button class="ib" id="zoomFitBtn" title="Fit the image to the pane"><i data-icon="fit"></i></button>
+        <button class="ib" id="zoomInBtn" data-i18n-title="zoom.in" title="Zoom in"><i data-icon="zoomin"></i></button>
+        <button class="ib" id="zoomFitBtn" data-i18n-title="zoom.fit" title="Fit the image to the pane"><i data-icon="fit"></i></button>
       </span>
     </div>
     <span class="row" id="appRow">
-      <button class="ib ghost" id="helpBtn" title="Help"><i data-icon="help"></i></button>
-      <button class="ib ghost" id="settingsBtn" title="Settings"><i data-icon="gear"></i></button>
+      <!-- How to: the five steps + tips (for the first visit; the empty image pane shows the same steps) -->
+      <button class="btn small" id="howBtn" data-i18n-title="howto.title" title="How to use OCR Lite — the five steps"><i data-icon="book"></i><span class="howlabel" data-i18n="howto">How to</span></button>
+      <button class="ib ghost" id="helpBtn" data-i18n-title="help" title="Help"><i data-icon="help"></i></button>
+      <button class="ib ghost" id="settingsBtn" data-i18n-title="settings" title="Settings"><i data-icon="gear"></i></button>
     </span>
     <label class="select" id="presetBox"><select id="presetSel" title="decoding preset"></select></label>
     <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
@@ -81,46 +85,57 @@
           <img id="img" alt="page" draggable="false">
           <div id="rect" hidden><i class="hd tl"></i><i class="hd tr"></i><i class="hd bl"></i><i class="hd br"></i></div>
         </div>
+        <!-- no image yet: the five steps (cloned into the How to dialog, app.js), the drop / open hint below them -->
         <div class="empty" id="drop">
-          <i data-icon="image"></i>
-          <div>Drop an image here</div>
-          <div class="sub">or <a href="#" id="openLink">open a file</a></div>
+          <ol class="howsteps" id="howSteps">
+            <li><span class="hn">1</span><span class="hic"><span class="chip"><i data-icon="folder"></i></span></span>
+              <span class="ht"><b data-i18n="how.s1">Open an image</b><span data-i18n="how.s1.sub">a photo or scan of the page — or drop it here</span></span></li>
+            <li><span class="hn">2</span><span class="hic"><span class="chip" data-i18n="crop.auto">Auto</span><span class="chip ok"><i data-icon="check"></i></span></span>
+              <span class="ht"><b data-i18n="how.s2">Crop to the text</b><span data-i18n="how.s2.sub">Auto finds the writing; drag the edges if needed, then the green ✓</span></span></li>
+            <li><span class="hn">3</span><span class="hic"><span class="chip primary"><i data-icon="play"></i></span></span>
+              <span class="ht"><b data-i18n="how.s3">Read</b><span data-i18n="how.s3.sub">the text appears beside the image (on a phone: the Text tab)</span></span></li>
+            <li><span class="hn">4</span><span class="hic"><span class="chip"><i data-icon="type"></i></span></span>
+              <span class="ht"><b data-i18n="how.s4">Check and correct</b><span data-i18n="how.s4.sub">compare with the image and fix what was misread</span></span></li>
+            <li><span class="hn">5</span><span class="hic"><span class="chip"><i data-icon="save"></i></span></span>
+              <span class="ht"><b data-i18n="how.s5">Save</b><span data-i18n="how.s5.sub">the text (.txt) or the page (.html) — or copy it</span></span></li>
+          </ol>
+          <div class="sub"><span data-i18n="drop.sub">Drop an image here, or</span> <a href="#" id="openLink" data-i18n="drop.link">open a file</a></div>
         </div>
       </div>
     </section>
 
     <section class="card" id="textCard">
       <div class="cardhead tools" id="editbar">
-        <span class="label">Text</span>
+        <span class="label" data-i18n="text">Text</span>
         <span class="seg" id="fmtSeg"></span>
         <span class="seg">
-          <button class="ib" id="gapBtn" title="Insert ▨ (illegible)">▨</button>
-          <button class="ib" id="tabBtn" title="New table cell (Tab)"><i data-icon="table"></i></button>
+          <button class="ib" id="gapBtn" data-i18n-title="gap.title" title="Insert ▨ (illegible)">▨</button>
+          <button class="ib" id="tabBtn" data-i18n-title="tab.title" title="New table cell (Tab)"><i data-icon="table"></i></button>
         </span>
         <span class="seg">
-          <button class="ib" id="undoBtn" title="Undo (⌘Z)"><i data-icon="undo"></i></button>
-          <button class="ib" id="redoBtn" title="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
+          <button class="ib" id="undoBtn" data-i18n-title="undo.title" title="Undo (⌘Z)"><i data-icon="undo"></i></button>
+          <button class="ib" id="redoBtn" data-i18n-title="redo.title" title="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
         </span>
         <span class="grow"></span>
-        <button class="btn small toggle" id="fitBtn" title="Fit: every line as written, the text scaled so the longest line fits the panel — off: lines wrap at the panel's edge">Fit</button>
-        <button class="btn small toggle" id="markupBtn" title="Show the raw markup">Markup</button>
-        <button class="ib ghost" id="copyBtn" title="Copy markup"><i data-icon="copy"></i></button>
+        <button class="btn small toggle" id="fitBtn" data-i18n="fit" data-i18n-title="fit.title" title="Fit: every line as written, the text scaled so the longest line fits the panel — off: lines wrap at the panel's edge">Fit</button>
+        <button class="btn small toggle" id="markupBtn" data-i18n="markup" data-i18n-title="markup.title" title="Show the raw markup">Markup</button>
+        <button class="ib ghost" id="copyBtn" data-i18n-title="copy.title" title="Copy markup"><i data-icon="copy"></i></button>
         <div class="menuwrap">
-          <button class="ib ghost" id="saveBtn" title="Save"><i data-icon="save"></i></button>
+          <button class="ib ghost" id="saveBtn" data-i18n-title="save.title" title="Save"><i data-icon="save"></i></button>
           <div class="menu" id="saveMenu" hidden>
-            <button data-save="txt">Markup (.txt)</button>
-            <button data-save="html">Rendered page (.html)</button>
-            <button data-save="png">Model input image (.png)</button>
+            <button data-save="txt" data-i18n="save.txt">Markup (.txt)</button>
+            <button data-save="html" data-i18n="save.html">Rendered page (.html)</button>
+            <button data-save="png" data-i18n="save.png">Model input image (.png)</button>
           </div>
         </div>
       </div>
-      <div id="editor" class="page" contenteditable="true" spellcheck="false" data-placeholder="Read an image — the text appears here and can be edited"></div>
+      <div id="editor" class="page" contenteditable="true" spellcheck="false" data-i18n-placeholder="editor.placeholder" data-placeholder="Read an image — the text appears here and can be edited"></div>
       <textarea id="src" spellcheck="false" hidden></textarea>
     </section>
   </main>
-  <nav class="tabbar" id="paneTabs" role="tablist" aria-label="Image or text">
-    <button role="tab" data-tab="image">Image</button>
-    <button role="tab" data-tab="text">Text</button>
+  <nav class="tabbar" id="paneTabs" role="tablist" data-i18n-aria="tabs.aria" aria-label="Image or text">
+    <button role="tab" data-tab="image" data-i18n="tabs.image">Image</button>
+    <button role="tab" data-tab="text" data-i18n="text">Text</button>
   </nav>
 
   <footer class="statusbar">
@@ -134,26 +149,25 @@
     <form method="dialog">
       <div class="dlghead">
         <h2><span class="logo"></span>OCR Lite</h2>
-        <button type="submit" class="ib ghost" title="Close"><i data-icon="close"></i></button>
+        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
       </div>
       <dl class="facts">
-        <dt>Version</dt><dd id="aboutVersion"></dd>
-        <dt>Build</dt><dd id="aboutGit"></dd>
-        <dt>Built</dt><dd id="aboutBuilt"></dd>
-        <dt>Engine</dt><dd id="aboutEngine"></dd>
+        <dt data-i18n="about.version">Version</dt><dd id="aboutVersion"></dd>
+        <dt data-i18n="about.build">Build</dt><dd id="aboutGit"></dd>
+        <dt data-i18n="about.built">Built</dt><dd id="aboutBuilt"></dd>
+        <dt data-i18n="about.engine">Engine</dt><dd id="aboutEngine"></dd>
       </dl>
-      <p class="hint">Reads historic handwriting with a LightOnOCR model fine-tuned for this project. Everything runs on this device; images never leave it.</p>
+      <p class="hint" data-i18n="about.hint">Reads historic handwriting with a LightOnOCR model fine-tuned for this project. Everything runs on this device; images never leave it.</p>
       <section class="lic">
-        <h3>Licences</h3>
+        <h3 data-i18n="about.licences">Licences</h3>
         <dl>
           <dt>OCR Lite</dt>
-          <dd>MIT — Copyright (c) 2026 Bernhard Straub. Covers this app's code only, not the model.</dd>
-          <dt>Model</dt>
-          <dd><a class="ext" href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">LightOnOCR-3-1B · Historic German Handwriting</a> — open, under <b>CC BY-SA 4.0</b>;
-            a fine-tune of <a class="ext" href="https://huggingface.co/lightonai/LightOnOCR-3-1B">LightOnOCR-3-1B</a> (LightOn, Apache-2.0).
-            Project, source and issues: <a class="ext" href="https://github.com/b-straub/historic-htr-ocr">github.com/b-straub/historic-htr-ocr</a>.</dd>
-          <dt>Training data</dt>
-          <dd>Trained only on openly licensed editions and archives (the list of the model card):
+          <dd data-slot="about.ocrlite"></dd>
+          <dt data-i18n="about.model">Model</dt>
+          <dd><a class="ext" href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting">LightOnOCR-3-1B · Historic German Handwriting</a>
+            <span data-slot="about.model"></span></dd>
+          <dt data-i18n="about.data">Training data</dt>
+          <dd><span data-slot="about.data"></span>
             <ul class="srcs">
               <li><a class="ext" href="https://www.briefedition.alfred-escher.ch">Digitale Briefedition Alfred Escher</a> — Staatsarchiv des Kantons Zürich · Zenodo 10927129<br><span class="meta">text CC BY-SA 4.0¹ · images CC BY-SA 4.0¹</span></li>
               <li><a class="ext" href="https://huggingface.co/datasets/dh-unibe/image-text_kurrent-xix">Kurrent XIX — Regierungsratsprotokolle</a> — Staatsarchiv Zürich / DH Uni Bern<br><span class="meta">text MIT · images MIT</span></li>
@@ -166,12 +180,8 @@
               <li><a class="ext" href="https://huggingface.co/datasets/dh-unibe/image-text_german-20th-century">German 20th century (3 subsets)</a> — DH Uni Bern<br><span class="meta">text MIT · images MIT</span></li>
               <li><a class="ext" href="https://zenodo.org/records/17252677">Gantner (DTA part)</a> — M. Gantner<br><span class="meta">text CC BY 4.0 · images CC BY 4.0</span></li>
             </ul>
-            ¹ Licence clarification in process: move to CC BY 4.0 (without ShareAlike).<br>
-            Digitisations of the Staatsbibliothek zu Berlin: „Staatsbibliothek zu Berlin – Preußischer Kulturbesitz",
-            <a class="ext" href="https://digital.staatsbibliothek-berlin.de">https://digital.staatsbibliothek-berlin.de</a> (Public Domain Mark 1.0).
-            The MIT-licensed datasets (DH Uni Bern) are used under the MIT licence. No images or transcriptions are
-            redistributed with the model or this app.</dd>
-          <dt>Components</dt>
+            <span data-slot="about.footnote"></span></dd>
+          <dt data-i18n="about.components">Components</dt>
           <dd>
             <ul>
               <li>wgpu (MIT OR Apache-2.0)</li>
@@ -179,7 +189,7 @@
               <li>jxl-oxide (MIT OR Apache-2.0)</li>
               <li>moxcms (BSD-3-Clause OR Apache-2.0)</li>
               <li>wasm-bindgen (MIT OR Apache-2.0)</li>
-              <li>and further Rust crates under open-source licences — mostly MIT / Apache-2.0, some BSD, ISC, Zlib, Unicode-3.0, MPL-2.0</li>
+              <li data-slot="about.components"></li>
             </ul>
           </dd>
         </dl>
@@ -190,40 +200,55 @@
   <dialog id="settingsDlg">
     <form method="dialog" id="settingsForm">
       <div class="dlghead">
-        <h2>Settings</h2>
-        <button type="button" class="ib ghost" id="settingsCancel" title="Close"><i data-icon="close"></i></button>
+        <h2 data-i18n="settings">Settings</h2>
+        <button type="button" class="ib ghost" id="settingsCancel" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
       </div>
+      <!-- the language: applied at once, kept in this browser (i18n.js) -->
       <section class="group">
-        <h3>Model <span class="meta">this browser's storage (OPFS)</span></h3>
-        <p class="hint">text-q8_0.gguf + mmproj-bf16.gguf (1.4 GB) — stored once, read from here by the engine; never held in memory as a whole.</p>
+        <h3 data-i18n="set.lang">Language</h3>
+        <div class="field">
+          <label class="select"><select id="langSel">
+            <option value="browser" data-i18n="set.lang.browser">As the browser</option>
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+          </select></label>
+          <span class="hint" data-i18n="set.lang.hint">Follows the browser's language unless chosen here; kept in this browser.</span>
+        </div>
+      </section>
+      <section class="group">
+        <h3><span data-i18n="set.model">Model</span> <span class="meta" data-i18n="set.model.meta">this browser's storage (OPFS)</span></h3>
+        <p class="hint" data-i18n="set.model.hint">text-q8_0.gguf + mmproj-bf16.gguf (1.4 GB) — stored once, read from here by the engine; never held in memory as a whole.</p>
         <div class="tablewrap"><table id="opfsTable"></table></div>
         <p class="hint" id="opfsQuota"></p>
         <p class="hint" id="modelSourceWeb"></p>
-        <p class="hint" id="modelOpenHint">The model is open (CC BY-SA 4.0): downloaded once from its <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">Hugging Face repository</a>, then read from this browser's storage, offline too.</p>
+        <p class="hint" id="modelOpenHint" data-slot="settings.modelOpen"></p>
         <div class="field wide">
           <button type="button" class="btn primary" id="modelFromHub">Download from Hugging Face</button>
-          <button type="button" class="btn" id="modelVerify" title="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
+          <button type="button" class="btn" id="modelVerify" data-i18n="set.verify" data-i18n-title="set.verify.title" title="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
         </div>
         <div class="field wide" id="modelOtherSources">
-          <label class="btn" for="modelFiles">Upload model files…</label>
+          <label class="btn" for="modelFiles" data-i18n="set.upload">Upload model files…</label>
           <input id="modelFiles" type="file" accept=".gguf" multiple hidden>
-          <input id="modelUrl" type="url" spellcheck="false" placeholder="or download from a folder URL holding both files (https://…)">
-          <button type="button" class="btn" id="modelDownload">Download</button>
+          <input id="modelUrl" type="url" spellcheck="false" data-i18n-placeholder="set.url" placeholder="or download from a folder URL holding both files (https://…)">
+          <button type="button" class="btn" id="modelDownload" data-i18n="set.download">Download</button>
         </div>
         <progress id="modelProgress" max="1" value="0" hidden></progress>
         <p class="hint" id="modelProgressText"></p>
         <p class="hint" id="modelFormatWeb"></p>
         <p class="hint" id="gpuMemoryWeb"></p>
       </section>
+      <!-- the presets: the decoder settings' names are technical terms, English in every language; the rest is translated -->
       <section class="group">
-        <h3>Decoding presets</h3>
-        <p class="hint">Shipped presets (presets.json) are read-only — duplicate one to make your own.</p>
+        <h3 data-i18n="preset.head"></h3>
+        <p class="hint" data-i18n="preset.hint"></p>
         <div class="tablewrap" id="presetWrap"><table id="presetTable"></table></div>
+        <!-- Save belongs to the presets alone (the language applies at once, the model URL is kept on close) -->
+        <div class="field wide">
+          <span class="grow"></span>
+          <button type="button" class="btn primary" id="presetSave" data-i18n="preset.save">Save presets</button>
+        </div>
       </section>
       <p id="settingsErr" class="err"></p>
-      <div class="dlgfoot">
-        <button type="button" class="btn primary" id="settingsSave">Save</button>
-      </div>
     </form>
   </dialog>
 
@@ -231,12 +256,12 @@
   <dialog id="setupDlg" class="setup">
     <div class="sheet">
       <div class="dlghead">
-        <h2><span class="logo"></span>Set up OCR Lite</h2>
-        <button type="button" class="ib ghost" id="suClose" title="Close"><i data-icon="close"></i></button>
+        <h2><span class="logo"></span><span data-i18n="su.h">Set up OCR Lite</span></h2>
+        <button type="button" class="ib ghost" id="suClose" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
       </div>
       <ol class="steps" id="suSteps">
-        <li data-for="gpu">Device</li><li data-for="where">Install</li>
-        <li data-for="model">Model</li><li data-for="done">Read</li>
+        <li data-for="gpu" data-i18n="su.step.gpu">Device</li><li data-for="where" data-i18n="su.step.where">Install</li>
+        <li data-for="model" data-i18n="su.step.model">Model</li><li data-for="done" data-i18n="su.step.done">Read</li>
       </ol>
       <section data-step="gpu">
         <p class="suverdict" id="suGpuHead"></p>
@@ -246,31 +271,31 @@
         <div id="suGpuHints"></div>
         <p class="hint" id="suGpuLast"></p>
         <div class="dlgfoot">
-          <button type="button" class="btn" id="suGpuHelp">Help</button>
+          <button type="button" class="btn" id="suGpuHelp" data-i18n="help">Help</button>
           <span class="grow"></span>
-          <button type="button" class="btn" id="suGpuAgain">Check again</button>
+          <button type="button" class="btn" id="suGpuAgain" data-i18n="su.again">Check again</button>
           <button type="button" class="btn" id="suGpuAnyway" hidden>Continue anyway</button>
           <button type="button" class="btn primary" id="suGpuNext" hidden>Continue</button>
         </div>
       </section>
       <section data-step="where" hidden>
-        <p>OCR Lite reads on this device. It needs the model (1.4 GB, downloaded once from Hugging Face) in the browser's storage.</p>
-        <p class="hint">An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage, apart from this tab — so download the model inside the app you will use.</p>
+        <p data-i18n="su.where.p1">OCR Lite reads on this device. It needs the model (1.4 GB, downloaded once from Hugging Face) in the browser's storage.</p>
+        <p class="hint" data-i18n="su.where.p2">An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage, apart from this tab — so download the model inside the app you will use.</p>
         <p class="hint" id="suNoInstall" hidden></p>
         <div class="dlgfoot">
           <button type="button" class="btn" id="suInBrowser">Continue in this browser</button>
-          <button type="button" class="btn primary" id="suToInstall">Install as app (recommended)</button>
+          <button type="button" class="btn primary" id="suToInstall" data-i18n="su.toInstall">Install as app (recommended)</button>
         </div>
       </section>
       <section data-step="install" hidden>
         <div id="suHint"></div>
-        <div class="dlgfoot start"><button type="button" class="btn primary" id="suInstallBtn" hidden>Install OCR Lite</button></div>
-        <p class="hint">Then open the installed OCR Lite and continue the setup there — this tab can be closed.</p>
+        <div class="dlgfoot start"><button type="button" class="btn primary" id="suInstallBtn" data-i18n="su.installBtn" hidden>Install OCR Lite</button></div>
+        <p class="hint" data-i18n="su.installThen">Then open the installed OCR Lite and continue the setup there — this tab can be closed.</p>
         <p class="hint ok" id="suInstalled"></p>
-        <details class="suother"><summary>Other devices</summary><div id="suOtherHints"></div></details>
+        <details class="suother"><summary data-i18n="su.other">Other devices</summary><div id="suOtherHints"></div></details>
         <div class="dlgfoot">
-          <button type="button" class="btn" id="suInstallBack">Back</button>
-          <button type="button" class="btn" id="suInstallSkip">Continue in this browser instead</button>
+          <button type="button" class="btn" id="suInstallBack" data-i18n="su.back">Back</button>
+          <button type="button" class="btn" id="suInstallSkip" data-i18n="su.skip">Continue in this browser instead</button>
         </div>
       </section>
       <section data-step="model" hidden>
@@ -279,20 +304,20 @@
         <p class="hint" id="suProgressText"></p>
         <p class="err" id="suModelErr"></p>
         <div class="dlgfoot">
-          <label class="btn" id="suFilesBtn" for="suFiles" title="text-q8_0.gguf + mmproj-bf16.gguf">I have the files</label>
+          <label class="btn" id="suFilesBtn" for="suFiles" title="text-q8_0.gguf + mmproj-bf16.gguf" data-i18n="su.files">I have the files</label>
           <input id="suFiles" type="file" accept=".gguf" multiple hidden>
           <span class="grow"></span>
-          <button type="button" class="btn" id="suCancel" hidden>Cancel</button>
+          <button type="button" class="btn" id="suCancel" data-i18n="su.cancel" hidden>Cancel</button>
           <button type="button" class="btn" id="suDownload">Download</button>
-          <button type="button" class="btn primary" id="suNext" hidden>Next</button>
+          <button type="button" class="btn primary" id="suNext" data-i18n="su.next" hidden>Next</button>
         </div>
       </section>
       <section data-step="done" hidden>
-        <p><b>Ready — open an image and press Read.</b></p>
-        <p class="hint">Crop to the text first (Page or Auto in the first row, then adjust the rectangle and ✓); Contrast or Pencil help with faint ink or uneven paper.</p>
+        <p><b data-i18n="su.ready">Ready — open an image and press Read.</b></p>
+        <p class="hint" data-i18n="su.ready.hint">Crop to the text first (Page or Auto in the first row, then adjust the rectangle and ✓); Contrast or Pencil help with faint ink or uneven paper.</p>
         <div class="dlgfoot">
-          <button type="button" class="btn" id="suDone">Close</button>
-          <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i>Open an image</button>
+          <button type="button" class="btn" id="suDone" data-i18n="close">Close</button>
+          <button type="button" class="btn primary" id="suOpen"><i data-icon="folder"></i><span data-i18n="su.open">Open an image</span></button>
         </div>
       </section>
     </div>
@@ -301,7 +326,7 @@
   <dialog id="crashDlg" class="about">
     <form method="dialog">
       <div class="dlghead">
-        <h2><span class="logo"></span>OCR Lite stopped</h2>
+        <h2><span class="logo"></span><span data-i18n="crash.h">OCR Lite stopped</span></h2>
       </div>
       <section class="helpbody">
         <p id="crashWhat" class="prelines"></p>
@@ -309,50 +334,39 @@
       </section>
       <div class="dlgfoot">
         <button type="button" class="btn" id="crashCopy">Copy the last actions</button>
-        <button type="submit" class="btn primary">OK</button>
+        <button type="submit" class="btn primary" data-i18n="ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+  <!-- How to: the five steps of the empty pane (cloned here, app.js) + tips; Help is the full reference -->
+  <dialog id="howDlg" class="about help">
+    <form method="dialog">
+      <div class="dlghead">
+        <h2><span class="logo"></span><span data-i18n="howto">How to</span></h2>
+        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+      </div>
+      <section class="helpbody">
+        <p data-i18n="howto.intro">Five steps from a page image to its text:</p>
+        <div id="howStepsDlg"></div>
+        <h3 data-i18n="howto.tips">Tips</h3>
+        <ul class="tips" data-slot="howto.tips"></ul>
+      </section>
+      <div class="dlgfoot">
+        <button type="button" class="btn" id="howHelpBtn"><i data-icon="help"></i><span data-i18n="howto.more">All details: Help</span></button>
+        <button type="submit" class="btn primary" data-i18n="ok">OK</button>
       </div>
     </form>
   </dialog>
   <dialog id="helpDlg" class="about help">
     <form method="dialog">
       <div class="dlghead">
-        <h2><span class="logo"></span>Help</h2>
-        <button type="submit" class="ib ghost" title="Close"><i data-icon="close"></i></button>
+        <h2><span class="logo"></span><span data-i18n="help">Help</span></h2>
+        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
       </div>
-      <section class="helpbody">
-        <h3>Setup</h3>
-        <p>OCR Lite needs the model (1.4 GB) in this browser's storage — the setup checks the device and downloads it once from Hugging Face. An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage: set it up inside the app you use.</p>
-        <p>The model is <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">LightOnOCR-3-1B · Historic German Handwriting</a> (open, CC BY-SA 4.0). About the project, the output format and the source: <a href="https://b-straub.github.io/historic-htr-ocr/" target="_blank" rel="noopener">the project page</a> and <a href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">GitHub</a> (questions and reading errors worth reporting: its issues).</p>
-        <h3>Workflow</h3>
-        <ol>
-          <li><b>Open</b> an image, or drop it on the image pane.</li>
-          <li>The tools come in three rows: <b>Crop</b> (what part of the image), <b>Adjust</b> (how it looks to the model), <b>Read</b>. On a phone's side the first two share a line.</li>
-          <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then the green ✓ (Apply); the red ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
-          <li><b>Adjust</b> row: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out.</li>
-          <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
-          <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
-          <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
-          <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
-        </ol>
-        <h3>Phone, and tablet upright</h3>
-        <p>Image and Text are two tabs (a bar at the bottom; on a phone's side after the logo); each keeps its zoom and scroll, and shows only its own tools. A new image opens on Image, a read switches to Text as its text begins.</p>
-        <h3>Zoom</h3>
-        <p>− / + / fit above the image<span class="kbd">; ⌘ / ctrl + wheel or a trackpad pinch</span>; two fingers on a touch screen. A drag pans; a <span class="kbd">double-click or </span>double-tap fits. The text zooms the same way (two fingers<span class="kbd">, ⌘ / ctrl + wheel</span>); Fit starts it again from the whole line width.</p>
-        <h3>Status line</h3>
-        <p><b>load</b> the model's weights onto the GPU (each read) · <b>image</b> the page encoded · <b>prefill</b> the prompt read · <b>tok/s</b> the reading speed. "hit the token limit" = the read ran away: crop tighter or try another preset. "stopped: the app went to the background" = switching apps stops a read; read again.</p>
-        <h3>Offline</h3>
-        <p>Once downloaded, the model stays in this browser's storage and OCR Lite reads without a connection. Settings shows the stored files; deleting them frees the 1.4 GB.</p>
-        <h3>Devices</h3>
-        <p>A read takes about 1.8 GB of GPU memory, given back when it ends: iPad and Mac with Apple silicon are fine; iPhone is experimental (tested: iPhone 16 Pro, 43 tokens/s; iPhone 18 Pro, 80 tokens/s). On iPhone and iPad the device check also tests the memory, before the download. Chrome / Edge 113+, Safari 26+.</p>
-        <p><b>Check this device</b> tests the GPU (WebGPU, its limits, a 1-second speed test) and estimates the reading speed. A laptop with two GPUs may run the browser on the slower built-in one — the check then says how to switch to the graphics card.</p>
-        <h3>Tech preview</h3>
-        <p>Reading in the browser with WebGPU is work in progress; on phones and tablets OCR Lite is not production-ready yet. Edits are not kept: a crash or a reload loses the text on the right — copy or save what you change. Real editing, with the work kept, is the next major step. A read interrupted by switching to another app starts again from the beginning when you come back.</p>
-        <h3>Privacy</h3>
-        <p>Everything runs on this device: images and texts never leave it.</p>
-      </section>
+      <section class="helpbody" data-slot="help"></section>
       <div class="dlgfoot">
-        <button type="button" class="btn" id="helpCheckBtn">Check this device</button>
-        <button type="button" class="btn" id="helpSetupBtn">Run setup again</button>
+        <button type="button" class="btn" id="helpCheckBtn" data-i18n="help.check">Check this device</button>
+        <button type="button" class="btn" id="helpSetupBtn" data-i18n="help.setup">Run setup again</button>
       </div>
     </form>
   </dialog>

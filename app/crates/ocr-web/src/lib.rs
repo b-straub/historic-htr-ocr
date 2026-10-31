@@ -229,8 +229,9 @@ pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
 }
 
 /// the Scale slider for the prepared (cropped) page, measured at its bake scale: { xh, pitch, lo, auto, hi } — the glyph
-/// height and line pitch (bake px), the slider's factors (ocr-layout scale::xh_range); { none: why } without
-/// measurable writing or when its letters stay below the slider even at the 1540 px edge
+/// height and line pitch (bake px), the slider's factors (ocr-layout scale::xh_range); { none: why, code } without
+/// measurable writing (code "noWriting") or when its letters stay below the slider even at the 1540 px edge (code
+/// "small" + xh, min, longest) — the UI words it from the code in its language, `none` is the detail for the trail
 #[wasm_bindgen]
 pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
@@ -240,9 +241,10 @@ pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
         Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), sw as usize, sh as usize) {
             Ok(g) => match ocr_layout::scale::xh_range(g.xh, sw.max(sh) as f64) {
                 Some(r) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "lo": r.lo, "auto": r.auto, "hi": r.hi }),
-                None => serde_json::json!({ "none": format!("letters {} px — below {} px even at {} px, crop tighter", g.xh.round() as i64, ocr_layout::scale::SLIDE_MIN, ocr_layout::scale::LONGEST) }),
+                None => serde_json::json!({ "none": format!("letters {} px — below {} px even at {} px, crop tighter", g.xh.round() as i64, ocr_layout::scale::SLIDE_MIN, ocr_layout::scale::LONGEST),
+                    "code": "small", "xh": g.xh.round(), "min": ocr_layout::scale::SLIDE_MIN, "longest": ocr_layout::scale::LONGEST }),
             },
-            Err(e) => serde_json::json!({ "none": e.to_string() }),
+            Err(e) => serde_json::json!({ "none": e.to_string(), "code": "noWriting" }),
         }
         .to_string())
     })()
@@ -281,7 +283,7 @@ pub fn auto_crop(ops_json: &str, opts_json: &str) -> Result<String, JsError> {
 }
 
 /// the text crop (Auto): the page's main text block (ocr-layout crop::text_crop on the page at its bake scale) →
-/// CropRect in the prepared image's px, or { none: why } when the page has no measurable writing
+/// CropRect in the prepared image's px, or { none: why, code: "noWriting" } when the page has no measurable writing
 #[wasm_bindgen]
 pub fn text_crop(ops_json: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
@@ -290,7 +292,7 @@ pub fn text_crop(ops_json: &str) -> Result<String, JsError> {
         let s = small.width() as f64 / img.width() as f64;
         let b = match ocr_layout::crop::text_crop(small.as_raw(), small.width() as usize, small.height() as usize) {
             Ok(b) => b,
-            Err(e) => return Ok(serde_json::json!({ "none": e.to_string() }).to_string()),
+            Err(e) => return Ok(serde_json::json!({ "none": e.to_string(), "code": "noWriting" }).to_string()),
         };
         let x0 = ((b[0] / s).floor() as u32).min(img.width() - 1);
         let y0 = ((b[1] / s).floor() as u32).min(img.height() - 1);

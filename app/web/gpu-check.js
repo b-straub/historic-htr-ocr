@@ -15,7 +15,8 @@
 //                           tokens/s ESTIMATED against the same benchmark on the M3 (REF below)
 //   5  hints                an integrated GPU on Windows / Linux, a slow result, an Intel Mac: how to switch to the
 //                           discrete GPU
-// judge() is pure (unit-tested in Node: tests/gpu_check.mjs); runGpuCheck() gathers the facts in the browser.
+// judge() is pure (unit-tested in Node: tests/gpu_check.mjs); runGpuCheck() gathers the facts in the browser. The
+// texts: env.t / t = a translator of ui/i18n.js (the page passes its current one; the Node test translator("en")).
 // Nothing here gates a read: the read path keeps its own checks (the engine's limits pre-check, the crash marker).
 
 /// what the engine needs from an adapter — the numbers from the code (ocr-wgpu requests the adapter's own limits)
@@ -120,12 +121,12 @@ function words(info) {
 }
 
 /// a short name for the adapter, from what it reports: "intel · gen-12lp", "apple · metal-3", "NVIDIA GeForce …"
-export function adapterName(info) {
+export function adapterName(info, t) {
   if (typeof info.description === "string" && info.description !== "") {
     return info.description;
   }
   const parts = [info.vendor, info.architecture].filter((s) => typeof s === "string" && s !== "");
-  return parts.length ? parts.join(" · ") : "unnamed GPU";
+  return parts.length ? parts.join(" · ") : t("g.unnamed");
 }
 
 /// software rendering (the adapter says it is a fallback, or names a CPU rasterizer)
@@ -181,7 +182,7 @@ export function computePath(limits, f16) {
 }
 
 /// the adapter's limits against NEEDS for its compute path (computePath) → { fails: [{ name, have, need }], notes: [text] }
-export function checkLimits(limits, f16) {
+export function checkLimits(limits, f16, t) {
   const need = [
     ["maxBufferSize", NEEDS.maxBufferSize],
     ["maxStorageBufferBindingSize", NEEDS.maxStorageBufferBindingSize],
@@ -203,19 +204,19 @@ export function checkLimits(limits, f16) {
   }
   const notes = [];
   if (fails.length === 0 && limits.maxStorageBufferBindingSize < SQUARE_PAGE_BINDING) {
-    notes.push(`This GPU binds at most ${mb(limits.maxStorageBufferBindingSize)} per buffer — enough for portrait pages; a full-size square image needs ${mb(SQUARE_PAGE_BINDING)}: crop it first.`);
+    notes.push(t("g.squareNote", { have: mb(limits.maxStorageBufferBindingSize, t), need: mb(SQUARE_PAGE_BINDING, t) }));
   }
   return { fails, notes };
 }
 
-const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
+const mb = (b, t) => `${t.fixed(b / 1048576, 1)} MB`;
 /// a limit's value for the user: buffer sizes in MB, workgroup memory in bytes, counts as they are
-function limitText(name, v) {
+function limitText(name, v, t) {
   if (name === "maxBufferSize" || name === "maxStorageBufferBindingSize") {
-    return mb(v);
+    return mb(v, t);
   }
   if (name === "maxComputeWorkgroupStorageSize") {
-    return `${v} bytes`;
+    return t("g.bytes", { n: v });
   }
   return String(v);
 }
@@ -260,56 +261,50 @@ export function tokSText(tokS) {
 
 /// why there is no navigator.gpu, for this browser → [{ title, text }]
 export function noWebGpuHints(env) {
+  const t = env.t;
   const os = osOf(env.ua, env.maxTouchPoints);
   const b = browserOf(env.ua);
   if (!env.secure) {
-    return [{ title: "Not a secure page", text: "WebGPU only runs on HTTPS (or localhost). Open OCR Lite by its https:// address." }];
+    return [{ title: t("g.insecure.title"), text: t("g.insecure") }];
   }
   if (b.name === "safari") {
-    const where = os === "mac" ? "macOS (System Settings → General → Software Update)" : "iPadOS / iOS (Settings → General → Software Update)";
+    const where = t(os === "mac" ? "g.where.mac" : "g.where.ios");
     if (b.major < 26) {
-      return [{ title: `Safari ${b.major > 0 ? b.major : "(old)"}`, text: `Safari has WebGPU from version 26. Update ${where}, then open OCR Lite again.${os === "mac" ? " Or use Chrome / Edge." : " Every browser on iPad / iPhone uses Safari's engine — the update is the way."}` }];
+      return [{ title: `Safari ${b.major > 0 ? b.major : t("g.safari.old")}`, text: `${t("g.safari.update", { where })}${t(os === "mac" ? "g.safari.orChrome" : "g.safari.engine")}` }];
     }
-    return [{ title: `Safari ${b.major}`, text: os === "mac" ? "WebGPU is switched off in this Safari: Safari → Settings → Advanced → Show features for web developers, then Feature Flags → WebGPU on. Or use Chrome / Edge." : "WebGPU is switched off: Settings → Apps → Safari → Advanced → Feature Flags → WebGPU on." }];
+    return [{ title: `Safari ${b.major}`, text: t(os === "mac" ? "g.safari.offMac" : "g.safari.offIos") }];
   }
   if (b.name === "firefox") {
-    return [{ title: `Firefox ${b.major}`, text: "WebGPU is not available in this Firefox. Use Chrome, Edge or Safari 26+." }];
+    return [{ title: `Firefox ${b.major}`, text: t("g.firefox") }];
   }
   if (b.name === "chrome" || b.name === "edge") {
     const label = b.name === "chrome" ? "Chrome" : "Edge";
     const flags = b.name === "chrome" ? "chrome://flags" : "edge://flags";
     if (b.major > 0 && b.major < 113) {
-      return [{ title: `${label} ${b.major}`, text: `${label} has WebGPU from version 113: update ${label} (menu → Help → About), then reload.` }];
+      return [{ title: `${label} ${b.major}`, text: t("g.chrome.update", { label }) }];
     }
     if (os === "linux") {
-      return [{ title: `${label} on Linux`, text: `WebGPU is still off by default on Linux: open ${flags}, enable "Unsafe WebGPU Support" (#enable-unsafe-webgpu) and "Vulkan" (#enable-vulkan), restart ${label}.` }];
+      return [{ title: t("g.linux.title", { label }), text: t("g.linux", { flags, label }) }];
     }
     if (os === "android") {
-      return [{ title: `${label} on Android`, text: "WebGPU needs Android 12 or later and a supported GPU; update Chrome. A phone is unlikely to have the GPU memory OCR Lite needs." }];
+      return [{ title: t("g.android.title", { label }), text: t("g.android") }];
     }
-    return [{ title: `${label} ${b.major}`, text: `WebGPU is blocked here — most likely for this graphics driver. Update the graphics driver; ${b.name === "chrome" ? "chrome://gpu" : "edge://gpu"} says why WebGPU is off.` }];
+    return [{ title: `${label} ${b.major}`, text: t("g.blocked", { page: b.name === "chrome" ? "chrome://gpu" : "edge://gpu" }) }];
   }
-  return [{ title: "This browser", text: "It has no WebGPU. Use Chrome or Edge 113+, or Safari 26+." }];
+  return [{ title: t("g.other.title"), text: t("g.other") }];
 }
 
 /// how to put the browser on the discrete GPU / keep the GPU fast — for this OS + adapter → [{ title, text }]
-export function speedHints(os, kind, vendor) {
+export function speedHints(os, kind, vendor, t) {
+  const hint = (k) => ({ title: t(`g.${k}.title`), text: t(`g.${k}`) });
   if (os === "windows") {
-    return [
-      { title: "Windows: the graphics card for the browser", text: "If this computer also has an NVIDIA / AMD graphics card: Settings → System → Display → Graphics → add the browser (chrome.exe / msedge.exe) → Options → High performance. Then quit the browser completely (all windows, and the tray icon) and start it again." },
-      { title: "NVIDIA Control Panel", text: "Manage 3D settings → Program settings → the browser → Preferred graphics processor: High-performance NVIDIA processor." },
-      { title: "Power", text: "Keep the laptop on mains power — on battery the fast GPU is often held back or switched off." },
-    ];
+    return [hint("win"), hint("nv"), hint("power")];
   }
   if (os === "linux") {
-    return [
-      { title: "Linux: the discrete GPU", text: "Start the browser on the discrete GPU with PRIME offload: DRI_PRIME=1 google-chrome (Mesa), or prime-run google-chrome (NVIDIA); keep the laptop on mains power." },
-    ];
+    return [hint("linuxGpu")];
   }
   if (os === "mac" && vendor !== "apple" && kind !== "apple") {
-    return [
-      { title: "Intel Mac with two GPUs", text: "System Settings → Battery → Options → turn off \"Automatic graphics switching\" (older macOS: Energy Saver), then restart the browser; keep it on mains power." },
-    ];
+    return [hint("intelMac")];
   }
   return [];
 }
@@ -319,28 +314,29 @@ export function speedHints(os, kind, vendor) {
 /// the check's verdict from the gathered facts (pure — tests/gpu_check.mjs):
 ///   facts  { gpu: navigator.gpu present, adapter: null | { info, fallback, f16, limits }, bench: null | { gbps,
 ///          dispatchUs }, error?: text (the probe failed) }
-///   env    { ua, maxTouchPoints, secure, flagged: null | text (the host's unsupported-device notice) }
+///   env    { ua, maxTouchPoints, secure, flagged: null | text (the host's unsupported-device notice), t: a translator }
 /// → { verdict: "ok" | "slow" | "reject" | "pending" (passed so far — the benchmark is next), cls?, headline,
 ///     detected: [text], problems: [text], notes: [text], hints: [{ title, text }], adapter?, kind?, estTokS? }
 export function judge(facts, env, ref = REF) {
+  const t = env.t;
   const os = osOf(env.ua, env.maxTouchPoints);
   const r = { verdict: "reject", headline: "", detected: [], problems: [], notes: [], hints: [] };
   if (os === "iphone") {
-    r.notes.push("iPhone: experimental — tested on an iPhone 16 Pro (43 tokens/s). The memory test checks this iPhone; older iPhones may not have enough memory. An iPad or a Mac with Apple silicon is fine.");
+    r.notes.push(t("g.iphone"));
   }
   if (!facts.gpu) {
-    r.headline = "This browser has no WebGPU — OCR Lite cannot run here.";
+    r.headline = t("g.noWebGpu");
     r.hints = noWebGpuHints(env);
     return r;
   }
   if (facts.error) {
-    r.headline = "The GPU check failed — OCR Lite cannot run here.";
+    r.headline = t("g.failed");
     r.problems.push(facts.error);
     return r;
   }
   if (facts.adapter === null) {
-    r.headline = "No usable GPU — the browser offers WebGPU but no graphics adapter.";
-    r.hints = [{ title: "Graphics driver", text: "Update the graphics driver and the browser. Chrome / Edge: chrome://gpu (edge://gpu) says why WebGPU has no adapter. A remote desktop or a virtual machine often has no GPU." }];
+    r.headline = t("g.noAdapter");
+    r.hints = [{ title: t("g.driver.title"), text: t("g.driver") }];
     if (os === "linux") {
       r.hints.push(noWebGpuHints(env)[0]);
     }
@@ -348,68 +344,68 @@ export function judge(facts, env, ref = REF) {
   }
   const a = facts.adapter;
   const kind = adapterKind(a.info);
-  r.adapter = adapterName(a.info);
+  r.adapter = adapterName(a.info, t);
   r.kind = kind;
-  r.detected.push(`GPU: ${r.adapter}${kind === "integrated" ? " (integrated)" : kind === "discrete" ? " (discrete)" : ""}`);
+  r.detected.push(`${t("g.gpu", { name: r.adapter })}${kind === "integrated" ? t("g.integrated") : kind === "discrete" ? t("g.discrete") : ""}`);
   if (isSoftware(a.info, a.fallback)) {
-    r.headline = "Only software rendering (no GPU acceleration) — far too slow for OCR Lite.";
-    r.hints = [{ title: "Hardware acceleration", text: "Turn on \"Use graphics acceleration when available\" (Chrome / Edge: Settings → System), update the graphics driver, restart the browser." }];
+    r.headline = t("g.software");
+    r.hints = [{ title: t("g.accel.title"), text: t("g.accel") }];
     return r;
   }
-  const lim = checkLimits(a.limits, a.f16);
+  const lim = checkLimits(a.limits, a.f16, t);
   if (lim.fails.length) {
-    r.headline = `This GPU cannot run OCR Lite: ${lim.fails.map((f) => f.name).join(", ")} too small.`;
+    r.headline = t("g.limits", { names: lim.fails.map((f) => f.name).join(", ") });
     for (const f of lim.fails) {
-      r.problems.push(`${f.name}: this GPU allows ${limitText(f.name, f.have)}, OCR Lite needs ${limitText(f.name, f.need)}`);
+      r.problems.push(t("g.limit", { name: f.name, have: limitText(f.name, f.have, t), need: limitText(f.name, f.need, t) }));
     }
-    r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase());
+    r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase(), t);
     return r;
   }
   r.notes.push(...lim.notes);
   const path = computePath(a.limits, a.f16);
   if (path === "f32") {
-    r.notes.push("No shader-f16 on this GPU: OCR Lite runs its f32 path — it works, but slower and with more GPU memory.");
+    r.notes.push(t("g.f32"));
   }
   if (path === "f32-workgroup") {
-    r.notes.push("f32 path (this GPU's workgroup memory is too small for f16): slower, more memory.");
+    r.notes.push(t("g.f32wg"));
   }
   if (env.flagged !== null && os === "iphone") {
-    r.headline = "This iPhone ran out of memory in an earlier read.";
+    r.headline = t("g.iphoneOom");
     r.problems.push(env.flagged);
     return r;
   }
   if (env.flagged !== null) {
-    r.notes.push(`Earlier: ${env.flagged}`);
+    r.notes.push(t("g.earlier", { text: env.flagged }));
   }
   if (facts.bench === null) {
     r.verdict = "pending";
-    r.headline = "Measuring the GPU's speed…";
+    r.headline = t("g.measuring");
     return r;
   }
   const est = estimateTokS(facts.bench, path === "f16", ref);
   r.estTokS = est;
   r.cls = speedClass(est);
-  r.detected.push(`Speed: est. ${tokSText(est)} tokens/s (memory ${facts.bench.gbps.toFixed(0)} GB/s · ${facts.bench.dispatchUs.toFixed(1)} µs per dispatch; the M3 reads ≈ ${ref.tokS})`);
+  r.detected.push(t("g.speed", { est: tokSText(est), gbps: t.fixed(facts.bench.gbps, 0), us: t.fixed(facts.bench.dispatchUs, 1), ref: ref.tokS }));
   const integratedPc = kind === "integrated" && (os === "windows" || os === "linux");
   const intelMac = os === "mac" && kind !== "apple";
   if (r.cls === "ok") {
     r.verdict = "ok";
-    r.headline = `This device can run OCR Lite (GPU: ${r.adapter}, est. ${tokSText(est)} tokens/s).`;
+    r.headline = t("g.ok", { gpu: r.adapter, est: tokSText(est) });
     if (integratedPc || intelMac) {
-      r.notes.push("This looks like the built-in (integrated) GPU. If the computer also has a graphics card, the browser may run faster on it:");
-      r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase());
+      r.notes.push(t("g.integratedOk"));
+      r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase(), t);
     }
     return r;
   }
   r.verdict = "slow";
   const page = Math.round(900 / est);
   r.headline = r.cls === "slow"
-    ? `OCR Lite will be slow here: est. ${tokSText(est)} tokens/s (a page of 900 tokens ≈ ${page} s; on an M3 Mac ≈ 11 s).`
-    : `OCR Lite will be very slow here: est. ${tokSText(est)} tokens/s (a page of 900 tokens ≈ ${Math.max(1, Math.round(page / 60))} min).`;
+    ? t("g.slow", { est: tokSText(est), s: page })
+    : t("g.verySlow", { est: tokSText(est), min: Math.max(1, Math.round(page / 60)) });
   if (integratedPc || intelMac) {
-    r.notes.push("The browser seems to use the built-in (integrated) GPU. If this computer has a graphics card too:");
+    r.notes.push(t("g.integratedSlow"));
   }
-  r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase());
+  r.hints = speedHints(os, kind, (a.info.vendor ?? "").toLowerCase(), t);
   return r;
 }
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 #
 # OCR Lite's deployable web build (called by web/dist.sh after web/build.sh): a flat static site (default app/dist/,
-# generated, not in git) from the sources — ui/ + web/bridge-web.js, config.js, gpu-check.js, worker.js + pkg/
+# generated, not in git) from the sources — ui/ (with ui/lang/, the texts) + web/bridge-web.js, config.js, gpu-check.js, worker.js + pkg/
 # (wasm-bindgen output) + web/sw.js, pwa.js + web/icons/.
 #   * JS / CSS / WASM / icons get content-hashed names (name.<12 hex>.ext) and every reference to them is rewritten —
 #     each reference must be found exactly once, or the build stops (a missed one would load a stale or missing file)
@@ -146,7 +146,14 @@ def build(out, model_base=None):
         config = replace_once(config, 'export const MODEL_FROM = "Hugging Face";', f'export const MODEL_FROM = "{TEST_MODEL_FROM}";', "web/config.js")
         config = replace_once(config, "export const MODEL_TEST = false;", "export const MODEL_TEST = true;", "web/config.js")
     config = s.put_hashed("config.js", config)
+    # the texts: ui/lang/ (each language's texts + prose) ← ui/i18n.js ← setup.js, app.js, bridge-web.js, pwa.js
+    i18n = read(os.path.join(UI, "i18n.js"))
+    for name in sorted(os.listdir(os.path.join(UI, "lang"))):
+        published = s.put_hashed(f"lang/{name}", read(os.path.join(UI, "lang", name)))
+        i18n = replace_once(i18n, f'"./lang/{name}"', f'"./{published}"', "ui/i18n.js")
+    i18n = s.put_hashed("i18n.js", i18n)
     bridge = read(os.path.join(WEB, "bridge-web.js"))
+    bridge = replace_once(bridge, '"./i18n.js"', f'"./{i18n}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./gpu-check.js"', f'"./{gpucheck}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./config.js"', f'"./{config}"', "web/bridge-web.js")
     bridge = replace_once(bridge, '"./pkg/ocr_web.js"', f'"./{glue}"', "web/bridge-web.js")
@@ -154,8 +161,10 @@ def build(out, model_base=None):
     bridge = replace_once(bridge, '"./image-worker.js"', f'"./{imager}"', "web/bridge-web.js")
     bridge = s.put_hashed("bridge-web.js", bridge)
     scan = s.put_hashed("scan.js", read(os.path.join(UI, "scan.js")))
-    setup = s.put_hashed("setup.js", read(os.path.join(UI, "setup.js")))
+    setup = replace_once(read(os.path.join(UI, "setup.js")), '"./i18n.js"', f'"./{i18n}"', "ui/setup.js")
+    setup = s.put_hashed("setup.js", setup)
     app = read(os.path.join(UI, "app.js"))
+    app = replace_once(app, '"./i18n.js"', f'"./{i18n}"', "ui/app.js")
     app = replace_once(app, '"./scan.js"', f'"./{scan}"', "ui/app.js")
     app = replace_once(app, '"./setup.js"', f'"./{setup}"', "ui/app.js")
     app = replace_once(app, '"./bridge-web.js"', f'"./{bridge}"', "ui/app.js")
@@ -164,7 +173,8 @@ def build(out, model_base=None):
     css = read(os.path.join(UI, "style.css"))
     style = s.put_hashed("style.css", css)
     render = s.put_hashed("render.css", read(os.path.join(UI, "render.css")))
-    pwa = s.put_hashed("pwa.js", read(os.path.join(WEB, "pwa.js")))
+    pwa = replace_once(read(os.path.join(WEB, "pwa.js")), '"./i18n.js"', f'"./{i18n}"', "web/pwa.js")
+    pwa = s.put_hashed("pwa.js", pwa)
 
     # icons + manifest (Add to Home Screen: Chrome / Edge install, iPadOS Safari via apple-touch-icon + the meta tags)
     icons = {n: s.put_hashed(f"icon-{n}.png", read(os.path.join(ICONS, f"icon-{n}.png"), "rb")) for n in (180, 192, 512)}
@@ -221,7 +231,7 @@ def build(out, model_base=None):
     s.put(".htaccess", read(os.path.join(WEB, "htaccess")))
 
     # no source name may be left referenced where a hashed one belongs
-    refs = ["index.html", s.hashed["app.js"], s.hashed["bridge-web.js"], s.hashed["worker.js"], s.hashed["ocr_web.js"]]
+    refs = ["index.html", s.hashed["app.js"], s.hashed["setup.js"], s.hashed["pwa.js"], s.hashed["i18n.js"], s.hashed["bridge-web.js"], s.hashed["worker.js"], s.hashed["ocr_web.js"]]
     for name in refs:
         text = read(os.path.join(out, name))
         for logical in s.hashed:
