@@ -94,7 +94,7 @@
   "st.spread": " · a book spread: pick Left or Right in the ▾ menu",
   "st.starting": "Starting…",
   "st.storage": "browser storage unavailable: {e}",
-  "st.storageBlocked": "this window may not store data (a private window, or cookies and site data blocked for this site) — open OCR Lite in a normal window, or allow site data for it",
+  "st.storageBlocked": "this browser may not keep data for this site (a private window, site data blocked, or deleted when the browser closes — Firefox: Settings → Privacy → Cookies and Site Data) — allow site data for this site (Manage Exceptions → Allow) or use a normal window",
   "st.needModel": "Read needs the model — it is not in this browser yet",
   "st.checkFailed": "the check before the read failed: {e}",
   "st.stoppedAway": "Stopped: the app went to the background — the read starts again when you return",
