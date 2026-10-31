@@ -62,7 +62,8 @@ const allows = (source) => MODEL_SOURCES.includes(source);
 
 // no WebGPU: the app still starts, so the setup's device check can say why and what to do (gpu-check.js); Read is refused
 // (blockedNote)
-const NO_WEBGPU = "gpu" in navigator ? null : "h.noWebGpu"; // its key: worded when shown
+// no reading here: its key, worded when shown — no WebGPU, or Firefox (not supported: gpu-check.js judge)
+const NO_WEBGPU = /Firefox\//.test(navigator.userAgent) ? "h.noFirefox" : "gpu" in navigator ? null : "h.noWebGpu";
 await init();
 
 const modelParam = new URLSearchParams(location.search).get("model");

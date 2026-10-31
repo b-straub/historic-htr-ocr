@@ -321,6 +321,14 @@ export function judge(facts, env, ref = REF) {
   const t = env.t;
   const os = osOf(env.ua, env.maxTouchPoints);
   const r = { verdict: "reject", headline: "", detected: [], problems: [], notes: [], hints: [] };
+  // Firefox is not supported: where it has WebGPU, its timers are too coarse for the benchmark (100 ms steps under its
+  // fingerprinting protection) and the model's storage is often refused — rejected before any GPU work
+  const browser = browserOf(env.ua);
+  if (browser.name === "firefox") {
+    r.headline = t("g.firefoxNo");
+    r.hints = [{ title: `Firefox ${browser.major}`, text: t("g.firefox") }];
+    return r;
+  }
   if (os === "iphone") {
     r.notes.push(t("g.iphone"));
   }
@@ -538,7 +546,7 @@ export async function benchmark(device) {
 /// before the benchmark runs. gpu = navigator.gpu (undefined: none); env as judge's
 export async function runGpuCheck(gpu, env, onStep) {
   const facts = { gpu: gpu !== undefined && gpu !== null, adapter: null, bench: null };
-  if (!facts.gpu) {
+  if (!facts.gpu || browserOf(env.ua).name === "firefox") {
     return judge(facts, env);
   }
   let adapter;

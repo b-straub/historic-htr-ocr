@@ -111,8 +111,9 @@ const env = (ua, extra = {}) => ({ ua, maxTouchPoints: 0, secure: true, flagged:
 const adapter = (info, limits = M3, f16 = true, fallback = false) => ({ info, limits, f16, fallback });
 const FAST = { gbps: ref.gbps, dispatchUs: ref.dispatchUs };
 
-let r = g.judge({ gpu: false, adapter: null, bench: null }, env(UA.firefox));
-ok(r.verdict === "reject" && /Firefox/.test(r.hints[0].title) && /Chrome, Edge or Safari/.test(r.hints[0].text), `no WebGPU, Firefox: ${r.hints[0].text}`);
+// Firefox: not supported — rejected even with WebGPU and a fast adapter
+let r = g.judge({ gpu: true, adapter: adapter({ vendor: "apple", architecture: "metal-3" }), bench: FAST }, env(UA.firefox));
+ok(r.verdict === "reject" && /not supported/.test(r.headline) && /Firefox/.test(r.hints[0].title) && /Chrome, Edge or Safari/.test(r.hints[0].text), `Firefox: ${r.headline}`);
 r = g.judge({ gpu: false, adapter: null, bench: null }, env(UA.macSafari18));
 ok(r.verdict === "reject" && /version 26/.test(r.hints[0].text) && /macOS/.test(r.hints[0].text), `no WebGPU, Safari 18: ${r.hints[0].text}`);
 r = g.judge({ gpu: false, adapter: null, bench: null }, env(UA.ipadChrome, { maxTouchPoints: 5 }));

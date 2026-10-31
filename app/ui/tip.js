@@ -47,9 +47,13 @@ function tipAt(x, y) {
   return best;
 }
 
-const tip = Object.assign(document.createElement("div"), { id: "tip", role: "tooltip" });
-tip.setAttribute("popover", "manual");
-document.body.append(tip);
+// on the page only: the module is also imported where there is no document (the Node unit tests, through i18n.js)
+const ON_PAGE = typeof document !== "undefined";
+const tip = ON_PAGE ? Object.assign(document.createElement("div"), { id: "tip", role: "tooltip" }) : null;
+if (ON_PAGE) {
+  tip.setAttribute("popover", "manual");
+  document.body.append(tip);
+}
 let target = null; // the control the pointer rests on
 let shown = false;
 let timer = 0;
@@ -83,27 +87,29 @@ function show(el) {
   tip.style.top = `${top}px`;
 }
 
-document.addEventListener("pointermove", (e) => {
-  if (e.pointerType === "touch") {
-    return;
-  }
-  const el = tipAt(e.clientX, e.clientY);
-  if (el === target) {
-    return;
-  }
-  hide();
-  target = el;
-  if (el !== null) {
-    timer = setTimeout(() => show(el), DELAY_MS);
-  }
-});
-// a press, a scroll, a key, the window or the page losing the pointer: the tip goes (it comes again on the next
-// control)
-document.addEventListener("pointerdown", hide, true);
-document.addEventListener("scroll", hide, true);
-document.addEventListener("keydown", hide, true);
-window.addEventListener("blur", hide);
-document.documentElement.addEventListener("pointerleave", () => {
-  hide();
-  target = null;
-});
+if (ON_PAGE) {
+  document.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch") {
+      return;
+    }
+    const el = tipAt(e.clientX, e.clientY);
+    if (el === target) {
+      return;
+    }
+    hide();
+    target = el;
+    if (el !== null) {
+      timer = setTimeout(() => show(el), DELAY_MS);
+    }
+  });
+  // a press, a scroll, a key, the window or the page losing the pointer: the tip goes (it comes again on the next
+  // control)
+  document.addEventListener("pointerdown", hide, true);
+  document.addEventListener("scroll", hide, true);
+  document.addEventListener("keydown", hide, true);
+  window.addEventListener("blur", hide);
+  document.documentElement.addEventListener("pointerleave", () => {
+    hide();
+    target = null;
+  });
+}
