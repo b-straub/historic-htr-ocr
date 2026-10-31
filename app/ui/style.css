@@ -439,6 +439,8 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 #sideBtn { min-width: 20px; padding: 0 3px; font-size: 14px; }
 #textCropBtn { min-width: 58px; }
 #sideMenu { min-width: 130px; }
+#sideMenu .menuhead { display: block; padding: 6px 10px 8px; font-weight: 600; white-space: nowrap; }
+#sideMenu button:disabled { opacity: 0.4; background: transparent; color: var(--fg); }
 #sideMenu button.on::before { content: "✓ "; }
 #sideMenu button:not(.on) { padding-left: 24px; }
 #cropApplyBtn:not(:disabled) { background: #16a34a; color: #fff; }

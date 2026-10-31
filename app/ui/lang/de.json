@@ -11,6 +11,7 @@
   "crop.side.left": "Links",
   "crop.side.right": "Rechts",
   "crop.side.double": "Doppel",
+  "crop.side.ask": "Doppelseite — welche Seite?",
   "crop.side.tip": "Auto, oder eine Seite einer Doppelseite: links, rechts, beide",
   "crop.side.aria": "Zuschnitt-Modus",
   "crop.side.left.tip": "Die linke Seite einer Doppelseite (der Text bis zum Falz) — die Ränder ziehen, um es anzupassen",

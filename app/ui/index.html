@@ -35,6 +35,8 @@
         <span class="menuwrap">
           <button class="ib sidebtn" id="sideBtn" data-i18n-tip="crop.side.tip" data-i18n-aria="crop.side.aria" aria-haspopup="menu">▾</button>
           <span class="menu" id="sideMenu" role="menu" hidden>
+            <!-- opened by itself when Auto finds a book spread (app.js spreadAsk): the question, Auto greyed out -->
+            <span class="menuhead" id="sideMenuHead" data-i18n="crop.side.ask" hidden>A book spread — which page?</span>
             <button data-side="auto" role="menuitemradio" data-i18n="crop.side.auto">Auto</button>
             <button data-side="left" role="menuitemradio" data-i18n="crop.side.left">Left</button>
             <button data-side="right" role="menuitemradio" data-i18n="crop.side.right">Right</button>

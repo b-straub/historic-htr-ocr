@@ -11,6 +11,7 @@
   "crop.side.left": "Left",
   "crop.side.right": "Right",
   "crop.side.double": "Double",
+  "crop.side.ask": "A book spread — which page?",
   "crop.side.tip": "Auto, or one side of a book spread: the left page, the right page, both pages",
   "crop.side.aria": "Crop mode",
   "crop.side.left.tip": "The left page of a book spread (the text up to the page gutter) — drag its edges to adjust",

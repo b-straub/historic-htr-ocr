@@ -210,6 +210,8 @@ async function openPath(src) {
   S.stem = o.stem;
   S.ops = [];
   uncropped = null;
+  spreadSeen = false;
+  drawCropSide();
   sizeKey = null;
   setTab("image");
   zoom = 1;
@@ -494,7 +496,7 @@ COMPACT.addEventListener("change", retab);
 
 // ── Scale: slider · Auto. The slider runs in the letters' height for the model (bake px, steps of 1) over the
 // cropped page's range (glyph_height: ocr-layout scale::xh_range — 9 … 45 px, never past the 1540 px edge); without a
-// crop the image is read as is. Every crop change starts at 1:1; Auto (letters below 23 px — the trained pages' median —
+// crop the image is read as is. Every crop change gets Auto at once (the wand again after a slider move); Auto (letters below 23 px — the trained pages' median —
 // enlarged towards it as far as the 1540 px edge allows, 23 … 43 px at 1:1, larger ones down to 43 px: scale::xh_range)
 // is an action, offered again after each crop change or slider move ──
 let sizeSeq = 0;
@@ -503,8 +505,6 @@ const sized = () => S.size.range !== null && S.size.range.none === undefined;
 // a result without a measure ({ none, code } of glyph_height / text_crop, ocr-web) in words: from its code; `none` is
 // the detail for the trail
 const noneWhy = (r) => t(`none.${r.code}`, r);
-// 1:1 kept inside the range (letters beyond 9 … 45 px: the nearest end)
-const asIs = () => Math.min(S.size.range.hi, Math.max(S.size.range.lo, 1));
 // the letters' size is geometry: measured on the crop and the turns only — contrast / pencil change the ink's threshold,
 // not the letters (they moved the measure by a third), so a filter step keeps the Scale as it is
 const GEOM = new Set(["crop", "rotateLeft", "rotateRight", "rotate180"]);
@@ -535,8 +535,10 @@ async function measureSize() {
     crumb(`scale: ${r.none}`);
     status(t("st.scaleNone", { why: noneWhy(r) }), "err");
   } else {
-    S.size.factor = asIs();
-    crumb(`scale ×${S.size.factor.toFixed(2)} (letters ${Math.round(r.xh)} px, ${r.lo.toFixed(2)} … ${r.hi.toFixed(2)})`);
+    // every crop gets the Auto scale at once (the wand again after a slider move)
+    S.size.factor = r.auto;
+    S.size.autoDone = true;
+    crumb(`scale auto ×${S.size.factor.toFixed(2)} (letters ${Math.round(r.xh)} px, ${r.lo.toFixed(2)} … ${r.hi.toFixed(2)})`);
   }
   drawScale();
 }
@@ -833,6 +835,9 @@ async function uncrop() {
 // the text crop's mode (▾ beside Auto): Auto, or a side of a book spread — Left, Right, Double (both pages); the button
 // names it and repeats it; kept for the next images of this page (a new page starts at Auto)
 let cropSide = "auto";
+// this image is a book spread (Auto found writing on both sides of a spine): Auto is no choice for it — the ▾ menu
+// opens by itself with the question and Auto greyed out (most people never read the status line)
+let spreadSeen = false;
 function drawCropSide() {
   const b = $("textCropBtn");
   b.dataset.i18n = `crop.side.${cropSide}`;
@@ -842,7 +847,9 @@ function drawCropSide() {
   for (const m of $("sideMenu").querySelectorAll("button")) {
     m.classList.toggle("on", m.dataset.side === cropSide);
     m.setAttribute("aria-checked", String(m.dataset.side === cropSide));
+    m.disabled = spreadSeen && m.dataset.side === "auto";
   }
+  $("sideMenuHead").hidden = !spreadSeen;
   applyState(); // the button's own tip back under a why
 }
 $("sideBtn").onclick = (e) => {
@@ -881,6 +888,11 @@ async function textCrop() {
     return;
   }
   showPending(r);
+  if (cropSide === "auto" && r.spread) {
+    spreadSeen = true;
+    drawCropSide();
+    $("sideMenu").hidden = false;
+  }
   // a side: the page gutter found (the crop is that page / both), or not (the crop is Auto's whole text block); Auto on
   // a book spread (writing on both sides of a spine): the hint to pick a page in the ▾ menu
   const side = cropSide !== "auto" ? t(r.gutter === null ? "st.noGutter" : "st.gutterFound") : r.spread ? t("st.spread") : "";
