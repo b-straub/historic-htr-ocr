@@ -146,8 +146,10 @@ def build(out, model_base=None):
         config = replace_once(config, 'export const MODEL_FROM = "Hugging Face";', f'export const MODEL_FROM = "{TEST_MODEL_FROM}";', "web/config.js")
         config = replace_once(config, "export const MODEL_TEST = false;", "export const MODEL_TEST = true;", "web/config.js")
     config = s.put_hashed("config.js", config)
-    # the texts: ui/lang/ (each language's texts + prose) ← ui/i18n.js ← setup.js, app.js, bridge-web.js, pwa.js
-    i18n = read(os.path.join(UI, "i18n.js"))
+    # the texts: ui/lang/ (each language's texts + prose) + ui/tip.js (the tips) ← ui/i18n.js ← setup.js, app.js,
+    # bridge-web.js, pwa.js
+    tip = s.put_hashed("tip.js", read(os.path.join(UI, "tip.js")))
+    i18n = replace_once(read(os.path.join(UI, "i18n.js")), '"./tip.js"', f'"./{tip}"', "ui/i18n.js")
     for name in sorted(os.listdir(os.path.join(UI, "lang"))):
         published = s.put_hashed(f"lang/{name}", read(os.path.join(UI, "lang", name)))
         i18n = replace_once(i18n, f'"./lang/{name}"', f'"./{published}"', "ui/i18n.js")
@@ -165,6 +167,7 @@ def build(out, model_base=None):
     setup = s.put_hashed("setup.js", setup)
     app = read(os.path.join(UI, "app.js"))
     app = replace_once(app, '"./i18n.js"', f'"./{i18n}"', "ui/app.js")
+    app = replace_once(app, '"./tip.js"', f'"./{tip}"', "ui/app.js")
     app = replace_once(app, '"./scan.js"', f'"./{scan}"', "ui/app.js")
     app = replace_once(app, '"./setup.js"', f'"./{setup}"', "ui/app.js")
     app = replace_once(app, '"./bridge-web.js"', f'"./{bridge}"', "ui/app.js")

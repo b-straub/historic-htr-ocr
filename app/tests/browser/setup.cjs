@@ -70,7 +70,8 @@ let srv = null;
     ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36", 0, "chrome"],
     ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36", 0, "chrome"],
     ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0", 10, "edge"],
-    ["Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", 5, "chrome"],
+    ["Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", 5, "android-chrome"],
+    ["Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 EdgA/141.0.0.0", 5, "android-edge"],
     ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0", 0, "firefox"],
     ["Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0", 0, "firefox"],
     ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 OPR/120.0", 0, "other"],
@@ -91,10 +92,11 @@ let srv = null;
   await shot(page, "1_where");
   await page.click("#suToInstall");
   await waitStep(page, "install");
-  const hint = await page.evaluate(() => ({ main: document.querySelector("#suHint b").textContent, others: [...document.querySelectorAll("#suOtherHints b")].map((b) => b.textContent), btn: !document.getElementById("suInstallBtn").hidden }));
+  const hint = await page.evaluate(() => ({ main: document.querySelector("#suHint .insttitle").textContent, others: [...document.querySelectorAll("#suOtherHints .insttitle")].map((b) => b.textContent),
+    folded: !document.querySelector(".suother").open, btn: !document.getElementById("suInstallBtn").hidden }));
   // the Install button shows once Chrome offers its prompt (beforeinstallprompt: manifest + service worker — its timing
   // is Chrome's), so it is reported, not required
-  ok(hint.main === "Chrome" && hint.others.length === 5, `install step: ${JSON.stringify(hint)}`);
+  ok(hint.main === "Chrome · computer" && hint.others.length === 7 && hint.folded, `install step: ${JSON.stringify(hint)}`);
   await page.click(".suother summary");
   await shot(page, "2_install");
   await page.click("#suInstallBack");
@@ -160,9 +162,9 @@ let srv = null;
   await page.click("#suClose");
   // Read is disabled without the model (app.js applyState), its title says why; the status line links
   // the setup
-  await page.waitForFunction(() => /^Set up the model first/.test(document.getElementById("readBtn").title));
+  await page.waitForFunction(() => /^Set up the model first/.test(document.getElementById("readBtn").dataset.tip));
   const link = await page.evaluate(() => { const a = document.querySelector("#status a"); return a ? a.textContent : null; });
-  const rb = await page.evaluate(() => ({ dis: document.getElementById("readBtn").disabled, title: document.getElementById("readBtn").title }));
+  const rb = await page.evaluate(() => ({ dis: document.getElementById("readBtn").disabled, title: document.getElementById("readBtn").dataset.tip }));
   ok(rb.dis && link === "Set up OCR Lite", `Read disabled without the model ("${rb.title}"), status: "${await status(page)}"`);
   await shot(page, "7_read_refused");
   await page.click("#status a");
@@ -188,6 +190,25 @@ let srv = null;
   await shot(p2, "9_standalone_model");
   await p2.close();
   await ctx.close();
+
+  // ── an iPhone (its user agent): its sheet first — the five steps with Share inline, Apple's guide linked — the
+  // others folded ──
+  const ctxI = await browser.createBrowserContext();
+  const pI = await ctxI.newPage();
+  await pI.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1");
+  await prep(pI);
+  await pI.goto(BASE, { waitUntil: "networkidle0" });
+  await waitStep(pI, "where");
+  await pI.click("#suToInstall");
+  await waitStep(pI, "install");
+  const ios = await pI.evaluate(() => ({ title: document.querySelector("#suHint .insttitle").textContent, steps: document.querySelectorAll("#suHint .inststeps li").length,
+    icons: document.querySelectorAll("#suHint i.inl svg").length, help: document.querySelector("#suHint .insthelp").href, folded: !document.querySelector(".suother").open,
+    then: document.getElementById("suThen").textContent }));
+  ok(ios.title === "iPhone / iPad · Safari" && ios.steps === 5 && ios.icons === 3 && /support\.apple\.com\/guide\/iphone/.test(ios.help) && ios.folded && /Home Screen/.test(ios.then),
+    `iPhone: install sheet ${JSON.stringify(ios)}`);
+  await shot(pI, "9b_iphone_install");
+  await pI.close();
+  await ctxI.close();
 
   // ── less storage than the model needs: said plainly, no download ──
   const ctx2 = await browser.createBrowserContext();

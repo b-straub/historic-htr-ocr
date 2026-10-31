@@ -7,7 +7,8 @@
 // host's settings.
 import { t, fixed, upTo, applyI18n, setChoice, getChoice, getLang } from "./i18n.js";
 import { scanOverlay } from "./scan.js";
-import { setupDialog } from "./setup.js";
+import { setupDialog, installSheet, INSTALL_PLATFORMS } from "./setup.js";
+import { setTip } from "./tip.js";
 import * as host from "./bridge-web.js";
 const { invoke, listen } = host;
 const $ = (id) => document.getElementById(id);
@@ -42,6 +43,12 @@ const ICONS = {
   wand: '<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>',
   book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 7h8"/><path d="M8 11h6"/>',
   type: '<path d="M4 6h16"/><path d="M4 11h11"/><path d="M4 16h7"/><path d="M18 13v8"/><path d="M16 13h4"/><path d="M16 21h4"/>',
+  // the browsers' menu items, inline in the install steps (setup.js): Share (square with an arrow), ⋮, …
+  share: '<path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/>',
+  dots: '<circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/>',
+  installmon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="M12 7v5"/><path d="m9.5 9.5 2.5 2.5 2.5-2.5"/>',
+  appavail: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M17 14v6"/><path d="M14 17h6"/>',
+  hdots: '<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>',
   autocrop: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/><path d="m11 11 3 3" stroke-dasharray="1 2"/>',
 };
 function paintIcons(scope = document) {
@@ -473,8 +480,9 @@ COMPACT.addEventListener("change", retab);
 
 // ── Scale: slider · Auto. The slider runs in the letters' height for the model (bake px, steps of 1) over the
 // cropped page's range (glyph_height: ocr-layout scale::xh_range — 9 … 45 px, never past the 1540 px edge); without a
-// crop the image is read as is. Every crop change starts at 1:1; Auto (the letters into the trained range) is an action,
-// offered again after each crop change or slider move ──
+// crop the image is read as is. Every crop change starts at 1:1; Auto (letters below 23 px — the trained pages' median —
+// enlarged towards it as far as the 1540 px edge allows, 23 … 43 px at 1:1, larger ones down to 43 px: scale::xh_range)
+// is an action, offered again after each crop change or slider move ──
 let sizeSeq = 0;
 const hasCrop = () => S.ops.some((o) => o.op === "crop");
 const sized = () => S.size.range !== null && S.size.range.none === undefined;
@@ -561,7 +569,7 @@ function drawBakeInfo() {
   const rb = drag ? dragBox(drag) : pending;
   if (rb) {
     $("bakeInfo").textContent = `${rb.w} × ${rb.h}`;
-    $("bakeInfo").title = t("bake.rect", { w: p.w, h: p.h, rw: rb.w, rh: rb.h, x: rb.x, y: rb.y });
+    setTip($("bakeInfo"), t("bake.rect", { w: p.w, h: p.h, rw: rb.w, rh: rb.h, x: rb.x, y: rb.y }));
     $("scaleInfo").textContent = "";
     return;
   }
@@ -579,7 +587,8 @@ function drawBakeInfo() {
   }
   const why = r === null ? t(hasCrop() ? "bake.measuring" : "bake.noCrop") : r.none !== undefined ? ` · ${noneWhy(r)}` : "";
   const lines = ok ? t("bake.lines", { xh: Math.round(r.xh * f), lh: Math.round(r.pitch * f) }) : "";
-  $("bakeInfo").title = t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, lines, mw: Math.ceil(fw / 28) * 28, mh: Math.ceil(fh / 28) * 28, why });
+  setTip($("bakeInfo"), t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, lines, mw: Math.ceil(fw / 28) * 28,
+    mh: Math.ceil(fh / 28) * 28, why }));
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -857,15 +866,11 @@ function buildFormatBar() {
   }
   titleFormatBar();
 }
-// the format buttons' titles in the current language (enable() keeps a control's own title in data-title)
+// the format buttons' tips in the current language
 function titleFormatBar() {
   for (const p of S.marks.pairs) {
     const b = $("fmtSeg").querySelector(`[data-tag="${p.tag}"]`);
-    const title = t("fmt.title", { name: FMT_NAMED.has(p.tag) ? t(`fmt.${p.tag}`) : p.tag, open: p.open, close: p.close });
-    b.title = title;
-    if (b.dataset.title !== undefined) {
-      b.dataset.title = title;
-    }
+    setTip(b, t("fmt.title", { name: FMT_NAMED.has(p.tag) ? t(`fmt.${p.tag}`) : p.tag, open: p.open, close: p.close }));
   }
 }
 for (const id of ["gapBtn", "tabBtn", "undoBtn", "redoBtn"]) $(id).addEventListener("mousedown", (e) => e.preventDefault());
@@ -1231,8 +1236,8 @@ const scan = scanOverlay($("stage"), $("img"));
 listen("ocr:phase", (e) => scan.phase(e.payload, S.readBake));
 // a tap on the model size line: its detail (the tooltip) in the status line — a touch screen shows no tooltip
 $("bakeInfo").onclick = () => {
-  if ($("bakeInfo").title !== "") {
-    status($("bakeInfo").title, "ok");
+  if ($("bakeInfo").dataset.tip !== undefined && $("bakeInfo").dataset.tip !== "") {
+    status($("bakeInfo").dataset.tip, "ok");
   }
 };
 // the read's model input: its plan (the scan sweeps it) — the status already shows its size (drawBakeInfo)
@@ -1321,7 +1326,7 @@ $("expertChk").onchange = () => {
   try { localStorage.setItem(EXPERT_KEY, expert ? "1" : "0"); } catch {}
   document.body.classList.toggle("expert", expert);
   crumb(`expert ${expert ? "on" : "off"}`);
-  applyState(); // Read's title names the preset
+  applyState(); // Read's tip names the preset
 };
 // the preset editor: the decoder settings' names are technical terms — English in every language; the rest is translated
 const FIELDS = [
@@ -1349,7 +1354,7 @@ function fillPresetSel() {
 $("presetSel").onchange = async () => {
   const next = { ...S.settings, preset: $("presetSel").value };
   try { await call("save_settings", { settings: next }); S.settings = next; } catch { $("presetSel").value = S.settings.preset; }
-  applyState(); // Read's title names the preset
+  applyState(); // Read's tip names the preset
 };
 function presetRow(p, editable, idx) {
   const tr = document.createElement("tr");
@@ -1363,7 +1368,7 @@ function presetRow(p, editable, idx) {
     if (type === "number") inp.step = "any";
     inp.value = p[k];
     inp.readOnly = !editable;
-    if (!editable) inp.title = t("preset.readonly");
+    if (!editable) setTip(inp, t("preset.readonly"));
     if (k === "name") inp.style.width = `${nameCh}ch`;
     if (editable) {
       inp.oninput = () => {
@@ -1462,7 +1467,14 @@ async function showAbout() {
 $("aboutBtn").onclick = showAbout;
 
 // ── first-run setup + help ────────────────────────────────────────────
-const setup = setupDialog(host.setup, { pickImage, openHelp: () => $("helpDlg").showModal() });
+const setup = setupDialog(host.setup, { pickImage, openHelp: () => $("helpDlg").showModal(), paintIcons });
+// Help: how to install, per platform — the setup's sheets, all of them, unfolded
+function drawHelpInstall() {
+  $("helpInstall").replaceChildren(...INSTALL_PLATFORMS.map((id) => installSheet(id, { help: true })));
+  paintIcons($("helpInstall"));
+}
+drawHelpInstall();
+window.addEventListener("ocrlite:lang", drawHelpInstall);
 const SETUP_LINK = { get label() { return t("st.setupLink"); }, run: () => { setup.open(); return null; } };
 $("helpBtn").onclick = () => $("helpDlg").showModal();
 // How to: the steps of the empty pane (cloned at start) + tips; its button opens the full Help
@@ -1485,7 +1497,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 }
 
 // ── control states: every control's state from one table, so it reflects what can be done when ──────────────────
-// ONE place: applyState() sets every control's enabled / disabled (+ the why in its title, the Read button's label)
+// ONE place: applyState() sets every control's enabled / disabled (+ the why in its tip, the Read button's label)
 // from the state; every state change calls it — no control is toggled anywhere else.
 //
 // States: no image · image (S.prev) · crop mode (Draw crop) · pending (a crop rect waiting for Crop / Cancel — drawn
@@ -1494,7 +1506,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 // the start's check answered) · no text / text · markup view · dialogs: modal (showModal) — the page behind is inert,
 // nothing changes here.
 //
-//   control                        enabled when                                   disabled → title says
+//   control                        enabled when                                   disabled → tip says
 //   Open (+ drop, the empty pane)  not busy                                       busy: "Wait for the read to end"
 //   rotate ×3, contrast, pencil    image · no crop mode / pending · not finding   "Open an image first" · "Finish the
 //                                  · not busy                                     crop first (✓ / ✕)" · busy ·
@@ -1503,7 +1515,7 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //                                                                                 "Finding the crop…"
 //   ✕ cancel crop                  a rectangle shows (or is being drawn)          "Nothing to cancel …"
 //   ✓ apply crop                   a rectangle shows                              "Nothing to crop …"
-//   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own title
+//   image undo, reset              a step to undo · no crop mode / pending ·      as the steps; no step: its own tip
 //                                  not finding · not busy
 //   preset select (expert mode)    not busy                                       busy (the running read keeps its own)
 //   Help, How to                   always
@@ -1527,13 +1539,14 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //     .png (model input)           image · not busy                               "Open an image first"
 const busyWhy = () => t("why.busy");
 const isBusy = () => S.starting || S.reading || S.stopping;
-// sets a control's state; the why goes into its title while disabled, its own title comes back when enabled
+// sets a control's state; the why goes into its tip while disabled (tip.js), its own tip (data-tip-own) comes back when
+// enabled
 function enable(el, on, why = "") {
-  if (el.dataset.title === undefined) {
-    el.dataset.title = el.title;
+  if (el.dataset.tipOwn === undefined) {
+    el.dataset.tipOwn = el.dataset.tip === undefined ? "" : el.dataset.tip;
   }
   el.disabled = !on;
-  el.title = !on && why ? why : el.dataset.title;
+  el.dataset.tip = !on && why ? why : el.dataset.tipOwn;
 }
 function applyState() {
   const busy = isBusy();
@@ -1608,7 +1621,7 @@ document.addEventListener("click", (e) => {
   if (!btn.disabled || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
     return;
   }
-  status(t("st.readWaits", { why: btn.title }), "err");
+  status(t("st.readWaits", { why: btn.dataset.tip }), "err");
   const at = pending !== null ? $("cropApplyBtn") : cropMode ? $("cropCancelBtn") : null;
   if (at !== null) {
     at.classList.remove("attn");
@@ -1630,12 +1643,12 @@ function drawReadBtn(img, cropping) {
   }
   if (mode === "reading") {
     btn.disabled = false;
-    btn.title = t("read.stopTitle");
+    btn.dataset.tip = t("read.stopTitle");
     return;
   }
   if (mode === "stopping") {
     btn.disabled = true;
-    btn.title = t("read.stoppingTitle");
+    btn.dataset.tip = t("read.stoppingTitle");
     return;
   }
   const why = mode === "starting" ? t("why.checking")
@@ -1644,7 +1657,7 @@ function drawReadBtn(img, cropping) {
         : cropping ? t("why.applyOrCancel")
           : S.finding ? t("why.finding") : "";
   btn.disabled = why !== "";
-  btn.title = why !== "" ? why : t("read.title", { p: readPreset() });
+  btn.dataset.tip = why !== "" ? why : t("read.title", { p: readPreset() });
 }
 // can a read start, model-wise? The model in this browser's storage (and WebGPU); asked at start, whenever the model
 // in the browser changes and after a refused read.

@@ -216,7 +216,7 @@ const cropTool = (page, id) => page.click(id);
     fs.writeFileSync(path.join(DIR, "out", "read_scaled.txt"), scaled.text);
     await page.screenshot({ path: path.join(DIR, "out", "3b_read_scaled.png") });
     // after it Read is ready for the next image — and after a reload
-    const readState = () => page.evaluate(() => ({ disabled: document.getElementById("readBtn").disabled, why: document.getElementById("readBtn").title, status: document.getElementById("status").textContent }));
+    const readState = () => page.evaluate(() => ({ disabled: document.getElementById("readBtn").disabled, why: document.getElementById("readBtn").dataset.tip, status: document.getElementById("status").textContent }));
     const reopen = async () => {
       const [ch] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
       await ch.accept([IMG]);

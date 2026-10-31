@@ -303,6 +303,10 @@ body:not(.expert) .expert-only { display: none !important; }
 /* ── browser build: "new version" banner (web/pwa.js) ──────────────── */
 .updbar { position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px;
   padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--card); color: var(--fg); box-shadow: var(--shadow); border: 1px solid var(--line); }
+/* the tips (tip.js): a manual popover — the top layer, above an open dialog; placed by tip.js */
+#tip { position: fixed; inset: auto; margin: 0; max-width: min(340px, calc(100vw - 8px)); padding: 5px 9px; border: 1px solid var(--line);
+  border-radius: 7px; background: var(--card); color: var(--fg); box-shadow: var(--shadow); font-size: 12px; line-height: 1.4;
+  pointer-events: none; white-space: normal; overflow-wrap: anywhere; }
 /* a status message with a link (e.g. Set up OCR Lite) */
 #status a { color: var(--accent); }
 
@@ -358,6 +362,22 @@ dialog .sheet { padding: 18px 22px 20px; max-height: 90vh; overflow-y: auto; }
 .suhint { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); margin: 6px 0; }
 .suhint p { margin: 2px 0 0; color: var(--muted); }
 .suother summary { cursor: default; color: var(--muted); font-size: 12px; margin: 4px 0; }
+/* an install sheet (setup.js installSheet): title, numbered steps with the menu items' icons inline, the vendor's help */
+.instsheet { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); margin: 6px 0; }
+.instsheet .insttitle { display: block; font-size: 14px; margin-bottom: 4px; }
+.instsheet p { margin: 4px 0; }
+.inststeps { margin: 4px 0 6px; padding-left: 22px; }
+.inststeps li { margin-bottom: 4px; }
+.instsheet i.inl { width: 15px; height: 15px; vertical-align: -3px; margin: 0 2px; }
+.instsheet .instbtn { margin: 4px 0 8px; }
+/* Chrome's install chip in the address bar, drawn as it looks (light blue pill) — the same in both themes */
+.instchip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px 1px 6px; border-radius: 99px; background: #d3e3fd;
+  color: #041e49; font-size: 12px; font-weight: 500; vertical-align: 1px; white-space: nowrap; }
+.instchip i.inl { margin: 0; }
+.instmore summary { cursor: default; color: var(--muted); margin: 4px 0; }
+.insthelp { font-size: 12px; }
+.suthen { margin: 10px 0 4px; font-weight: 500; }
+.suother .instsheet { border-style: dashed; }
 #suProgress { width: 100%; }
 .hint.ok { color: var(--ok); }
 /* the device check's verdict (setup.js gpu step): green ok · amber slow · red rejected */

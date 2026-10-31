@@ -83,7 +83,7 @@ const cropTool = (page, id) => page.click(id);
           if (el && !el.disabled) on.push(k);
         }
         const r = document.getElementById("readBtn");
-        return { on, read: { state: r.dataset.state, label: r.textContent.trim(), title: r.title } };
+        return { on, read: { state: r.dataset.state, label: r.textContent.trim(), title: r.dataset.tip } };
       };
       window.__rec = [];
       document.addEventListener("DOMContentLoaded", () => {
@@ -109,7 +109,7 @@ const cropTool = (page, id) => page.click(id);
   };
   const load = async (page) => {
     await page.goto(BASE, { waitUntil: "networkidle0" });
-    await page.waitForFunction(() => document.getElementById("readBtn").title !== "Checking the model…" && document.getElementById("readBtn").title !== "", { timeout: 15000 });
+    await page.waitForFunction(() => document.getElementById("readBtn").dataset.tip !== "Checking the model…" && document.getElementById("readBtn").dataset.tip !== "", { timeout: 15000 });
     await sleep(800);
     if (await page.evaluate(() => document.getElementById("setupDlg").open)) {
       await page.click("#suClose");
@@ -124,7 +124,7 @@ const cropTool = (page, id) => page.click(id);
     const w = path.basename(img) === path.basename(BIG) ? "3000" : "700";
     await page.waitForFunction((w, before) => {
       const i = document.getElementById("img");
-      return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").title.startsWith(`${w} ×`);
+      return !document.getElementById("stage").hidden && i.getAttribute("src") !== before && i.complete && document.getElementById("bakeInfo").dataset.tip.startsWith(`${w} ×`);
     }, { timeout: 60000 }, w, before);
     await sleep(300);
   };
@@ -179,7 +179,7 @@ const cropTool = (page, id) => page.click(id);
       await sleep(500);
     }
     await page.click("#settingsCancel");
-    await page.waitForFunction(() => document.getElementById("readBtn").title !== "" && !/^Set up the model/.test(document.getElementById("readBtn").title), { timeout: 15000 });
+    await page.waitForFunction(() => document.getElementById("readBtn").dataset.tip !== "" && !/^Set up the model/.test(document.getElementById("readBtn").dataset.tip), { timeout: 15000 });
   }
   await check(page, "no image", E.noImg, /^Open an image first$/);
 
@@ -195,7 +195,7 @@ const cropTool = (page, id) => page.click(id);
   // expert mode off (the default): no preset list, no preset editor, Read uses the default preset whatever the list
   // holds; on: both shown, Read uses the list's — the choice kept across
   const presets = () => page.evaluate(() => ({ box: getComputedStyle(document.getElementById("presetBox")).display !== "none",
-    editor: getComputedStyle(document.getElementById("presetSection")).display !== "none", read: document.getElementById("readBtn").title }));
+    editor: getComputedStyle(document.getElementById("presetSection")).display !== "none", read: document.getElementById("readBtn").dataset.tip }));
   await page.evaluate(() => { const s = document.getElementById("presetSel"); s.value = "sampled_T0.1_p0.9"; s.dispatchEvent(new Event("change")); });
   await sleep(300);
   const off = await presets();
@@ -215,7 +215,7 @@ const cropTool = (page, id) => page.click(id);
   await check(page, "image · zoomed", E.imgZoomed);
   await page.click("#zoomFitBtn");
   await page.click('[data-op="rotateLeft"]');
-  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("2000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("2000 ×"));
   await check(page, "image · one step", E.stepped);
 
   // ── reopen: Page → crop mode, the whole image pending → Cancel ──
@@ -287,10 +287,10 @@ const cropTool = (page, id) => page.click(id);
   if (!process.env.OCR_LITE_READ_IMAGE) {
     R.skip("background → read stopped: needs a real page that yields text — set OCR_LITE_READ_IMAGE");
   } else {
-  const before = await page.evaluate(() => document.getElementById("bakeInfo").title);
+  const before = await page.evaluate(() => document.getElementById("bakeInfo").dataset.tip);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([process.env.OCR_LITE_READ_IMAGE]);
-  await page.waitForFunction((b) => document.getElementById("bakeInfo").title !== b, { timeout: 30000 }, before);
+  await page.waitForFunction((b) => document.getElementById("bakeInfo").dataset.tip !== b, { timeout: 30000 }, before);
   await sleep(300);
   // Stop before the text (the image encode runs ~10 s here): the engine released at once, the read ends within seconds
   await page.click("#readBtn");

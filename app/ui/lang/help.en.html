@@ -11,7 +11,7 @@
   <li>The tools come in three rows: <b>Crop</b> (what part of the image), <b>Adjust</b> (how it looks to the model), <b>Read</b>. On a phone's side the first two share a line.</li>
   <li><b>Crop</b> row: turn the image, then <b>Page</b> or <b>Auto</b>. Page puts the whole image in a rectangle, Auto the text block it finds. Drag the rectangle's edges or corners to adjust it, inside it to move it, then the green ✓ (Apply); the red ✕ cancels. On a cropped image Page and Auto start again from the uncropped one. Undo and back to the original at the row's end.</li>
   <li><b>Adjust</b> row: <b>Contrast</b> for faint ink, <b>Pencil</b> for uneven paper — each is on or off, a second press takes it out.</li>
-  <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) scales the letters into the trained range (1:1 when they already lie in it) — a close-up made smaller, tiny writing larger; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
+  <li><b>Scale</b> (Adjust row): how tall the letters come to the model. Without a crop the image is read as is. On a cropped image the slider sets the letters' height in px — from 9 to 45 px (the model learned from letters 11 … 43 px tall), and never past the model's 1540 px input; when the slider cannot reach 9 px, crop tighter. Every crop change starts at 1:1 (the crop at its own size). The wand (<b>Auto scale</b>) enlarges letters below 23 px towards 23 px (the trained pages' median), as far as the 1540 px input allows, keeps 23 … 43 px at 1:1 and brings larger ones down to 43 px — tiny writing larger, a close-up smaller; it is offered again after each crop change or slider move. Beside it: the scale to the model and the letters' height there; the Read row shows the image (or crop) → the model input's size.</li>
   <li><b>Read</b> — the text streams in; Stop ends the read at once (the text so far stays).</li>
   <li><b>Edit</b> the text: the format buttons, ▨ for illegible, Markup for the raw markup. <b>Fit</b> (on by default) shows every line as written, the text scaled to the panel's width.</li>
   <li><b>Save</b>: the markup (.txt), the rendered page (.html) or the model's input image (.png).</li>
@@ -40,7 +40,7 @@
 <li>Faint ink: switch Contrast ◐ on.</li>
 <li>Uneven, stained or yellowed paper: switch Pencil on.</li>
 <li>A page on its side or upside down: turn it first with the arrows.</li>
-<li>Very small or very large writing: crop first, then the wand (Auto scale).</li>
+<li>Very small or very large writing: crop first, then the wand (Auto scale) — small letters read much better enlarged.</li>
 <li>The text repeats or never ends: crop tighter — one page, one text block — and read again.</li>
 <li>Edits are not kept yet: copy or save the text before closing the app.</li>
 </template>

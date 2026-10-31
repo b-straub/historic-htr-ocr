@@ -47,6 +47,21 @@ const cropTool = (page, id) => page.click(id);
   });
   ok(how.lang === "en" && how.pane === 5 && how.first === "Open an image" && how.open && how.steps === 5 && how.tips > 0,
     `no image: ${how.pane} steps in the pane ("${how.first}", lang ${how.lang}); How to: ${how.steps} steps + ${how.tips} tips`);
+  // the tips (tip.js): no native title in the bar; a mouse resting on a disabled button shows its why in #tip
+  const tipOf = async (sel) => {
+    const r = await page.evaluate((sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, sel);
+    await page.mouse.move(r.x - 40, r.y + 300);
+    await page.mouse.move(r.x, r.y, { steps: 3 });
+    await new Promise((res) => setTimeout(res, 800));
+    return page.evaluate((sel) => ({ open: document.getElementById("tip").matches(":popover-open"), text: document.getElementById("tip").textContent,
+      want: document.querySelector(sel).dataset.tip }), sel);
+  };
+  const undoTip = await tipOf("#imgUndoBtn");
+  const readTip = await tipOf("#readBtn");
+  const titles = await page.evaluate(() => [...document.querySelectorAll(".titlebar [title]")].map((e) => e.id || e.tagName));
+  await page.mouse.move(5, 5);
+  ok(titles.length === 0 && undoTip.open && undoTip.text === "Open an image first" && undoTip.text === undoTip.want && readTip.open && readTip.text === readTip.want,
+    `tips: disabled Undo "${undoTip.text}", disabled Read "${readTip.text}"; native titles in the bar: ${titles.join(" ") || "none"}`);
   const [chooser] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
   await chooser.accept([IMG]);
   await page.waitForFunction(() => { const i = document.getElementById("img"); return i.complete && i.naturalWidth > 0 && !document.getElementById("stage").hidden; });
@@ -146,20 +161,20 @@ const cropTool = (page, id) => page.click(id);
   await page.waitForFunction(() => window.__ops.some((o) => o.includes("crop")));
   const got = JSON.parse((await page.evaluate(() => window.__ops.find((o) => o.includes("crop")))))[0];
   ok(near(got.x, expect.x) && near(got.y, expect.y) && near(got.w, expect.w) && near(got.h, expect.h), `crop adjusted at 200 % and at fit: got ${JSON.stringify(got)} expected ${JSON.stringify(expect)} (± 1)`);
-  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, got.w);
+  await page.waitForFunction((w) => document.getElementById("bakeInfo").dataset.tip.startsWith(`${w} ×`), {}, got.w);
   s = await st();
   ok(await page.evaluate(() => !document.getElementById("stage").classList.contains("cropping") && document.getElementById("cropApplyBtn").disabled && document.getElementById("cropCancelBtn").disabled), "after ✓ the mode is left, ✕ · ✓ off");
   ok(s.zoom === "100 %", `after the crop: back to fit (${s.zoom}), ${s.info}`);
   await page.screenshot({ path: `${OUT}/04_cropped.png` });
   // a cropped image: Page starts from the uncropped one, Cancel puts the crop back
   await cropTool(page, "#pageCropBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×") && !document.getElementById("rect").hidden);
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×") && !document.getElementById("rect").hidden);
   await page.click("#cropCancelBtn");
-  await page.waitForFunction((w) => document.getElementById("bakeInfo").title.startsWith(`${w} ×`), {}, got.w);
+  await page.waitForFunction((w) => document.getElementById("bakeInfo").dataset.tip.startsWith(`${w} ×`), {}, got.w);
   ok(true, "a cropped image: Page shows the whole image again, Cancel puts the crop back");
   // reset, pencil
   await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×"));
   await new Promise((r) => setTimeout(r, 300));
   const sample = () => page.evaluate(async () => {
     const i = document.getElementById("img");
@@ -256,7 +271,7 @@ const cropTool = (page, id) => page.click(id);
   // while a corner is dragged a second finger neither zooms nor pans: the rectangle goes on (the original back first)
   await page.waitForFunction(() => document.getElementById("zoomVal").textContent === "100 %");
   await page.click("#resetBtn");
-  await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("3000 ×"));
+  await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("3000 ×"));
   await cropTool(page, "#pageCropBtn");
   const g0 = await page.evaluate(() => { const r = document.getElementById("img").getBoundingClientRect(); return { x: r.x + 1, y: r.y + 1 }; });
   const v0 = await page.evaluate(() => { const p = document.getElementById("imgPane"); return { zoom: document.getElementById("zoomVal").textContent, sl: p.scrollLeft, st: p.scrollTop }; });
@@ -385,7 +400,7 @@ const cropTool = (page, id) => page.click(id);
     // a real page (the synthetic image has no measurable writing)
     const [ch2] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch2.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").title.startsWith("1176"));
+    await page.waitForFunction(() => /humboldt_17r/.test(document.getElementById("status").textContent) && document.getElementById("bakeInfo").dataset.tip.startsWith("1176"));
     // Auto on a real page: a text block inside the image (this example is cropped tight already: almost all of it)
     await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
@@ -475,7 +490,7 @@ const cropTool = (page, id) => page.click(id);
     // a new image: as is, the Scale off
     const [ch3] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch3.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => document.getElementById("bakeInfo").title.startsWith("1176 ×") && document.getElementById("scaleSlider").disabled);
+    await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("1176 ×") && document.getElementById("scaleSlider").disabled);
     const s4 = await scale();
     ok(s4.off && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
     // the text: Fit takes every line whole, two fingers zoom it

@@ -18,42 +18,42 @@
        on its side two lines — Crop · Adjust, then logo · Read row · How to · Help · Settings · preset · Read. Every control keeps its place: a control
        that cannot act is greyed out, never hidden -->
   <header class="titlebar">
-    <button type="button" class="brand" id="aboutBtn" data-i18n-title="about.title" title="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
+    <button type="button" class="brand" id="aboutBtn" data-i18n-tip="about.title" data-tip="About OCR Lite"><span class="logo"></span><span class="brandname">OCR Lite</span></button>
     <span class="grow appgap"></span>
     <div class="row" id="cropRow">
-      <button class="btn" id="openBtn" data-i18n-title="open.title" title="Open an image"><i data-icon="folder"></i><span class="openlabel" data-i18n="open">Open</span></button>
+      <button class="btn" id="openBtn" data-i18n-tip="open.title" data-tip="Open an image"><i data-icon="folder"></i><span class="openlabel" data-i18n="open">Open</span></button>
       <span class="seg">
-        <button class="ib" data-op="rotateLeft" data-i18n-title="rot.left" title="Rotate left"><i data-icon="rotl"></i></button>
-        <button class="ib" data-op="rotateRight" data-i18n-title="rot.right" title="Rotate right"><i data-icon="rotr"></i></button>
-        <button class="ib" data-op="rotate180" data-i18n-title="rot.180" title="Rotate 180°"><i data-icon="flip"></i></button>
+        <button class="ib" data-op="rotateLeft" data-i18n-tip="rot.left" data-tip="Rotate left"><i data-icon="rotl"></i></button>
+        <button class="ib" data-op="rotateRight" data-i18n-tip="rot.right" data-tip="Rotate right"><i data-icon="rotr"></i></button>
+        <button class="ib" data-op="rotate180" data-i18n-tip="rot.180" data-tip="Rotate 180°"><i data-icon="flip"></i></button>
       </span>
       <!-- the crop (app.js crop): Page = the whole image, Auto = the text block found — a rectangle to adjust, then
            Cancel or Apply -->
       <span class="seg" id="cropSeg">
-        <button class="btn small" id="pageCropBtn" data-i18n="crop.page" data-i18n-title="crop.page.title" title="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
-        <button class="btn small" id="textCropBtn" data-i18n="crop.auto" data-i18n-title="crop.auto.title" title="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
+        <button class="btn small" id="pageCropBtn" data-i18n="crop.page" data-i18n-tip="crop.page.title" data-tip="The whole image as the crop rectangle — drag its edges to adjust">Page</button>
+        <button class="btn small" id="textCropBtn" data-i18n="crop.auto" data-i18n-tip="crop.auto.title" data-tip="The text block found: the page's writing, without neighbour pages, book edges and stains — drag its edges to adjust">Auto</button>
       </span>
       <span class="seg" id="cropAct">
-        <button class="ib" id="cropApplyBtn" data-i18n-title="crop.apply.title" data-i18n-aria="crop.apply.aria" title="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
-        <button class="ib" id="cropCancelBtn" data-i18n-title="crop.cancel.title" data-i18n-aria="crop.cancel.aria" title="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
+        <button class="ib" id="cropApplyBtn" data-i18n-tip="crop.apply.title" data-i18n-aria="crop.apply.aria" data-tip="Crop the image to the rectangle" aria-label="Apply crop"><i data-icon="check"></i></button>
+        <button class="ib" id="cropCancelBtn" data-i18n-tip="crop.cancel.title" data-i18n-aria="crop.cancel.aria" data-tip="Cancel the crop — the image stays as it was" aria-label="Cancel crop"><i data-icon="close"></i></button>
       </span>
       <span class="seg">
-        <button class="ib" id="imgUndoBtn" data-i18n-title="img.undo" title="Undo last image step"><i data-icon="undo"></i></button>
-        <button class="ib" id="resetBtn" data-i18n-title="img.reset" title="Back to the original — every image step undone"><i data-icon="reset"></i></button>
+        <button class="ib" id="imgUndoBtn" data-i18n-tip="img.undo" data-tip="Undo last image step"><i data-icon="undo"></i></button>
+        <button class="ib" id="resetBtn" data-i18n-tip="img.reset" data-tip="Back to the original — every image step undone"><i data-icon="reset"></i></button>
       </span>
     </div>
     <div class="row" id="adjustRow">
       <span class="seg">
-        <button class="ib" data-op="autoContrast" data-i18n-title="adj.contrast" title="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
-        <button class="ib" data-op="pencil" data-i18n-title="adj.pencil" title="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
+        <button class="ib" data-op="autoContrast" data-i18n-tip="adj.contrast" data-tip="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
+        <button class="ib" data-op="pencil" data-i18n-tip="adj.pencil" data-tip="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
       </span>
       <!-- the Scale (app.js Scale): the slider (the letters' height for the model, px) · Auto — only on a cropped image,
            its range from the crop's letters (ocr-layout scale::xh_range); every crop change starts at 1:1. After it
            what it gives: the factor to the model input and the letters' height there -->
       <span class="seg" id="scaleSeg">
         <span class="croplabel" data-i18n="scale">Scale</span>
-        <input type="range" id="scaleSlider" step="1" data-i18n-aria="scale.aria" data-i18n-title="scale.title" aria-label="Letter height for the model (px)" title="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
-        <button class="ib" id="scaleAutoBtn" data-i18n-title="scale.auto.title" data-i18n-aria="scale.auto.aria" title="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
+        <input type="range" id="scaleSlider" step="1" data-i18n-aria="scale.aria" data-i18n-tip="scale.title" aria-label="Letter height for the model (px)" data-tip="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
+        <button class="ib" id="scaleAutoBtn" data-i18n-tip="scale.auto.title" data-i18n-aria="scale.auto.aria" data-tip="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
       </span>
       <span class="meta" id="scaleInfo"></span>
     </div>
@@ -61,21 +61,21 @@
     <div class="row" id="readRow">
       <!-- the image (or crop) and the model input's size; the detail is its tooltip (a tap shows it in the status line) -->
       <span class="meta" id="bakeInfo"></span>
-      <span class="seg" id="zoomSeg" data-i18n-title="zoom.title" title="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
-        <button class="ib" id="zoomOutBtn" data-i18n-title="zoom.out" title="Zoom out"><i data-icon="zoomout"></i></button>
+      <span class="seg" id="zoomSeg" data-i18n-tip="zoom.title" data-tip="zoom — also ⌘ / ctrl + wheel, pinch; double-click = fit">
+        <button class="ib" id="zoomOutBtn" data-i18n-tip="zoom.out" data-tip="Zoom out"><i data-icon="zoomout"></i></button>
         <span class="meta zoomval" id="zoomVal">100 %</span>
-        <button class="ib" id="zoomInBtn" data-i18n-title="zoom.in" title="Zoom in"><i data-icon="zoomin"></i></button>
-        <button class="ib" id="zoomFitBtn" data-i18n-title="zoom.fit" title="Fit the image to the pane"><i data-icon="fit"></i></button>
+        <button class="ib" id="zoomInBtn" data-i18n-tip="zoom.in" data-tip="Zoom in"><i data-icon="zoomin"></i></button>
+        <button class="ib" id="zoomFitBtn" data-i18n-tip="zoom.fit" data-tip="Fit the image to the pane"><i data-icon="fit"></i></button>
       </span>
     </div>
     <span class="row" id="appRow">
       <!-- How to: the five steps + tips (for the first visit; the empty image pane shows the same steps) -->
-      <button class="btn small" id="howBtn" data-i18n-title="howto.title" title="How to use OCR Lite — the five steps"><i data-icon="book"></i><span class="howlabel" data-i18n="howto">How to</span></button>
-      <button class="ib ghost" id="helpBtn" data-i18n-title="help" title="Help"><i data-icon="help"></i></button>
-      <button class="ib ghost" id="settingsBtn" data-i18n-title="settings" title="Settings"><i data-icon="gear"></i></button>
+      <button class="btn small" id="howBtn" data-i18n-tip="howto.title" data-tip="How to use OCR Lite — the five steps"><i data-icon="book"></i><span class="howlabel" data-i18n="howto">How to</span></button>
+      <button class="ib ghost" id="helpBtn" data-i18n-tip="help" data-tip="Help"><i data-icon="help"></i></button>
+      <button class="ib ghost" id="settingsBtn" data-i18n-tip="settings" data-tip="Settings"><i data-icon="gear"></i></button>
     </span>
     <!-- expert mode only (app.js expert; off: every read uses the default preset) -->
-    <label class="select expert-only" id="presetBox"><select id="presetSel" title="decoding preset"></select></label>
+    <label class="select expert-only" id="presetBox"><select id="presetSel" data-tip="decoding preset"></select></label>
     <button class="btn primary" id="readBtn"><i data-icon="play"></i><span>Read</span></button>
   </header>
 
@@ -110,19 +110,19 @@
         <span class="label" data-i18n="text">Text</span>
         <span class="seg" id="fmtSeg"></span>
         <span class="seg">
-          <button class="ib" id="gapBtn" data-i18n-title="gap.title" title="Insert ▨ (illegible)">▨</button>
-          <button class="ib" id="tabBtn" data-i18n-title="tab.title" title="New table cell (Tab)"><i data-icon="table"></i></button>
+          <button class="ib" id="gapBtn" data-i18n-tip="gap.title" data-tip="Insert ▨ (illegible)">▨</button>
+          <button class="ib" id="tabBtn" data-i18n-tip="tab.title" data-tip="New table cell (Tab)"><i data-icon="table"></i></button>
         </span>
         <span class="seg">
-          <button class="ib" id="undoBtn" data-i18n-title="undo.title" title="Undo (⌘Z)"><i data-icon="undo"></i></button>
-          <button class="ib" id="redoBtn" data-i18n-title="redo.title" title="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
+          <button class="ib" id="undoBtn" data-i18n-tip="undo.title" data-tip="Undo (⌘Z)"><i data-icon="undo"></i></button>
+          <button class="ib" id="redoBtn" data-i18n-tip="redo.title" data-tip="Redo (⇧⌘Z)"><i data-icon="redo"></i></button>
         </span>
         <span class="grow"></span>
-        <button class="btn small toggle" id="fitBtn" data-i18n="fit" data-i18n-title="fit.title" title="Fit: every line as written, the text scaled so the longest line fits the panel — off: lines wrap at the panel's edge">Fit</button>
-        <button class="btn small toggle" id="markupBtn" data-i18n="markup" data-i18n-title="markup.title" title="Show the raw markup">Markup</button>
-        <button class="ib ghost" id="copyBtn" data-i18n-title="copy.title" title="Copy markup"><i data-icon="copy"></i></button>
+        <button class="btn small toggle" id="fitBtn" data-i18n="fit" data-i18n-tip="fit.title" data-tip="Fit: every line as written, the text scaled so the longest line fits the panel — off: lines wrap at the panel's edge">Fit</button>
+        <button class="btn small toggle" id="markupBtn" data-i18n="markup" data-i18n-tip="markup.title" data-tip="Show the raw markup">Markup</button>
+        <button class="ib ghost" id="copyBtn" data-i18n-tip="copy.title" data-tip="Copy markup"><i data-icon="copy"></i></button>
         <div class="menuwrap">
-          <button class="ib ghost" id="saveBtn" data-i18n-title="save.title" title="Save"><i data-icon="save"></i></button>
+          <button class="ib ghost" id="saveBtn" data-i18n-tip="save.title" data-tip="Save"><i data-icon="save"></i></button>
           <div class="menu" id="saveMenu" hidden>
             <button data-save="txt" data-i18n="save.txt">Markup (.txt)</button>
             <button data-save="html" data-i18n="save.html">Rendered page (.html)</button>
@@ -150,7 +150,7 @@
     <form method="dialog">
       <div class="dlghead">
         <h2><span class="logo"></span>OCR Lite</h2>
-        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+        <button type="submit" class="ib ghost" data-i18n-tip="close" data-tip="Close"><i data-icon="close"></i></button>
       </div>
       <dl class="facts">
         <dt data-i18n="about.version">Version</dt><dd id="aboutVersion"></dd>
@@ -202,7 +202,7 @@
     <form method="dialog" id="settingsForm">
       <div class="dlghead">
         <h2 data-i18n="settings">Settings</h2>
-        <button type="button" class="ib ghost" id="settingsCancel" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+        <button type="button" class="ib ghost" id="settingsCancel" data-i18n-tip="close" data-tip="Close"><i data-icon="close"></i></button>
       </div>
       <!-- the language: applied at once, kept in this browser (i18n.js) -->
       <section class="group">
@@ -238,7 +238,7 @@
         <p class="hint" id="modelOpenHint" data-slot="settings.modelOpen"></p>
         <div class="field wide">
           <button type="button" class="btn primary" id="modelFromHub">Download from Hugging Face</button>
-          <button type="button" class="btn" id="modelVerify" data-i18n="set.verify" data-i18n-title="set.verify.title" title="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
+          <button type="button" class="btn" id="modelVerify" data-i18n="set.verify" data-i18n-tip="set.verify.title" data-tip="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
           <button type="button" class="btn" id="modelDelete" data-i18n="model.delete">Delete</button>
         </div>
         <div class="field wide" id="modelOtherSources">
@@ -273,7 +273,7 @@
     <div class="sheet">
       <div class="dlghead">
         <h2><span class="logo"></span><span data-i18n="su.h">Set up OCR Lite</span></h2>
-        <button type="button" class="ib ghost" id="suClose" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+        <button type="button" class="ib ghost" id="suClose" data-i18n-tip="close" data-tip="Close"><i data-icon="close"></i></button>
       </div>
       <ol class="steps" id="suSteps">
         <li data-for="gpu" data-i18n="su.step.gpu">Device</li><li data-for="where" data-i18n="su.step.where">Install</li>
@@ -304,9 +304,11 @@
         </div>
       </section>
       <section data-step="install" hidden>
+        <!-- this platform's sheet (setup.js installSheet; the Install button goes into it while the browser offers one) -->
         <div id="suHint"></div>
-        <div class="dlgfoot start"><button type="button" class="btn primary" id="suInstallBtn" data-i18n="su.installBtn" hidden>Install OCR Lite</button></div>
-        <p class="hint" data-i18n="su.installThen">Then open the installed OCR Lite and continue the setup there — this tab can be closed.</p>
+        <button type="button" class="btn primary instbtn" id="suInstallBtn" data-i18n="su.installBtn" hidden>Install OCR Lite</button>
+        <!-- then: where to open OCR Lite; the setup goes on there by itself -->
+        <p class="suthen" id="suThen"></p>
         <p class="hint ok" id="suInstalled"></p>
         <details class="suother"><summary data-i18n="su.other">Other devices</summary><div id="suOtherHints"></div></details>
         <div class="dlgfoot">
@@ -320,7 +322,7 @@
         <p class="hint" id="suProgressText"></p>
         <p class="err" id="suModelErr"></p>
         <div class="dlgfoot">
-          <label class="btn" id="suFilesBtn" for="suFiles" title="text-q8_0.gguf + mmproj-bf16.gguf" data-i18n="su.files">I have the files</label>
+          <label class="btn" id="suFilesBtn" for="suFiles" data-tip="text-q8_0.gguf + mmproj-bf16.gguf" data-i18n="su.files">I have the files</label>
           <input id="suFiles" type="file" accept=".gguf" multiple hidden>
           <span class="grow"></span>
           <button type="button" class="btn" id="suCancel" data-i18n="su.cancel" hidden>Cancel</button>
@@ -359,7 +361,7 @@
     <form method="dialog">
       <div class="dlghead">
         <h2><span class="logo"></span><span data-i18n="howto">How to</span></h2>
-        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+        <button type="submit" class="ib ghost" data-i18n-tip="close" data-tip="Close"><i data-icon="close"></i></button>
       </div>
       <section class="helpbody">
         <p data-i18n="howto.intro">Five steps from a page image to its text:</p>
@@ -377,9 +379,15 @@
     <form method="dialog">
       <div class="dlghead">
         <h2><span class="logo"></span><span data-i18n="help">Help</span></h2>
-        <button type="submit" class="ib ghost" data-i18n-title="close" title="Close"><i data-icon="close"></i></button>
+        <button type="submit" class="ib ghost" data-i18n-tip="close" data-tip="Close"><i data-icon="close"></i></button>
       </div>
       <section class="helpbody" data-slot="help"></section>
+      <!-- install as an app, per platform: the setup's sheets (app.js, setup.js installSheet) -->
+      <section class="helpbody">
+        <h3 data-i18n="su.inst.helpHead">Install as an app</h3>
+        <p data-i18n="su.inst.helpIntro"></p>
+        <div id="helpInstall"></div>
+      </section>
       <div class="dlgfoot">
         <button type="button" class="btn" id="helpCheckBtn" data-i18n="help.check">Check this device</button>
         <button type="button" class="btn" id="helpSetupBtn" data-i18n="help.setup">Run setup again</button>

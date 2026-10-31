@@ -10,8 +10,10 @@
 //            Continue closes)
 //   where    in a browser tab only: install as an app first (recommended) or continue here — an installed web app has
 //            its OWN storage, so the model must be downloaded inside the app that will be used
-//   install  the detected platform's install hint (the others folded); Chrome / Edge: a real Install button
-//            (beforeinstallprompt)
+//   install  the detected platform's install sheet (installSheet: numbered steps in the browser's own words, the
+//            vendor's help linked; the others folded); Chrome / Edge (computer and Android): their own install prompt
+//            (beforeinstallprompt) as the button, the menu steps folded under it; then: open OCR Lite from the Dock /
+//            Home Screen / apps, the setup goes on there (an installed app skips this step)
 //   model    download from the model's Hugging Face repo (web/config.js) — on its own after the install step, the free
 //            storage checked first — with progress and cancel; the user's own two files ("I have the files") only
 //            where the host allows them (api.canUpload — web/config.js MODEL_SOURCES; switched off)
@@ -19,8 +21,9 @@
 // Nothing is remembered: closed without a model, the setup is due again, and Read refuses with a link back here.
 import { t, fixed } from "./i18n.js";
 
-/// the platform for the install hint, from the user agent + touch points (iPadOS Safari reports a Mac user agent: a
-/// "Mac" with a touch screen is an iPad) → "ios" | "mac-safari" | "chrome" | "edge" | "firefox" | "other"
+/// the platform for the install sheet, from the user agent + touch points (iPadOS Safari reports a Mac user agent: a
+/// "Mac" with a touch screen is an iPad; any iPhone / iPad browser gets Safari's sheet) → "ios" | "mac-safari" | "chrome" |
+/// "edge" | "android-chrome" | "android-edge" | "firefox" | "other" (chrome / edge: on a computer)
 export function platformOf(ua, maxTouchPoints) {
   if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && maxTouchPoints > 1)) {
     return "ios";
@@ -28,11 +31,17 @@ export function platformOf(ua, maxTouchPoints) {
   if (/Firefox\//.test(ua)) {
     return "firefox";
   }
-  if (/Edg\//.test(ua)) {
-    return "edge";
-  }
   if (/OPR\/|SamsungBrowser\//.test(ua)) {
     return "other";
+  }
+  if (/Android/.test(ua)) {
+    if (/EdgA\//.test(ua)) {
+      return "android-edge";
+    }
+    return /Chrome\//.test(ua) ? "android-chrome" : "other";
+  }
+  if (/Edg\//.test(ua)) {
+    return "edge";
   }
   if (/Chrome\//.test(ua)) {
     return "chrome";
@@ -43,16 +52,101 @@ export function platformOf(ua, maxTouchPoints) {
   return "other";
 }
 
-// one short block per platform (its text: i18n.js su.hint.<id>); `none`: this browser cannot install web apps
-const HINTS = {
-  ios: { title: () => "iPad / iPhone" },
-  "mac-safari": { title: () => "Mac · Safari" },
-  chrome: { title: () => "Chrome" },
-  edge: { title: () => "Edge" },
-  firefox: { title: () => "Firefox", none: true },
-  other: { title: () => t("su.hint.other.title"), none: true },
+// the install sheet of each platform (its texts: lang su.inst.<id>.*) — steps: [icon or null] per step (su.inst.<id>.<n>,
+// the item's icon where the text says {icon}); note: a last hint (true; or its icon); byHand: iPhone / iPad (no direct
+// install there: su.inst.iosByHand); bar: Chrome / Edge on a computer — the install item in the address bar (steps
+// su.inst.<id>.bar.<n>; "chip": Chrome's "Install" chip drawn as it looks), the first way; prompt: Chrome / Edge install
+// themselves (beforeinstallprompt) — the menu steps for when that does not come; where: what to open OCR Lite from
+// afterwards; help: the vendor's official guide. none: this browser cannot install web apps (su.inst.<id>.text).
+// Room here for a short screencast per platform later.
+const HELP = {
+  iphone: "https://support.apple.com/guide/iphone/iphea86e5236/ios",
+  mac: "https://support.apple.com/guide/safari/ibrw9e991864/mac",
+  chrome: "https://support.google.com/chrome/answer/9658361",
+  edge: "https://support.microsoft.com/topic/install-manage-or-uninstall-apps-in-microsoft-edge-0c156575-a94a-45e4-a54f-3a84846f6113",
 };
-const hintText = (id) => t(`su.hint.${id}`);
+const SHEETS = {
+  ios: { steps: ["hdots", "share", null, null, null], note: "share", byHand: true, where: "home", help: HELP.iphone, vendor: "Apple" },
+  "mac-safari": { steps: ["share", null, null, null], note: true, where: "dock", help: HELP.mac, vendor: "Apple" },
+  chrome: { bar: ["chip", null, null], prompt: true, steps: ["dots", null, null, null], note: false, where: "apps", help: HELP.chrome, vendor: "Google" },
+  edge: { bar: ["appavail", null, null], prompt: true, steps: ["hdots", null, null, null], note: false, where: "apps", help: HELP.edge, vendor: "Microsoft" },
+  "android-chrome": { prompt: true, steps: ["dots", null, null, null], note: false, where: "android", help: HELP.chrome, vendor: "Google" },
+  "android-edge": { prompt: true, steps: ["hdots", null, null, null], note: false, where: "android", help: HELP.edge, vendor: "Microsoft" },
+  firefox: { none: true },
+  other: { none: true },
+};
+export const INSTALL_PLATFORMS = Object.keys(SHEETS);
+
+// a text with the {icon} of its item inline (the icon painted by the caller: app.js paintIcons)
+const ICON_MARK = "\u0000";
+function withIcon(node, key, icon) {
+  if (icon === null || icon === true || icon === false) {
+    node.textContent = t(key);
+    return node;
+  }
+  const [before, after] = t(key, { icon: ICON_MARK }).split(ICON_MARK);
+  const i = Object.assign(document.createElement("i"), { className: "inl" });
+  i.dataset.icon = icon === "chip" ? "installmon" : icon;
+  if (icon === "chip") {
+    // Chrome's address-bar chip: a light blue pill, the monitor icon + "Install" in the browser's language
+    const chip = Object.assign(document.createElement("span"), { className: "instchip" });
+    chip.append(i, t("su.inst.chip"));
+    node.append(before, chip, after);
+  } else {
+    node.append(before, i, after);
+  }
+  return node;
+}
+
+/// the install sheet of platform `id`: title, the numbered steps, the note, the vendor's help. Chrome / Edge: on a
+/// computer the address bar's install item first, then (button: the prompt was caught) "or here:" + our Install button;
+/// on Android the button first; the menu steps folded under them (open when neither is there). folded: the menu steps
+/// closed; help: in the Help dialog (no setup button — the menu steps under a plain heading)
+export function installSheet(id, { button = null, folded = false, help = false } = {}) {
+  const s = SHEETS[id];
+  const el = (tag, cls, text = "") => Object.assign(document.createElement(tag), { className: cls, textContent: text });
+  const d = el("div", "instsheet");
+  d.append(el("b", "insttitle", t(`su.inst.${id}.title`)));
+  if (s.none) {
+    d.append(el("p", "", t(`su.inst.${id}.text`)));
+    return d;
+  }
+  const ol = el("ol", "inststeps");
+  s.steps.forEach((icon, i) => ol.append(withIcon(el("li", ""), `su.inst.${id}.${i + 1}`, icon)));
+  if (s.prompt) {
+    const bar = s.bar === undefined ? null : el("ol", "inststeps");
+    if (bar !== null) {
+      s.bar.forEach((icon, i) => bar.append(withIcon(el("li", ""), `su.inst.${id}.bar.${i + 1}`, icon)));
+      d.append(bar);
+    }
+    if (help) {
+      d.append(el("p", "", t("su.inst.promptHelp")));
+    }
+    if (button !== null) {
+      if (bar !== null) {
+        d.append(el("p", "", t("su.inst.orHere")));
+      }
+      d.append(button);
+    }
+    const more = el("details", "instmore");
+    more.open = !folded && bar === null && button === null;
+    const summary = help ? "su.inst.byMenu" : bar !== null ? "su.inst.ifNoChip" : button !== null ? "su.inst.ifNoButton" : "su.inst.noPrompt";
+    more.append(el("summary", "", t(summary)), ol);
+    d.append(more);
+  } else {
+    d.append(ol);
+  }
+  if (s.note !== false) {
+    d.append(withIcon(el("p", "hint"), `su.inst.${id}.note`, s.note));
+  }
+  if (s.byHand === true) {
+    d.append(el("p", "hint", t("su.inst.iosByHand")));
+  }
+  const a = el("a", "insthelp", t("su.inst.official", { vendor: s.vendor }));
+  Object.assign(a, { href: s.help, target: "_blank", rel: "noopener" });
+  d.append(a);
+  return d;
+}
 
 // Chrome / Edge offer their install prompt once the page qualifies (manifest + service worker): kept for the Install
 // button. Listened for at import — app.js imports this module before anything else runs.
@@ -72,10 +166,12 @@ const gb = (b) => `${fixed(b / 1e9, 1)} GB`;
 
 /// the setup dialog for the host's `setup` (bridge-web.js); pickImage = app.js's Open, openHelp = the help dialog →
 /// { open(), check() }
-export function setupDialog(api, { pickImage, openHelp }) {
+export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
   const $ = (id) => document.getElementById(id);
   const dlg = $("setupDlg");
   const platform = platformOf(navigator.userAgent, navigator.maxTouchPoints);
+  // the browser's own Install (Chrome / Edge): moved into this platform's sheet while offered — kept by reference
+  const installBtn = $("suInstallBtn");
   let busy = false; // the model is being stored: closing cancels it
   let checkOnly = false; // the device check opened from Help: Continue closes instead of going on with the setup
   let checkRun = 0; // the device check running now (a newer one makes an older one's result stale)
@@ -95,13 +191,6 @@ export function setupDialog(api, { pickImage, openHelp }) {
     }
   }
 
-  function hintBlock(id) {
-    const h = HINTS[id];
-    const d = document.createElement("div");
-    d.className = "suhint";
-    d.append(Object.assign(document.createElement("b"), { textContent: h.title() }), Object.assign(document.createElement("p"), { textContent: hintText(id) }));
-    return d;
-  }
 
   // ── gpu: the device check ──
   const el = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls, textContent: text });
@@ -175,22 +264,32 @@ export function setupDialog(api, { pickImage, openHelp }) {
   // ── where / install ──
   function whereStep() {
     show("where");
-    const none = HINTS[platform].none === true;
+    const none = SHEETS[platform].none === true;
     $("suNoInstall").hidden = !none;
-    $("suNoInstall").textContent = hintText(platform);
+    $("suNoInstall").textContent = none ? t(`su.inst.${platform}.text`) : "";
     $("suToInstall").hidden = none;
     $("suInBrowser").textContent = t(none ? "su.next" : "su.inBrowser");
     $("suInBrowser").classList.toggle("primary", none);
   }
   function installStep() {
     show("install");
-    $("suHint").replaceChildren(hintBlock(platform));
-    $("suOtherHints").replaceChildren(...Object.keys(HINTS).filter((k) => k !== platform).map(hintBlock));
     $("suInstalled").textContent = "";
-    drawInstallBtn();
+    drawSheets();
+  }
+  // this platform's sheet (the browser's own Install button first where it offers one), the others folded; drawn again
+  // when the prompt comes late or goes
+  function drawSheets() {
+    const offered = installPrompt !== null;
+    installBtn.hidden = !offered;
+    $("suHint").replaceChildren(installSheet(platform, { button: offered ? installBtn : null, folded: offered }));
+    $("suOtherHints").replaceChildren(...INSTALL_PLATFORMS.filter((k) => k !== platform).map((k) => installSheet(k, { folded: true })));
+    $("suThen").textContent = t("su.inst.then", { where: t(`su.inst.where.${SHEETS[platform].where}`) });
+    paintIcons(dlg);
   }
   function drawInstallBtn() {
-    $("suInstallBtn").hidden = installPrompt === null;
+    if (!dlg.querySelector('[data-step="install"]').hidden) {
+      drawSheets();
+    }
   }
   window.addEventListener("ocrlite:installable", drawInstallBtn);
   window.addEventListener("appinstalled", () => {
@@ -202,7 +301,7 @@ export function setupDialog(api, { pickImage, openHelp }) {
   $("suInBrowser").onclick = () => afterWhere();
   $("suInstallBack").onclick = whereStep;
   $("suInstallSkip").onclick = () => afterWhere();
-  $("suInstallBtn").onclick = async () => {
+  installBtn.onclick = async () => {
     const p = installPrompt;
     installPrompt = null;
     drawInstallBtn();

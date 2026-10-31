@@ -11,7 +11,7 @@
   <li>Die Werkzeuge stehen in drei Reihen: <b>Zuschnitt</b> (welcher Teil des Bildes), <b>Anpassen</b> (wie das Modell das Bild sieht), <b>Lesen</b>. Beim quer gehaltenen Handy teilen sich die ersten beiden eine Zeile.</li>
   <li>Reihe <b>Zuschnitt</b>: das Bild drehen, dann <b>Seite</b> oder <b>Auto</b>. Seite legt ein Rechteck um das ganze Bild, Auto um den gefundenen Textblock. Ränder oder Ecken des Rechtecks ziehen, um es anzupassen, innen ziehen, um es zu verschieben, dann das grüne ✓ (übernehmen); das rote ✕ bricht ab. Auf einem zugeschnittenen Bild beginnen Seite und Auto wieder beim unbeschnittenen. Rückgängig und „zurück zum Original“ am Ende der Reihe.</li>
   <li>Reihe <b>Anpassen</b>: <b>Kontrast</b> für blasse Tinte, <b>Bleistift</b> für ungleichmäßiges Papier — beide sind ein oder aus, ein zweiter Druck nimmt sie wieder heraus.</li>
-  <li><b>Skalierung</b> (Reihe Anpassen): wie groß die Buchstaben beim Modell ankommen. Ohne Zuschnitt wird das Bild gelesen, wie es ist. Auf einem zugeschnittenen Bild stellt der Regler die Buchstabenhöhe in px ein — von 9 bis 45 px (das Modell hat mit Buchstaben von 11 … 43 px Höhe gelernt), und nie über die 1540 px Eingabe des Modells hinaus; erreicht der Regler 9 px nicht, enger zuschneiden. Jede Änderung des Zuschnitts beginnt bei 1:1 (der Zuschnitt in seiner eigenen Größe). Der Zauberstab (<b>Auto-Skalierung</b>) bringt die Buchstaben in den trainierten Bereich (1:1, wenn sie schon darin liegen) — eine Nahaufnahme wird kleiner, winzige Schrift größer; nach jeder Änderung von Zuschnitt oder Regler steht er wieder bereit. Daneben: der Faktor zum Modell und die Buchstabenhöhe dort; die Reihe Lesen zeigt Bild (oder Zuschnitt) → Größe der Modelleingabe.</li>
+  <li><b>Skalierung</b> (Reihe Anpassen): wie groß die Buchstaben beim Modell ankommen. Ohne Zuschnitt wird das Bild gelesen, wie es ist. Auf einem zugeschnittenen Bild stellt der Regler die Buchstabenhöhe in px ein — von 9 bis 45 px (das Modell hat mit Buchstaben von 11 … 43 px Höhe gelernt), und nie über die 1540 px Eingabe des Modells hinaus; erreicht der Regler 9 px nicht, enger zuschneiden. Jede Änderung des Zuschnitts beginnt bei 1:1 (der Zuschnitt in seiner eigenen Größe). Der Zauberstab (<b>Auto-Skalierung</b>) vergrößert Buchstaben unter 23 px zu 23 px hin (dem Median der Trainingsseiten), soweit die 1540 px Eingabe es zulässt, lässt 23 … 43 px bei 1:1 und verkleinert größere auf 43 px — winzige Schrift wird größer, eine Nahaufnahme kleiner; nach jeder Änderung von Zuschnitt oder Regler steht er wieder bereit. Daneben: der Faktor zum Modell und die Buchstabenhöhe dort; die Reihe Lesen zeigt Bild (oder Zuschnitt) → Größe der Modelleingabe.</li>
   <li><b>Lesen</b> — der Text läuft nach und nach ein; Stopp beendet das Lesen sofort (der Text bis dahin bleibt).</li>
   <li><b>Bearbeiten</b>: die Format-Knöpfe, ▨ für Unleserliches, Markup für den Rohtext. <b>Einpassen</b> (standardmäßig an) zeigt jede Zeile wie geschrieben, den Text auf die Breite der Fläche verkleinert.</li>
   <li><b>Speichern</b>: das Markup (.txt), die gestaltete Seite (.html) oder das Eingabebild des Modells (.png).</li>
@@ -25,7 +25,7 @@
 <h3>Sprache</h3>
 <p>OCR Lite spricht Deutsch und Englisch und folgt der Sprache des Browsers; in den Einstellungen lässt sich eine Sprache fest wählen.</p>
 <h3>Expertenmodus</h3>
-<p>Einstellungen → Expertenmodus zeigt die Decoding-Presets (die Liste neben Lesen und ihren Editor) und technische Details wie die Modelldateien und den GPU-Speicher; ausgeschaltet nutzt jedes Lesen das Standard-Preset greedy_rp1.1.</p>
+<p>Einstellungen → Expertenmodus zeigt die Lese-Presets (die Liste neben Lesen und ihren Editor) und technische Details wie die Modelldateien und den GPU-Speicher; ausgeschaltet nutzt jedes Lesen das Standard-Preset greedy_rp1.1.</p>
 <h3>Offline</h3>
 <p>Einmal heruntergeladen, bleibt das Modell im Speicher dieses Browsers, und OCR Lite liest ohne Verbindung. Die Einstellungen zeigen die gespeicherten Dateien; sie zu löschen gibt die 1,4 GB frei.</p>
 <h3>Geräte</h3>
@@ -40,7 +40,7 @@
 <li>Blasse Tinte: Kontrast ◐ einschalten.</li>
 <li>Fleckiges, ungleichmäßiges oder vergilbtes Papier: Bleistift einschalten.</li>
 <li>Seite liegt quer oder steht auf dem Kopf: zuerst mit den Pfeilen drehen.</li>
-<li>Sehr kleine oder sehr große Schrift: zuerst zuschneiden, dann der Zauberstab (Auto-Skalierung).</li>
+<li>Sehr kleine oder sehr große Schrift: zuerst zuschneiden, dann der Zauberstab (Auto-Skalierung) — kleine Buchstaben liest das Modell vergrößert viel besser.</li>
 <li>Der Text wiederholt sich oder endet nicht: enger zuschneiden — eine Seite, ein Textblock — und neu lesen.</li>
 <li>Änderungen werden noch nicht behalten: den Text vor dem Schließen kopieren oder speichern.</li>
 </template>

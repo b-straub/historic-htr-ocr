@@ -11,11 +11,13 @@
 // none → English) unless Settings chose one (kept in this browser, "ocrlite.lang").
 //   t(key, vars)      the text of `key` in the current language, {name} replaced from vars — a missing key or var throws;
 //                     fixed / upTo: numbers for display in its way (translatorFrom below)
-//   applyI18n(root)   the page's static texts: data-i18n (textContent), data-i18n-title, data-i18n-aria (aria-label),
+//   applyI18n(root)   the page's static texts: data-i18n (textContent), data-i18n-tip (the tip, tip.js), data-i18n-aria
+//                     (aria-label),
 //                     data-i18n-placeholder; [data-slot] from the language's prose; <html lang>
 //   setChoice(c)      "browser" | "en" | "de": kept, applied at once, then "ocrlite:lang" on window (the other modules
 //                     redraw what they wrote themselves)
 // Every language must have the same keys and slots: checked at load, a difference stops the app.
+import { setTip } from "./tip.js";
 
 // a language's files (web/dist.py rewrites each path to its content-hashed name)
 const FILES = {
@@ -125,14 +127,6 @@ export const t = (key, vars = {}) => tr(key, vars);
 export const fixed = (n, d) => tr.fixed(n, d);
 export const upTo = (n, d) => tr.upTo(n, d);
 
-/// a control's title; app.js enable() keeps a control's own title in data-title while a why stands in for it
-function setTitle(el, text) {
-  el.title = text;
-  if (el.dataset.title !== undefined) {
-    el.dataset.title = text;
-  }
-}
-
 export function applyI18n(root = document) {
   document.documentElement.lang = tr.lang;
   // the page shows once its texts are in (style.css: no English flashing up before German)
@@ -140,8 +134,8 @@ export function applyI18n(root = document) {
   for (const el of root.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.dataset.i18n);
   }
-  for (const el of root.querySelectorAll("[data-i18n-title]")) {
-    setTitle(el, t(el.dataset.i18nTitle));
+  for (const el of root.querySelectorAll("[data-i18n-tip]")) {
+    setTip(el, t(el.dataset.i18nTip));
   }
   for (const el of root.querySelectorAll("[data-i18n-aria]")) {
     el.setAttribute("aria-label", t(el.dataset.i18nAria));
