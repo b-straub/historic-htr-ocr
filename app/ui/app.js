@@ -151,10 +151,18 @@ window.addEventListener("pagehide", () => { try { sessionStorage.removeItem("ocr
 // app in the middle of a read left it damaged; the result appears in the dialog), and "Copy the last actions" (the
 // breadcrumb trail, for a report)
 async function verifyAfterCrash() {
-  if (await host.setup.modelMissing()) {
+  const line = $("crashCheck");
+  let missing;
+  try {
+    missing = await host.setup.modelMissing();
+  } catch (e) {
+    line.classList.add("err");
+    line.textContent = t("st.storage", { e });
     return;
   }
-  const line = $("crashCheck");
+  if (missing) {
+    return;
+  }
   line.classList.remove("err");
   line.textContent = t("crash.checking");
   try {
@@ -1786,7 +1794,20 @@ document.addEventListener("focusout", () => {
   }
   // the setup opens by itself while the model is not in this browser's storage or the browser has no WebGPU (its
   // device check says why)
-  if (host.setup.noWebGpu || await host.setup.modelMissing()) {
+  if (host.setup.noWebGpu) {
+    setup.open();
+    return;
+  }
+  // the storage refused (a private window, site data blocked): the start note says so — no setup to open, it could
+  // not store the model either
+  let missing;
+  try {
+    missing = await host.setup.modelMissing();
+  } catch (e) {
+    crumb(`storage: ${e}`);
+    return;
+  }
+  if (missing) {
     setup.open();
   }
 })();

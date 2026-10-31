@@ -327,7 +327,14 @@ export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
     $("suProgressText").textContent = "";
     $("suNext").hidden = true;
     $("suDownload").textContent = t("su.download");
-    if (!(await api.modelMissing())) {
+    let missing;
+    try {
+      missing = await api.modelMissing();
+    } catch (e) {
+      $("suModelErr").textContent = t("st.storage", { e });
+      return;
+    }
+    if (!missing) {
       $("suModelNote").textContent = t("su.haveModel");
       $("suDownload").textContent = t("su.downloadAgain");
       $("suNext").hidden = false;
@@ -362,7 +369,14 @@ export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
       return;
     }
     setBusy(false);
-    if (await api.modelMissing()) {
+    let missing;
+    try {
+      missing = await api.modelMissing();
+    } catch (e) {
+      $("suModelErr").textContent = t("st.storage", { e });
+      return;
+    }
+    if (missing) {
       $("suModelErr").textContent = t("su.missing", { files: api.modelFiles.join(" + ") });
       return;
     }
