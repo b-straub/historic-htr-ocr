@@ -303,6 +303,37 @@ pub fn text_crop(ops_json: &str) -> Result<String, JsError> {
     .map_err(js_err)
 }
 
+/// the text crop for a side ("auto" | "left" | "right" | "double" — ocr-layout crop::text_crop_side): { x, y, w, h,
+/// gutter } in the prepared image's px — gutter null = no gutter found (the crop is Auto's; the UI says so) — or
+/// { none, code: "noWriting" }
+#[wasm_bindgen]
+pub fn text_crop_side(ops_json: &str, side: &str) -> Result<String, JsError> {
+    (|| -> Result<String> {
+        use ocr_layout::crop::Side;
+        let side = match side {
+            "auto" => Side::Auto,
+            "left" => Side::Left,
+            "right" => Side::Right,
+            "double" => Side::Double,
+            other => bail!("text_crop_side: unknown side {other:?}"),
+        };
+        let (img, _) = prepared(ops_json)?;
+        let small = at_bake_scale(&img);
+        let s = small.width() as f64 / img.width() as f64;
+        let c = match ocr_layout::crop::text_crop_side(small.as_raw(), small.width() as usize, small.height() as usize, side) {
+            Ok(c) => c,
+            Err(e) => return Ok(serde_json::json!({ "none": e.to_string(), "code": "noWriting" }).to_string()),
+        };
+        let x0 = ((c.b[0] / s).floor() as u32).min(img.width() - 1);
+        let y0 = ((c.b[1] / s).floor() as u32).min(img.height() - 1);
+        let x1 = ((c.b[2] / s).ceil() as u32).clamp(x0 + 1, img.width());
+        let y1 = ((c.b[3] / s).ceil() as u32).clamp(y0 + 1, img.height());
+        let gutter = c.gutter.map(|g| (g / s).round() as u32);
+        Ok(serde_json::json!({ "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "gutter": gutter }).to_string())
+    })()
+    .map_err(js_err)
+}
+
 /// the markup → HTML
 #[wasm_bindgen]
 pub fn render(text: &str) -> Result<String, JsError> {

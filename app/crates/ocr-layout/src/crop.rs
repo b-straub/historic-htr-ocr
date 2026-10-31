@@ -216,7 +216,14 @@ fn sheet(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<Mask> {
 
 /// the text crop of an analysed page → [x0, y0, x1, y1] in the page's image px; None = no text ink
 pub fn text_block(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<[f64; 4]> {
+    text_block_in(pg, text, chroma, 0, pg.w())
+}
+
+/// the text crop of the page's columns [cx0, cx1) (work px: the blobs centred there count, the block ends there)
+fn text_block_in(pg: &Page, text: &[bool], chroma: &img::Gray, cx0: usize, cx1: usize) -> Option<[f64; 4]> {
     let (w, h) = (pg.w(), pg.h());
+    let inside: Vec<bool> = (0..pg.n).map(|c| text[c] && pg.cx[c] >= cx0 as f64 && pg.cx[c] < cx1 as f64).collect();
+    let text = &inside[..];
     // only the writing on the sheet
     let text: Vec<bool> = match sheet(pg, text, chroma) {
         Some(m) => {
@@ -268,6 +275,8 @@ pub fn text_block(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<[f64; 
         x0 += 1;
     }
     // the rows inside the block's columns
+    x0 = x0.max(cx0);
+    x1 = x1.min(cx1);
     let mut row = vec![0f64; h];
     for y in 0..h {
         for x in x0..x1 {
@@ -285,19 +294,129 @@ pub fn text_block(pg: &Page, text: &[bool], chroma: &img::Gray) -> Option<[f64; 
     let (y0, y1) = block(&rr, &vec![3; rr.len()], &vec![false; rr.len()]);
     let pad = PAD * pg.pitch;
     Some([
-        (x0 as f64 - pad).max(0.0) / pg.f,
+        (x0 as f64 - pad).max(cx0 as f64) / pg.f,
         (y0 as f64 - pad).max(0.0) / pg.f,
-        (x1 as f64 + pad).min(w as f64) / pg.f,
+        (x1 as f64 + pad).min(cx1 as f64) / pg.f,
         (y1 as f64 + pad).min(h as f64) / pg.f,
     ])
+}
+
+/// which page of the image the crop keeps: Auto (the main text block), the left or right page of a spread or the leaf
+/// beside a neighbour leaf (the side hint: the gutter is searched on the other side), both pages of a spread
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Auto,
+    Left,
+    Right,
+    Double,
+}
+
+/// a text crop: [x0, y0, x1, y1] in the image's px and, for Left / Right / Double, the gutter's x (image px) — None =
+/// no gutter found (the crop is then Auto's)
+pub struct Crop {
+    pub b: [f64; 4],
+    pub gutter: Option<f64>,
+}
+
+/// the gutter: the paper's brightness (the column's median grey over the middle rows — writing is too sparse to move
+/// it) dips to GUTTER_DIP of both flanks (the brightest within GUTTER_FLANK pitch) — a spine's shadow, the dark line
+/// between two leaves. No text-ink condition: the shadow itself is found as ink. The leaf benchmark (198 pages with
+/// their side): neighbour-leaf leaks 52 → 22 (notebook leaves 30 → 1), no page cut — UNMEASURED beyond it
+const GUTTER_DIP: f64 = 0.85;
+const GUTTER_FLANK: f64 = 3.0;
+/// the middle rows (a share of the height cut at the top and the bottom: a book's edge, a label strip)
+const GUTTER_ROWS: f64 = 0.15;
+/// the paper profile's blur (work px)
+const GUTTER_BLUR: f64 = 1.0;
+/// where a gutter may lie (shares of the width): Left / Right — on the facing side, the kept page at least
+/// 1 − GUTTER_SIDE wide; Double — in the middle
+const GUTTER_SIDE: f64 = 0.6;
+const GUTTER_MID: (f64, f64) = (0.3, 0.7);
+
+/// the gutter's column (work px) for `side`; None = nothing dips enough in its search range
+fn gutter(pg: &Page, side: Side) -> Option<usize> {
+    let (w, h) = (pg.w(), pg.h());
+    let (r0, r1) = ((GUTTER_ROWS * h as f64) as usize, ((1.0 - GUTTER_ROWS) * h as f64) as usize);
+    let mut paper = vec![0f64; w];
+    let mut v = Vec::with_capacity(r1 - r0);
+    for x in 0..w {
+        v.clear();
+        for y in r0..r1 {
+            v.push(pg.grey.px[y * w + x] as f64);
+        }
+        paper[x] = img::median(&v).expect("rows");
+    }
+    // the line between two leaves is thin: barely blurred
+    let paper = img::blur_1d(&paper, GUTTER_BLUR);
+    let (s0, s1) = match side {
+        Side::Right => (0.0, GUTTER_SIDE),
+        Side::Left => (1.0 - GUTTER_SIDE, 1.0),
+        Side::Double => GUTTER_MID,
+        Side::Auto => return None,
+    };
+    // the flanks: from half a pitch to GUTTER_FLANK pitch beside the column, clipped to the image (a neighbour leaf's
+    // strip at the edge may be narrower than that) — at least half a pitch of each
+    let fl = (GUTTER_FLANK * pg.pitch) as usize;
+    let near = ((0.5 * pg.pitch) as usize).max(1);
+    let (x0, x1) = (((s0 * w as f64) as usize).max(2 * near), ((s1 * w as f64) as usize).min(w.saturating_sub(2 * near)));
+    // the dips: runs of columns below GUTTER_DIP, each at its deepest column
+    let mut dips: Vec<(usize, f64)> = Vec::new();
+    let mut prev = false;
+    for x in x0..x1 {
+        let left = paper[x.saturating_sub(fl)..x - near].iter().cloned().fold(0.0, f64::max);
+        let right = paper[x + near..(x + fl).min(w)].iter().cloned().fold(0.0, f64::max);
+        let dip = paper[x] / left.min(right).max(1.0);
+        let on = dip < GUTTER_DIP;
+        if on {
+            match dips.last_mut() {
+                Some(d) if prev => {
+                    if dip < d.1 {
+                        *d = (x, dip);
+                    }
+                }
+                _ => dips.push((x, dip)),
+            }
+        }
+        prev = on;
+    }
+    // Left / Right: the dip nearest the kept page (beyond it lie the facing page's outer edge, a neighbour leaf, the
+    // background); Double: the deepest in the middle
+    match side {
+        Side::Left => dips.first().map(|d| d.0),
+        Side::Right => dips.last().map(|d| d.0),
+        _ => dips.iter().min_by(|a, b| a.1.total_cmp(&b.1)).map(|d| d.0),
+    }
 }
 
 /// the text crop of an image (`rgb`, w × h — OCR Lite passes the page at its bake scale) → [x0, y0, x1, y1] in its px;
 /// Err = no text ink found
 pub fn text_crop(rgb: &[u8], w: usize, h: usize) -> Result<[f64; 4], ink::page::NoInk> {
+    text_crop_side(rgb, w, h, Side::Auto).map(|c| c.b)
+}
+
+/// the text crop for `side`: Left / Right — the text crop of the columns on that side of the gutter; Double — the two
+/// sides' crops joined. No gutter: Auto's crop, `gutter` None
+pub fn text_crop_side(rgb: &[u8], w: usize, h: usize, side: Side) -> Result<Crop, ink::page::NoInk> {
     let pg = ink::page_from_gray(img::luma_pil_rgb(rgb, w, h))?;
     let text = ink::page::text_blobs(&pg);
     let spread = img::Gray { w, h, px: rgb.chunks_exact(3).map(|p| p.iter().max().expect("rgb") - p.iter().min().expect("rgb")).collect() };
     let chroma = if (pg.w(), pg.h()) == (w, h) { spread } else { img::resize_area(&spread, pg.w(), pg.h()) };
-    text_block(&pg, &text, &chroma).ok_or_else(|| ink::page::NoInk("no text ink on the page".into()))
+    let none = || ink::page::NoInk("no text ink on the page".into());
+    let auto = || text_block(&pg, &text, &chroma).ok_or_else(none);
+    let g = match gutter(&pg, side) {
+        Some(g) => g,
+        None => return Ok(Crop { b: auto()?, gutter: None }),
+    };
+    let left = || text_block_in(&pg, &text, &chroma, 0, g);
+    let right = || text_block_in(&pg, &text, &chroma, g, pg.w());
+    let b = match side {
+        Side::Left => left().ok_or_else(none)?,
+        Side::Right => right().ok_or_else(none)?,
+        _ => match (left(), right()) {
+            (Some(a), Some(b)) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
+            (Some(a), None) | (None, Some(a)) => a,
+            (None, None) => return Err(none()),
+        },
+    };
+    Ok(Crop { b, gutter: Some(g as f64 / pg.f) })
 }
