@@ -90,6 +90,7 @@
   "st.cropFound": "Text crop: adjust the rectangle to the writing, then the green ✓",
   "st.gutterFound": " · page gutter found",
   "st.noGutter": " — no page gutter found: the whole text block; adjust the rectangle",
+  "st.spread": " · a book spread: pick Left or Right in the ▾ menu",
   "st.starting": "Starting…",
   "st.storage": "browser storage unavailable: {e}",
   "st.needModel": "Read needs the model — it is not in this browser yet",

@@ -881,8 +881,9 @@ async function textCrop() {
     return;
   }
   showPending(r);
-  // a side: the page gutter found (the crop is that page / both), or not (the crop is Auto's whole text block)
-  const side = cropSide === "auto" ? "" : t(r.gutter === null ? "st.noGutter" : "st.gutterFound");
+  // a side: the page gutter found (the crop is that page / both), or not (the crop is Auto's whole text block); Auto on
+  // a book spread (writing on both sides of a spine): the hint to pick a page in the ▾ menu
+  const side = cropSide !== "auto" ? t(r.gutter === null ? "st.noGutter" : "st.gutterFound") : r.spread ? t("st.spread") : "";
   status(`${t("st.cropFound")}${side}`, "ok");
 }
 $("textCropBtn").onclick = () => textCrop();

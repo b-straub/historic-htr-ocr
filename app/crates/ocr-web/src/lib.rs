@@ -304,8 +304,9 @@ pub fn text_crop(ops_json: &str) -> Result<String, JsError> {
 }
 
 /// the text crop for a side ("auto" | "left" | "right" | "double" — ocr-layout crop::text_crop_side): { x, y, w, h,
-/// gutter } in the prepared image's px — gutter null = no gutter found (the crop is Auto's; the UI says so) — or
-/// { none, code: "noWriting" }
+/// gutter, spread } in the prepared image's px — Left / Right / Double: gutter null = no gutter found (the crop is
+/// Auto's; the UI says so); Auto: spread true = a spread with writing on both pages, gutter its spine (the box stays
+/// Auto's: the UI offers Left / Right) — or { none, code: "noWriting" }
 #[wasm_bindgen]
 pub fn text_crop_side(ops_json: &str, side: &str) -> Result<String, JsError> {
     (|| -> Result<String> {
@@ -329,7 +330,7 @@ pub fn text_crop_side(ops_json: &str, side: &str) -> Result<String, JsError> {
         let x1 = ((c.b[2] / s).ceil() as u32).clamp(x0 + 1, img.width());
         let y1 = ((c.b[3] / s).ceil() as u32).clamp(y0 + 1, img.height());
         let gutter = c.gutter.map(|g| (g / s).round() as u32);
-        Ok(serde_json::json!({ "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "gutter": gutter }).to_string())
+        Ok(serde_json::json!({ "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "gutter": gutter, "spread": c.spread }).to_string())
     })()
     .map_err(js_err)
 }

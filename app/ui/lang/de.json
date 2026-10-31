@@ -90,6 +90,7 @@
   "st.cropFound": "Textzuschnitt: das Rechteck an die Schrift anpassen, dann das grüne ✓",
   "st.gutterFound": " · Falz gefunden",
   "st.noGutter": " — kein Falz gefunden: der ganze Textblock; das Rechteck anpassen",
+  "st.spread": " · Doppelseite erkannt: im ▾ Links oder Rechts wählen",
   "st.starting": "Wird gestartet…",
   "st.storage": "Browser-Speicher nicht verfügbar: {e}",
   "st.needModel": "Zum Lesen fehlt das Modell — es ist noch nicht in diesem Browser",

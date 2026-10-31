@@ -31,6 +31,10 @@ const EDGE_CUT_MIN: usize = 3;
 /// a book edge: this share of a run's ink in tall strokes (height ≥ TALL × width)
 const TALL_INK: f64 = 0.5;
 const TALL: usize = 3;
+/// a run of drawn lines below or above the text: this share of its ink in tall strokes of ≥ STRAP pitch (the
+/// training sample's text runs: ≤ 0.17; a charter's plica with nine seal straps: 0.25) — UNMEASURED beyond them
+const STRAP_INK: f64 = 0.2;
+const STRAP: f64 = 2.0;
 /// a tiny run: blobs < max(3, main run's blobs / TINY_BLOBS_DIV), or ink < TINY_MASS of the main run's
 const TINY_BLOBS_DIV: usize = 20;
 const TINY_MASS: f64 = 0.005;
@@ -291,7 +295,19 @@ fn text_block_in(pg: &Page, text: &[bool], chroma: &img::Gray, cx0: usize, cx1: 
         return None;
     }
     let rr = runs(&row, RUN_LEVEL * rpeak, (ROW_JOIN * pg.pitch) as usize);
-    let (y0, y1) = block(&rr, &vec![3; rr.len()], &vec![false; rr.len()]);
+    // a run of lines drawn rather than written ends the block on its side: ≥ STRAP_INK of its ink in tall strokes of
+    // ≥ STRAP pitch (a charter's plica with the seal straps' edges; an ascender is shorter)
+    let strap = |c: usize| tall(c) && pg.st[c].h as f64 >= STRAP * pg.pitch;
+    let rforeign: Vec<bool> = rr
+        .iter()
+        .map(|q| {
+            let cs: Vec<usize> = (1..pg.n).filter(|&c| text[c] && pg.cy[c] >= q.s as f64 && pg.cy[c] < q.e as f64 && pg.cx[c] >= x0 as f64 && pg.cx[c] < x1 as f64).collect();
+            let ink: usize = cs.iter().map(|&c| pg.st[c].area).sum();
+            let drawn: usize = cs.iter().filter(|&&c| strap(c)).map(|&c| pg.st[c].area).sum();
+            ink > 0 && drawn as f64 >= STRAP_INK * ink as f64
+        })
+        .collect();
+    let (y0, y1) = block(&rr, &vec![3; rr.len()], &rforeign);
     let pad = PAD * pg.pitch;
     Some([
         (x0 as f64 - pad).max(cx0 as f64) / pg.f,
@@ -311,11 +327,54 @@ pub enum Side {
     Double,
 }
 
-/// a text crop: [x0, y0, x1, y1] in the image's px and, for Left / Right / Double, the gutter's x (image px) — None =
-/// no gutter found (the crop is then Auto's)
+/// a text crop: [x0, y0, x1, y1] in the image's px and the gutter's x (image px): for Left / Right / Double the one
+/// split at — None = no gutter found (the crop is then Auto's); for Auto the spread's when `spread` (its box stays
+/// Auto's: the UI offers Left / Right)
 pub struct Crop {
     pub b: [f64; 4],
     pub gutter: Option<f64>,
+    pub spread: bool,
+}
+
+/// Auto's spread hint: the middle gutter (Double's search) with text on both sides — the lighter side at least
+/// SPREAD_SIDE of the heavier side's text ink — and the pages' inner margins around it: within SPREAD_MARGIN pitch
+/// of it the text profile falls under SPREAD_GAP of its median over the written columns (a charter's fold dips too,
+/// but its lines run across it: 0.47 … 1.54 on 13 folded charters; bound spreads 0.01 … 0.23) — UNMEASURED beyond them
+const SPREAD_SIDE: f64 = 0.25;
+const SPREAD_MARGIN: f64 = 1.0;
+const SPREAD_GAP: f64 = 0.35;
+
+/// the middle gutter of a spread with writing on both pages (work px), or None
+fn spread_gutter(pg: &Page, text: &[bool]) -> Option<usize> {
+    let g = gutter(pg, Side::Double)?;
+    let w = pg.w();
+    let mut col = vec![0f64; w];
+    for i in 0..w * pg.h() {
+        let l = pg.lab[i] as usize;
+        if l > 0 && text[l] {
+            col[i % w] += 1.0;
+        }
+    }
+    let col = img::blur_1d(&col, PROFILE_SIGMA * pg.pitch);
+    let peak = col.iter().cloned().fold(0.0, f64::max);
+    let m = (SPREAD_MARGIN * pg.pitch) as usize;
+    let low = col[g.saturating_sub(m)..(g + m + 1).min(w)].iter().cloned().fold(f64::MAX, f64::min);
+    let written: Vec<f64> = col.iter().cloned().filter(|&v| v > RUN_LEVEL * peak).collect();
+    let typical = img::median(&written).unwrap_or(peak);
+    if low > SPREAD_GAP * typical {
+        return None;
+    }
+    let (mut l, mut r) = (0usize, 0usize);
+    for c in 1..pg.n {
+        if text[c] {
+            if (pg.cx[c] as usize) < g {
+                l += pg.st[c].area;
+            } else {
+                r += pg.st[c].area;
+            }
+        }
+    }
+    (l.min(r) as f64 >= SPREAD_SIDE * l.max(r) as f64 && l.max(r) > 0).then_some(g)
 }
 
 /// the gutter: the paper's brightness (the column's median grey over the middle rows — writing is too sparse to move
@@ -403,9 +462,13 @@ pub fn text_crop_side(rgb: &[u8], w: usize, h: usize, side: Side) -> Result<Crop
     let chroma = if (pg.w(), pg.h()) == (w, h) { spread } else { img::resize_area(&spread, pg.w(), pg.h()) };
     let none = || ink::page::NoInk("no text ink on the page".into());
     let auto = || text_block(&pg, &text, &chroma).ok_or_else(none);
+    if side == Side::Auto {
+        let g = spread_gutter(&pg, &text);
+        return Ok(Crop { b: auto()?, gutter: g.map(|g| g as f64 / pg.f), spread: g.is_some() });
+    }
     let g = match gutter(&pg, side) {
         Some(g) => g,
-        None => return Ok(Crop { b: auto()?, gutter: None }),
+        None => return Ok(Crop { b: auto()?, gutter: None, spread: false }),
     };
     let left = || text_block_in(&pg, &text, &chroma, 0, g);
     let right = || text_block_in(&pg, &text, &chroma, g, pg.w());
@@ -418,5 +481,5 @@ pub fn text_crop_side(rgb: &[u8], w: usize, h: usize, side: Side) -> Result<Crop
             (None, None) => return Err(none()),
         },
     };
-    Ok(Crop { b, gutter: Some(g as f64 / pg.f) })
+    Ok(Crop { b, gutter: Some(g as f64 / pg.f), spread: false })
 }
