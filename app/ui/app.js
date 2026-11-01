@@ -424,11 +424,11 @@ function dragBox(d) {
   [y0, y1] = [Math.max(0, Math.min(y0, y1)), Math.min(H, Math.max(y0, y1))];
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
-// where a pointer lands on the drawn rectangle (image px): its edges / corners within reach of a finger, inside = move,
-// else null (a new rectangle)
-const GRAB_PX = 22;
-function grabOf(b, p) {
-  const r = GRAB_PX / D;
+// where a pointer lands on the drawn rectangle (image px): its edges / corners within reach (`px` screen px), inside =
+// move, else null (a new rectangle)
+const GRAB_PX = 22, GRAB_TOUCH_PX = 28;
+function grabOf(b, p, px) {
+  const r = px / D;
   const inX = p.x > b.x - r && p.x < b.x + b.w + r, inY = p.y > b.y - r && p.y < b.y + b.h + r;
   if (!inX || !inY) return null;
   let m = "";
@@ -624,6 +624,11 @@ function drawOverlay() {
     Object.assign(rect.style, { left: `${c.x}px`, top: `${c.y}px`, width: `${c.w}px`, height: `${c.h}px` });
     rect.hidden = false;
   }
+  // the handle a pointer holds (its edge or corner; a move holds none)
+  const held = drag !== null && drag.mode !== "new" && drag.mode !== "move" ? drag.mode : "";
+  for (const h of rect.querySelectorAll(".hd")) {
+    h.classList.toggle("held", [...h.classList].includes(held));
+  }
   drawBakeInfo();
   applyState(); // every change of the crop rect (and of the zoom, via layout) passes here
 }
@@ -661,7 +666,10 @@ function applyCrop() {
 // pinch-zoom about their midpoint and pan (Pointer Events — iPadOS Safari, Android Chrome); a double click / double tap = fit.
 // A crop and a zoom never mix: once a rectangle is under way (the finger moved PINCH_GRACE_PX or held PINCH_GRACE_MS)
 // and GESTURE_QUIET_MS after it, another finger, a pinch or a double tap leave the view as it is — a second finger
-// sooner is a pinch (the rectangle dropped); after a pinch a finger landing again within that time draws nothing
+// sooner is a pinch (the rectangle dropped); after a pinch a finger landing again within that time draws nothing.
+// A finger with a rectangle up: on a handle (corner or edge) it adjusts the rectangle — the handle lit while held, a
+// second finger then leaves the view as it is; anywhere else it pans and two fingers pinch (the mouse: inside moves,
+// outside draws anew)
 const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
 (() => {
   const pane = $("imgPane"), stage = $("stage"), img = $("img");
@@ -731,7 +739,13 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
       return; // a finger of the pinch just ended landing again: no rectangle
     }
     const p = imgPos(ev);
-    const grab = pending === null ? null : grabOf(pending, p);
+    const touch = ev.pointerType === "touch";
+    const grab = pending === null ? null : grabOf(pending, p, touch ? GRAB_TOUCH_PX : GRAB_PX);
+    if (touch && pending !== null && (grab === null || grab === "move")) {
+      // no handle under the finger: a pan (a pinch when a second finger follows)
+      pan = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, left: pane.scrollLeft, top: pane.scrollTop, t: performance.now() };
+      return;
+    }
     drag = { id: ev.pointerId, mode: grab === null ? "new" : grab, base: pending, start: p, cur: p, prev: pending, t: performance.now(), x: ev.clientX, y: ev.clientY, cx: ev.clientX, cy: ev.clientY };
     pending = null;
     $("rect").classList.remove("auto");
@@ -742,7 +756,7 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   const GRAB_CURSOR = { l: "ew-resize", r: "ew-resize", t: "ns-resize", b: "ns-resize", lt: "nwse-resize", rb: "nwse-resize", lb: "nesw-resize", rt: "nesw-resize", move: "move" };
   pane.addEventListener("pointermove", (ev) => {
     if (ev.pointerType !== "touch" && drag === null && pan === null && S.prev) {
-      const g = cropMode && pending !== null ? grabOf(pending, imgPos(ev)) : null;
+      const g = cropMode && pending !== null ? grabOf(pending, imgPos(ev), GRAB_PX) : null;
       stage.style.cursor = g === null ? "" : GRAB_CURSOR[g];
     }
     if (touches.has(ev.pointerId)) touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });

@@ -494,9 +494,12 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 }
 /* the Text tab: only the Read row stays (Read again), the image's rows and zoom go */
 body.stacked[data-tab="text"] #cropRow, body.stacked[data-tab="text"] #adjustRow, body.stacked[data-tab="text"] #zoomSeg { display: none; }
-/* the crop rectangle's corners: where a finger adjusts it (any edge works too) */
-#rect .hd { position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); background: #fff; border-radius: 3px; box-sizing: border-box; }
-#rect .tl { left: -7px; top: -7px; } #rect .tr { right: -7px; top: -7px; } #rect .bl { left: -7px; bottom: -7px; } #rect .br { right: -7px; bottom: -7px; }
+/* the crop rectangle's handles: corners and edge middles — where a finger adjusts it (elsewhere a finger pans); the
+   held one filled and larger, so a grab is plain to see */
+#rect .hd { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--accent); background: #fff; border-radius: 3px; box-sizing: border-box; }
+#rect .lt { left: 0; top: 0; } #rect .rt { left: 100%; top: 0; } #rect .lb { left: 0; top: 100%; } #rect .rb { left: 100%; top: 100%; }
+#rect .t { left: 50%; top: 0; } #rect .b { left: 50%; top: 100%; } #rect .l { left: 0; top: 50%; } #rect .r { left: 100%; top: 50%; }
+#rect .hd.held { background: var(--accent); transform: scale(1.6); }
 /* tab mode: the text with less side padding — Fit gets the width */
 body.stacked #editor { padding: 16px 12px; }
 body.stacked #src { padding: 14px 12px; }

@@ -338,6 +338,17 @@ const autoRect = async (page) => {
     await autoRect(page);
     const inCrop = await pinchOut();
     const rectAfter = await page.evaluate(() => { const r = document.getElementById("rect").getBoundingClientRect(), i = document.getElementById("img").getBoundingClientRect(); return !document.getElementById("rect").hidden && Math.abs(r.width - i.width) < 1.5; });
+    // zoomed in with the rectangle up, one finger away from its handles pans; the rectangle stays as it was
+    await new Promise((r) => setTimeout(r, 600));
+    const before = await page.evaluate(() => { const p = document.getElementById("imgPane"), r = document.getElementById("rect"); return { sl: p.scrollLeft, st: p.scrollTop, rect: r.style.cssText }; });
+    const c = await page.evaluate(() => { const r = document.getElementById("imgPane").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...c, id: 41 }] });
+    for (let k = 1; k <= 5; k++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: c.x + 10 * k, y: c.y + 8 * k, id: 41 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await new Promise((r) => setTimeout(r, 200));
+    const after = await page.evaluate(() => { const p = document.getElementById("imgPane"), r = document.getElementById("rect"); return { sl: p.scrollLeft, st: p.scrollTop, rect: r.style.cssText, held: r.querySelectorAll(".held").length }; });
+    ok(Math.abs(after.sl - before.sl + 50) < 2 && Math.abs(after.st - before.st + 40) < 2 && after.rect === before.rect && after.held === 0,
+      `rectangle up: one finger off its handles pans ${after.sl - before.sl}, ${after.st - before.st}, the rectangle kept ${after.rect === before.rect}`);
     await page.click("#cropCancelBtn");
     await zoomBtn("#zoomFitBtn");
     await new Promise((r) => setTimeout(r, 600));
