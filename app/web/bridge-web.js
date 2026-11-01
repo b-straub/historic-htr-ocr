@@ -524,11 +524,11 @@ function download(name, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-export async function saveAs(what, { stem, ops, text }) {
+export async function saveAs(what, { stem, ops, factor, text }) {
   const name = `${stem || "read"}.${what}`;
   if (what === "txt") download(name, new Blob([text], { type: "text/plain;charset=utf-8" }));
   if (what === "html") download(name, new Blob([ocr.document(stem, text)], { type: "text/html;charset=utf-8" }));
-  if (what === "png") download(name, new Blob([await imageWork("bakedPng", { ops })], { type: "image/png" }));
+  if (what === "png") download(name, new Blob([await imageWork("bakedPng", { ops, factor })], { type: "image/png" }));
   return `${name} (download)`;
 }
 

@@ -204,12 +204,11 @@ const cropTool = (page, id) => page.click(id);
     ok(norm(text) === norm(want), `read == ${path.basename(EXPECT)} (line ends trimmed): ${text.length} chars, first line "${text.split("\n")[0]}"`);
     fs.writeFileSync(path.join(DIR, "out", "read.txt"), text);
     await page.screenshot({ path: path.join(DIR, "out", "3_read.png") });
-    // the Scale: Auto finds the text crop, the slider to its low end (9 px letters) — the read on the scaled input
+    // the scale: Auto finds the text crop — the read on the crop at ×1; its size line is the read's model input
     await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => !document.getElementById("rect").hidden && /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     await page.click("#cropApplyBtn");
-    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
-    await page.evaluate(() => { const s = document.getElementById("scaleSlider"); s.value = s.min; s.dispatchEvent(new Event("input")); });
+    await page.waitForFunction(() => document.getElementById("scaleInfo").textContent !== "", { timeout: 30000 });
     const sizeLine = await page.evaluate(() => `${document.getElementById("bakeInfo").textContent} · ${document.getElementById("scaleInfo").textContent}`);
     await page.evaluate(() => { window.__text = ""; });
     await page.click("#zoomInBtn"); await page.click("#zoomInBtn"); // a zoomed image goes back to fit for the read
@@ -222,7 +221,7 @@ const cropTool = (page, id) => page.click(id);
     ok(fitForRead === "100 %", `the zoomed image back to fit for the read: ${fitForRead}`);
     const scaled = await page.evaluate(() => ({ info: `${document.getElementById("bakeInfo").textContent} · ${document.getElementById("scaleInfo").textContent}`, st: document.getElementById("status").textContent, text: window.__text }));
     // the read's model input is the one the size line showed before it
-    ok(scaled.info === sizeLine && /· 9 px$/.test(scaled.info) && /tok\/s/.test(scaled.st) && scaled.text.length > 0, `Scale read: ${scaled.info} · ${scaled.text.length} chars`);
+    ok(scaled.info === sizeLine && /×/.test(scaled.info) && /tok\/s/.test(scaled.st) && scaled.text.length > 0, `Scale read: ${scaled.info} · ${scaled.text.length} chars`);
     fs.writeFileSync(path.join(DIR, "out", "read_scaled.txt"), scaled.text);
     await page.screenshot({ path: path.join(DIR, "out", "3b_read_scaled.png") });
     // after it Read is ready for the next image — and after a reload

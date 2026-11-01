@@ -39,16 +39,19 @@ pub const TARGET_HIGH: f64 = 59.5;
 pub const XH_MIN: f64 = 11.0;
 pub const XH_MAX: f64 = 43.0;
 /// Auto's aim for small letters: about the trained pages' p75 glyph height (the user's reads came out best at 30 px;
-/// above the median of 23) — a page below it is enlarged towards it (never past the bake's 1540 px edge), a page inside
-/// the trained range above it stays as it is (shrinking a 32 px hand to 21 px cost CER, see XH_MIN)
+/// above the median of 23) — a page with letters below XH_KEEP is enlarged towards it (never past the bake's 1540 px
+/// edge)
 pub const XH_AIM: f64 = 30.0;
+/// … letters from XH_KEEP to XH_MAX stay as they are (user: in range 1:1 is the preferred default — a 23 px photo read
+/// best at 1:1, a 13 px scan at about 30 px; shrinking a 32 px hand to 21 px cost CER, see XH_MIN)
+pub const XH_KEEP: f64 = 20.0;
 /// the slider reaches a little beyond the trained range, never far (4 or 70 px letters read badly) — UNMEASURED
 pub const SLIDE_MIN: f64 = 9.0;
 pub const SLIDE_MAX: f64 = 45.0;
 
 /// the slider's factors for a page of glyph height `xh` and longest edge `longest` (both bake px): `lo` / `hi` bring
-/// its letters to SLIDE_MIN / SLIDE_MAX (`hi` never past the bake's 1540 px edge); `auto` = letters below XH_AIM
-/// enlarged towards it, letters up to XH_MAX as they are, larger ones down to XH_MAX. None = letters too small even at
+/// its letters to SLIDE_MIN / SLIDE_MAX (`hi` never past the bake's 1540 px edge); `auto` = letters below XH_KEEP
+/// enlarged towards XH_AIM, letters up to XH_MAX as they are, larger ones down to XH_MAX. None = letters too small even at
 /// 1540 px (a tighter crop leaves room)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Range {
@@ -63,7 +66,8 @@ pub fn xh_range(xh: f64, longest: f64) -> Option<Range> {
     if hi < lo {
         return None;
     }
-    Some(Range { lo, auto: (xh.clamp(XH_AIM, XH_MAX) / xh).min(hi), hi })
+    let aim = if xh < XH_KEEP { XH_AIM } else { xh.min(XH_MAX) };
+    Some(Range { lo, auto: (aim / xh).min(hi), hi })
 }
 
 /// a scale decision
@@ -309,10 +313,10 @@ mod tests {
     fn slider_range() {
         let r = xh_range(20.0, 600.0).expect("a range");
         close(r.lo, 9.0 / 20.0);
-        close(r.auto, 30.0 / 20.0);
+        close(r.auto, 1.0);
         close(r.hi, 45.0 / 20.0);
-        // letters inside the trained range above the aim: as they are
-        close(xh_range(35.0, 600.0).expect("a range").auto, 1.0);
+        // letters below XH_KEEP: towards the aim
+        close(xh_range(15.0, 600.0).expect("a range").auto, 2.0);
         // a small double-page scan's half (14 px letters, 1200 px tall): enlarged up to the 1540 px edge
         close(xh_range(14.0, 1200.0).expect("a range").auto, 1540.0 / 1200.0);
         // a close-up's 80 px letters: auto brings them to 43, the slider to 9 … 45

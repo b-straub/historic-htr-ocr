@@ -58,13 +58,15 @@
         <button class="ib" data-op="autoContrast" data-i18n-tip="adj.contrast" data-tip="Auto contrast on / off (levels 0.5 % / 99.5 %)"><i data-icon="contrast"></i></button>
         <button class="ib" data-op="pencil" data-i18n-tip="adj.pencil" data-tip="Pencil on / off: flatten paper · green channel"><i data-icon="pencil"></i></button>
       </span>
-      <!-- the Scale (app.js Scale): the slider (the letters' height for the model, px) · Auto — only on a cropped image,
-           its range from the crop's letters (ocr-layout scale::xh_range); every crop change starts at 1:1. After it
-           what it gives: the factor to the model input and the letters' height there -->
+      <!-- the scale (app.js Scale): a crop reads at ×1; after a read the wand lights up when its characters are off the
+           training's width and offers a better step (a tap reads again with it). After it the scale now -->
       <span class="seg" id="scaleSeg">
-        <span class="croplabel" data-i18n="scale">Scale</span>
-        <input type="range" id="scaleSlider" step="1" data-i18n-aria="scale.aria" data-i18n-tip="scale.title" aria-label="Letter height for the model (px)" data-tip="The letters' height for the model — the trained pages' letters are 11 … 43 px tall">
-        <button class="ib" id="scaleAutoBtn" data-i18n-tip="scale.auto.title" data-i18n-aria="scale.auto.aria" data-tip="Auto scale: the letters into the trained range (1:1 when they already are)" aria-label="Auto scale"><i data-icon="wand"></i></button>
+        <span class="menuwrap">
+          <button class="ib" id="scaleAutoBtn" data-i18n-tip="scale.auto.title" data-i18n-aria="scale.auto.aria" data-tip="Better scale" aria-label="Better scale"><i data-icon="wand"></i></button>
+          <button class="ib sidebtn" id="scaleMenuBtn" aria-haspopup="menu" data-i18n-tip="scale.menu.tip" data-i18n-aria="scale.menu.aria" data-tip="The steps for the training's band" aria-label="Scale steps">▾</button>
+          <!-- after a read (app.js scaleChoices): the steps for smaller · middle · larger characters and ×1 -->
+          <span class="menu" id="scaleMenu" role="menu" hidden></span>
+        </span>
       </span>
       <span class="meta" id="scaleInfo"></span>
     </div>

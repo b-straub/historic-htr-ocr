@@ -436,13 +436,18 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 #cropAct { gap: 4px; }
 /* Auto's mode: the ▾ right beside it, slim; Auto as wide as its longest mode (the row never moves); the menu drops
    below (over the image while open, never moving it) */
-#sideBtn { min-width: 20px; padding: 0 3px; font-size: 14px; }
+#sideBtn, #scaleMenuBtn { min-width: 20px; padding: 0 3px; font-size: 14px; }
 #textCropBtn { min-width: 58px; }
 #sideMenu { min-width: 130px; }
 #sideMenu .menuhead { display: block; padding: 6px 10px 8px; font-weight: 600; white-space: nowrap; }
 #sideMenu button:disabled { opacity: 0.4; background: transparent; color: var(--fg); }
 #sideMenu button.on::before { content: "✓ "; }
 #sideMenu button:not(.on) { padding-left: 24px; }
+#scaleMenu { left: 0; right: auto; min-width: 250px; }
+#scaleMenu .menuhead { display: block; padding: 6px 10px 8px; font-weight: 600; white-space: nowrap; }
+#scaleMenu button { white-space: nowrap; }
+#scaleMenu button.on::before { content: "✓ "; }
+#scaleMenu button:not(.on) { padding-left: 24px; }
 #cropApplyBtn:not(:disabled) { background: #16a34a; color: #fff; }
 #cropCancelBtn:not(:disabled) { background: #dc2626; color: #fff; }
 #cropApplyBtn:not(:disabled):hover { background: #15803d; }
@@ -450,12 +455,13 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
 #cropAct svg { stroke-width: 2.6; }
 .croplabel { color: var(--muted); font-size: 12px; padding: 0 2px 0 4px; }
 /* the Scale: label · slider · Auto in one segment; the slider gives way first */
-#scaleSeg { display: flex; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; max-width: 320px; }
-#scaleSlider { flex: 1 1 0; min-width: 0; accent-color: var(--accent); }
+#scaleSeg { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+/* after a read: the wand offers the step by the lines */
+#scaleAutoBtn.suggest { color: #fff; background: var(--accent); }
 /* what the Scale gives and the model input's size: one line each, never pushing the image smaller */
 #scaleInfo, #bakeInfo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-size: 12px; }
-/* a fixed width ("×0.56 · 43 px"): the slider never moves when the text changes */
-#scaleInfo { flex: 0 0 auto; width: 82px; font-variant-numeric: tabular-nums; }
+/* a fixed width ("×2.71"): nothing moves when the text changes */
+#scaleInfo { flex: 0 0 auto; width: 48px; font-variant-numeric: tabular-nums; }
 #bakeInfo { flex: 1 1 0; }
 /* a phone on its side: a free strip above the first line — iOS pulls Control Center down from the top edge (on the
    right, where the Scale's slider sits) and a drag there moved the slider */
@@ -475,7 +481,6 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
   #readRow { order: 3; }
   #presetBox { order: 4; }
   #readBtn { order: 5; }
-  #scaleSeg { max-width: none; }
 }
 /* a phone: the zoom by pinch and double tap only; Open as its icon (the crop row fits 375 px) */
 @media (max-width: 480px) and (orientation: portrait), (orientation: landscape) and (max-height: 500px) {
@@ -513,7 +518,6 @@ body.stacked #src { padding: 14px 12px; }
   .titlebar .brand, #cropRow, #adjustRow, #readRow, #appRow, #presetBox, #readBtn { order: 0; }
   .rowbreak, .appgap { display: none; }
   .titlebar .brand, #cropRow, #adjustRow, #readRow, #appRow { flex: 0 0 auto; }
-  #scaleSeg { flex: 0 0 auto; width: 300px; max-width: none; }
   #bakeInfo { flex: 0 0 auto; width: 176px; }
   /* the zoom first, the size line after it: its fixed width's free end then sits before the flexible margin, not as a
      hole inside the line */

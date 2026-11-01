@@ -81,8 +81,8 @@ const commands = {
   textCropSide({ ops, side }) {
     return [JSON.parse(ocr.text_crop_side(JSON.stringify(ops), side)), []];
   },
-  bakedPng({ ops }) {
-    const png = ocr.baked_png(JSON.stringify(ops));
+  bakedPng({ ops, factor }) {
+    const png = ocr.baked_png(JSON.stringify(ops), factor);
     return [png, [png.buffer]];
   },
 };

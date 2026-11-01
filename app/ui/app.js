@@ -61,10 +61,11 @@ const S = {
   ops: [],          // the prep chain (imageops::Op), applied in order to the opened image
   prev: null,       // the last preview: { url, w, h, bake }
   readBake: null,   // the bake plan of the read's model input (Scale may differ from the preview's)
-  // the Scale, reset by every crop change: range = the cropped page's glyph_height ({ xh, lo, auto, hi } or { none }),
-  // null without a crop or not yet measured; factor = what the read applies (1 = as is); autoDone = Auto applied, no
-  // slider move since
-  size: { range: null, factor: 1, autoDone: false },
+  readInputW: 0,    // the read's model input width (unpadded): the characters' measure after it
+  // the scale, reset by every crop change: factor = what the read applies on top of the bake scale (1 = ×1, or the
+  // 1540 px edge); cw = the last read's width per character at the model input, at = its step (the wand's menu),
+  // undefined before a read
+  size: { factor: 1, cw: undefined, at: undefined },
   sharp: false,     // the shown preview is the sharp (zoomed-in) one
   stem: "",
   reading: false,
@@ -502,88 +503,150 @@ const retab = () => {
 STACKED.addEventListener("change", retab);
 COMPACT.addEventListener("change", retab);
 
-// ── Scale: slider · Auto. The slider runs in the letters' height for the model (bake px, steps of 1) over the
-// cropped page's range (glyph_height: ocr-layout scale::xh_range — 9 … 45 px, never past the 1540 px edge); without a
-// crop the image is read as is. Every crop change gets Auto at once (the wand again after a slider move); Auto (letters below 30 px —
-// enlarged towards it as far as the 1540 px edge allows, 30 … 43 px at 1:1, larger ones down to 43 px: scale::xh_range)
-// is an action, offered again after each crop change or slider move ──
-let sizeSeq = 0;
-const hasCrop = () => S.ops.some((o) => o.op === "crop");
-const sized = () => S.size.range !== null && S.size.range.none === undefined;
-// a result without a measure ({ none, code } of glyph_height / text_crop, ocr-web) in words: from its code; `none` is
-// the detail for the trail
-const noneWhy = (r) => t(`none.${r.code}`, r);
-// the letters' size is geometry: measured on the crop and the turns only — contrast / pencil change the ink's threshold,
-// not the letters (they moved the measure by a third), so a filter step keeps the Scale as it is
-const GEOM = new Set(["crop", "rotateLeft", "rotateRight", "rotate180"]);
-let sizeKey = null; // the geometric steps last measured; null = measure (a new image)
-async function measureSize() {
-  const geom = S.ops.filter((o) => GEOM.has(o.op));
-  const key = JSON.stringify(geom);
-  if (key === sizeKey) {
-    drawScale();
-    return;
-  }
-  sizeKey = key;
-  const seq = ++sizeSeq;
-  S.size = { range: null, factor: 1, autoDone: false };
-  drawScale();
-  if (!S.prev || !hasCrop()) {
-    return;
-  }
-  let r;
-  try {
-    r = await call("glyph_height", { ops: geom });
-  } catch {
-    return; // call() put the error in the status line
-  }
-  if (seq !== sizeSeq) return;
-  S.size.range = r;
-  if (r.none !== undefined) {
-    crumb(`scale: ${r.none}`);
-    status(t("st.scaleNone", { why: noneWhy(r) }), "err");
-  } else {
-    // every crop gets the Auto scale at once (the wand again after a slider move)
-    S.size.factor = r.auto;
-    S.size.autoDone = true;
-    crumb(`scale auto ×${S.size.factor.toFixed(2)} (letters ${Math.round(r.xh)} px, ${r.lo.toFixed(2)} … ${r.hi.toFixed(2)})`);
-  }
-  drawScale();
+// ── Scale: no slider — a crop is read at ×1 (its own pixels; past the 1540 px edge at the edge). After a read its lines
+// measure the model input's width per character — the median over the lines of input width / the line's characters —
+// against the training pages' (the same per page over the free training pages, bake px: p25 19 · p33 20 · median 23 ·
+// p67 27 · p75 29). The band sits lower — middle 20 (p33), ends 18 and 23: a training page's width carries its margins,
+// a tight crop has few, so the same hand gives fewer px a character there (user: the lower range read better). After
+// a read the wand reads again at the band's middle; its ▾ opens a menu: the middle, the lower and upper end — each a factor rounded to 0.1 (0.25 from ×1.5 on), never past the 1540 px
+// edge; a step reads again with it. Outside the band the wand is lit and the status line says why; on while a step
+// other than ×1 is in use. S.size.factor = the factor on top of the bake scale (bake_scaled), 1 = ×1 or the edge ──
+const BAND_LO = 18, BAND_MID = 20, BAND_HI = 23, LINE_MIN_LINES = 3;
+const LONGEST = 1540;
+// the prepared image's bake scale (bake px per own px) and the factor from its own pixels to the 1540 px edge
+const sizeOf = (p) => ({ bake: p.bake.scaledW / p.w, edge: LONGEST / Math.max(p.w, p.h) });
+// a factor rounded for the menu (0.1, from ×1.5 on 0.25), never past the edge (nor below 0.1)
+function roundStep(f, edge) {
+  const g = f >= 1.5 ? 0.25 : 0.1;
+  const s = Math.max(0.1, Math.round(f / g) * g);
+  return s > edge ? edge : s;
 }
-// the slider and the status from S.size (the buttons: applyState)
-function drawScale() {
-  const r = S.size.range, sl = $("scaleSlider");
-  if (sized()) {
-    sl.min = String(Math.ceil(r.xh * r.lo - 1e-6));
-    sl.max = String(Math.floor(r.xh * r.hi + 1e-6));
-    sl.value = String(Math.round(r.xh * S.size.factor));
-  } else {
-    // nothing measured (no crop): the thumb in the middle, as no size
-    sl.min = "0";
-    sl.max = "2";
-    sl.value = "1";
+// a step in words: ×1/3, ×1, ×2.5, the edge's factor ×0.51
+const stepText = (s) => {
+  const n = Math.round(1 / s);
+  return s < 1 && n >= 2 && Math.abs(1 / s - n) < 1e-6 ? `×1/${n}` : `×${upTo(s, 2)}`;
+};
+const hasCrop = () => S.ops.some((o) => o.op === "crop");
+// a result without a measure ({ none, code } of text_crop, ocr-web) in words: from its code; `none` is the detail for
+// the trail
+const noneWhy = (r) => t(`none.${r.code}`, r);
+// the scale is geometry: a crop or a turn starts again at ×1 — contrast / pencil keep it
+const GEOM = new Set(["crop", "rotateLeft", "rotateRight", "rotate180"]);
+let sizeKey = null; // the geometric steps of the current scale; null = a new image
+function measureSize() {
+  const key = JSON.stringify(S.ops.filter((o) => GEOM.has(o.op)));
+  if (key !== sizeKey) {
+    sizeKey = key;
+    S.size = { factor: 1, cw: undefined, at: undefined };
   }
   drawBakeInfo();
   applyState();
 }
-$("scaleSlider").oninput = () => {
-  const r = S.size.range, v = Number($("scaleSlider").value);
-  // the scan's own letter height on the slider = 1:1 (no resize)
-  S.size.factor = v === Math.round(r.xh) && r.lo <= 1 && 1 <= r.hi ? 1 : v / r.xh;
-  S.size.autoDone = false;
-  drawScale();
-};
-$("scaleSlider").onchange = () => crumb(`scale ×${S.size.factor.toFixed(2)}`);
+// the wand's menu after a read: the middle of the training's band, its lower and upper end (merged when they meet) and
+// ×1 — each { step, px (the characters' width it gives), key }
+function scaleChoices() {
+  const c = S.size.cw, at = S.size.at, edge = sizeOf(S.prev).edge, out = [];
+  for (const [target, key] of [[BAND_MID, "scale.menu.mid"], [BAND_LO, "scale.menu.lo"], [BAND_HI, "scale.menu.hi"]]) {
+    const step = roundStep(at * target / c, edge);
+    if (!out.some((o) => Math.abs(o.step - step) < 1e-6)) {
+      out.push({ step, px: Math.round(c * step / at), key });
+    }
+  }
+  const one = Math.min(1, edge);
+  if (!out.some((o) => Math.abs(o.step - one) < 1e-6)) {
+    out.push({ step: one, px: Math.round(c * one / at), key: "scale.menu.one" });
+  }
+  return out;
+}
+// the wand after a read: the middle step (scaleChoices' first) and the read again — in use already: back to ×1 (no
+// read); lit when the read's characters are outside the training's band, on while a step other than ×1 is in use
 $("scaleAutoBtn").onclick = () => {
-  S.size.factor = S.size.range.auto;
-  S.size.autoDone = true;
-  crumb(`scale auto ×${S.size.factor.toFixed(2)}`);
-  drawScale();
+  const r = sizeOf(S.prev), mid = scaleChoices()[0], now = S.size.factor * r.bake;
+  if (Math.abs(mid.step - now) < 1e-6) {
+    S.size.factor = 1;
+    crumb("scale by the lines off: ×1");
+    drawBakeInfo();
+    applyState();
+    return;
+  }
+  S.size.factor = mid.step / r.bake;
+  crumb(`scale by the lines ${stepText(mid.step)}`);
+  drawBakeInfo();
+  applyState();
+  $("readBtn").click();
 };
-// the status after the tools: the crop (or the image), the factor from it to the model input, the scaled size, the
-// average glyph height there — "1300 × 800 · ×1.2 · 1560 × 960 · 23 px"; the line height and the model input in its
-// tooltip (a tap shows it in the status line). The scaled size = the preview's bake scale × the Scale's factor, as bake_scaled makes it (inside
-// the 1540 px edge by the range; imageops::plan pads it to 56 px and the 28 px grid)
+// its ▾: the menu (scaleChoices; the current step ✓) — a step reads again with it, ×1 only sets it back
+$("scaleMenuBtn").onclick = (e) => {
+  e.stopPropagation();
+  const menu = $("scaleMenu");
+  if (!menu.hidden) {
+    menu.hidden = true;
+    return;
+  }
+  const now = S.size.factor * sizeOf(S.prev).bake;
+  const head = Object.assign(document.createElement("span"), { className: "menuhead",
+    textContent: t("scale.menu.head", { cw: Math.round(S.size.cw), lo: BAND_LO, hi: BAND_HI }) });
+  const items = scaleChoices().map((o) => {
+    const b = Object.assign(document.createElement("button"), { role: "menuitemradio",
+      textContent: t(o.key, { step: stepText(o.step), px: o.px }) });
+    const on = Math.abs(o.step - now) < 1e-6;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+    b.onclick = () => {
+      menu.hidden = true;
+      S.size.factor = o.step / sizeOf(S.prev).bake;
+      crumb(`scale by the lines ${stepText(o.step)}`);
+      drawBakeInfo();
+      applyState();
+      if (o.key !== "scale.menu.one") {
+        $("readBtn").click();
+      }
+    };
+    return b;
+  });
+  menu.replaceChildren(head, ...items);
+  menu.hidden = false;
+};
+document.addEventListener("click", () => { $("scaleMenu").hidden = true; });
+// after a read: its width per character at the model input (S.size.cw at S.size.at, the wand's menu) — the first
+// read on a crop measures, later ones keep it (the menu stays the same whichever step is in use; a crop change
+// measures again); returns the status line's note when outside the training's band ("" inside or without a measure)
+function lineSuggest(text, inputW) {
+  if (!hasCrop()) {
+    return "";
+  }
+  if (S.size.cw !== undefined) {
+    return scaleOff() ? t("done.scale", { cw: Math.round(cwNow()), lo: BAND_LO, hi: BAND_HI, step: stepText(scaleChoices()[0].step) }) : "";
+  }
+  const lens = text.split("\n").map((l) => l.replace(/<[^>]*>/g, "").trim().length).filter((n) => n > 0);
+  if (lens.length < LINE_MIN_LINES) {
+    return "";
+  }
+  const per = lens.map((n) => inputW / n).sort((a, b) => a - b);
+  const m = per.length >> 1, cw = per.length % 2 ? per[m] : (per[m - 1] + per[m]) / 2;
+  const now = S.size.factor * sizeOf(S.prev).bake;
+  S.size.cw = cw;
+  S.size.at = now;
+  crumb(`lines ${lens.length}, ${cw.toFixed(1)} px a character at ${stepText(now)} (training band ${BAND_LO} … ${BAND_HI})`);
+  if (!scaleOff()) {
+    return "";
+  }
+  return t("done.scale", { cw: Math.round(cw), lo: BAND_LO, hi: BAND_HI, step: stepText(scaleChoices()[0].step) });
+}
+// the width per character at the step in use (from the crop's measure)
+const cwNow = () => S.size.cw * S.size.factor * sizeOf(S.prev).bake / S.size.at;
+// the wand lit: the characters at the step in use outside the training's band
+function scaleOff() {
+  if (S.size.cw === undefined) {
+    return false;
+  }
+  const c = cwNow();
+  return c < BAND_LO || c > BAND_HI;
+}
+// the status after the tools: the crop (or the image) → the model input — "1300 × 800 → 1560 × 960" — and the scale
+// from the image's own pixels ("×2"); the model input in its tooltip (a tap shows it in the status line). The scaled
+// size = the preview's bake scale × the factor, as bake_scaled makes it (imageops::plan pads it to 56 px and the 28 px
+// grid)
 function drawBakeInfo() {
   const p = S.prev;
   if (p === null) {
@@ -597,22 +660,17 @@ function drawBakeInfo() {
     $("scaleInfo").textContent = "";
     return;
   }
-  const b = p.bake, f = S.size.factor, r = S.size.range;
+  const b = p.bake, f = S.size.factor;
   const w = f === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * f)), h = f === 1 ? b.scaledH : Math.max(1, Math.round(b.scaledH * f));
-  const ok = r !== null && r.none === undefined;
-  const by = `×${upTo(w / p.w, 2)}`;
-  // the Read row: the image (or crop) → the model input ("from" goes on a narrow phone); the Adjust row: the factor and
-  // the letters' height there
+  const by = stepText(w / p.w);
+  // the Read row: the image (or crop) → the model input ("from" goes on a narrow phone); the Adjust row: the scale
   $("bakeInfo").replaceChildren(Object.assign(document.createElement("span"), { className: "from", textContent: `${p.w} × ${p.h} → ` }), `${w} × ${h}`);
-  $("scaleInfo").textContent = `${by}${ok ? ` · ${Math.round(r.xh * f)} px` : ""}`;
+  $("scaleInfo").textContent = by;
   let fw = w, fh = h;
   if (Math.min(fw, fh) < 56) {
     if (fw <= fh) { fw = 56; } else { fh = 56; }
   }
-  const why = r === null ? t(hasCrop() ? "bake.measuring" : "bake.noCrop") : r.none !== undefined ? ` · ${noneWhy(r)}` : "";
-  const lines = ok ? t("bake.lines", { xh: Math.round(r.xh * f), lh: Math.round(r.pitch * f) }) : "";
-  setTip($("bakeInfo"), t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, lines, mw: Math.ceil(fw / 28) * 28,
-    mh: Math.ceil(fh / 28) * 28, why }));
+  setTip($("bakeInfo"), t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, mw: Math.ceil(fw / 28) * 28, mh: Math.ceil(fh / 28) * 28 }));
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -1257,6 +1315,9 @@ $("readBtn").onclick = async () => {
   status(t("st.starting"), "busy");
   try {
     S.readBake = null;
+    // the input's width for the lines' measure after it (unpadded, as drawBakeInfo shows it)
+    const b = S.prev.bake;
+    S.readInputW = S.size.factor === 1 ? b.scaledW : Math.max(1, Math.round(b.scaledW * S.size.factor));
     await call("read", { ops: S.ops, preset: readPreset(), factor: S.size.factor });
   } catch { setReading(false); }
 };
@@ -1352,8 +1413,10 @@ listen("ocr:done", async (e) => {
   const total = (r.loadMs ?? 0) + (r.encodeMs ?? 0) + r.prefillMs + r.decodeMs;
   // tokenChoice (the wgpu engine): "gpu" = greedy, chosen on the GPU and run ahead; "cpu" = sampled (llama.cpp: absent)
   const choice = r.tokenChoice ? [t("done.choice", { c: r.tokenChoice })] : [];
-  status(`${[...phaseTimes(r), t("done.tokens", { n: r.outTokens.toLocaleString(getLang()) }), t("done.tps", { n: tps }), ...choice, t("done.total", { t: secs(total) })].join(" · ")}${end}`,
+  const lines = r.cancelled || !r.stoppedOnEog ? "" : lineSuggest(S.streamed, S.readInputW);
+  status(`${[...phaseTimes(r), t("done.tokens", { n: r.outTokens.toLocaleString(getLang()) }), t("done.tps", { n: tps }), ...choice, t("done.total", { t: secs(total) })].join(" · ")}${end}${lines}`,
     !r.stoppedOnEog && !r.cancelled ? "err" : "ok");
+  applyState();
 });
 listen("ocr:error", (e) => {
   // the read ended by the engine's release in the background: no error — it starts again on return; a Stop before the
@@ -1381,7 +1444,7 @@ for (const b of $("saveMenu").querySelectorAll("button")) {
     if (ext === "png" && !S.prev) { status(t("why.openFirst"), "err"); return; }
     let p;
     try {
-      p = await host.saveAs(ext, { stem: S.stem, ops: S.ops, text: currentMarkup() });
+      p = await host.saveAs(ext, { stem: S.stem, ops: S.ops, factor: S.size.factor, text: currentMarkup() });
     } catch (e) {
       status(String(e), "err");
       return;
@@ -1661,11 +1724,17 @@ function applyState() {
   enable($("cropCancelBtn"), img && cropping && !busy, !img ? noImg : t("why.noCancel"));
   enable($("cropApplyBtn"), img && pending !== null && !busy, !img ? noImg : t("why.noApply"));
   enable($("presetSel"), !busy, busyWhy());
-  // the Scale on a measured crop: the slider; Auto until applied (again after a slider move or a crop change)
-  const scaling = img && !busy && !cropping && cropped && sized();
-  const sizeWhy = !img ? noImg : busy ? busyWhy() : cropping ? cropWhy : !cropped ? t("why.scaleNeedsCrop") : S.size.range === null ? t("why.measuring") : sized() ? "" : noneWhy(S.size.range);
-  enable($("scaleSlider"), scaling, sizeWhy);
-  enable($("scaleAutoBtn"), scaling && !S.size.autoDone, scaling ? t("why.autoDone") : sizeWhy);
+  // the wand: its menu after a read on the crop; lit when the characters are off the training's width, on while a step
+  // other than ×1 is in use
+  const usable = img && !busy && !cropping && cropped && S.size.cw !== undefined;
+  const lit = usable && scaleOff(), scaled = usable && S.size.factor !== 1;
+  $("scaleAutoBtn").classList.toggle("suggest", lit);
+  $("scaleAutoBtn").classList.toggle("on", scaled && !lit);
+  enable($("scaleAutoBtn"), usable, busy ? busyWhy() : t("scale.auto.title"));
+  enable($("scaleMenuBtn"), usable, busy ? busyWhy() : t("scale.auto.title"));
+  if (!usable) {
+    $("scaleMenu").hidden = true;
+  }
   enable($("settingsBtn"), !busy, busyWhy());
   drawReadBtn(img, cropping, cropped);
   // Auto stands out while a crop is due (✓ is the green one while its rectangle waits)

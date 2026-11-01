@@ -157,7 +157,7 @@ const autoRect = async (page) => {
   await page.click("#cropCancelBtn");
   await autoRect(page);
   const ctl0 = await page.evaluate(() => ({ mode: document.getElementById("stage").classList.contains("cropping"), cancel: !document.getElementById("cropCancelBtn").disabled,
-    scale: document.getElementById("scaleSlider").disabled, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
+    scale: document.getElementById("scaleAutoBtn").disabled, crop: !document.getElementById("cropApplyBtn").disabled, info: document.getElementById("bakeInfo").textContent }));
   ok(ctl0.mode && ctl0.cancel && ctl0.scale && ctl0.crop && ctl0.info === "3000 × 2000", `Auto (no writing) → crop mode, the whole image ("${ctl0.info}"), ✕ · ✓ on, the Scale off`);
   // at 200 %: the image's lower right corner scrolled into view, the right edge dragged 40 px left, the bottom 30 px up
   await page.evaluate(() => { const p = document.getElementById("imgPane"); p.scrollLeft = p.scrollWidth; p.scrollTop = p.scrollHeight; });
@@ -486,23 +486,18 @@ const autoRect = async (page) => {
     const capPx = Math.min(6144, fitPx * 8);
     ok(Math.abs(layer.px - capPx) < 3, `phone zoom capped: ${layer.zoom}, the image ${layer.px} device px (fit ${Math.round(fitPx)}, cap ${Math.round(capPx)})`);
     await zoomBtn("#zoomFitBtn");
-    // the Scale: without a crop off (as is); Auto finds the text crop, Crop applies it, the letters measured — 1:1 at
-    // first, Auto offered
-    const scale = () => page.evaluate(() => ({ off: document.getElementById("scaleSlider").disabled, auto: !document.getElementById("scaleAutoBtn").disabled,
-      min: +document.getElementById("scaleSlider").min, max: +document.getElementById("scaleSlider").max, info: document.getElementById("scaleInfo").textContent,
+    // the scale: a crop reads at ×1; the wand and its ▾ wait for a read (they offer steps by the read's characters)
+    const scale = () => page.evaluate(() => ({ auto: !document.getElementById("scaleAutoBtn").disabled, menu: !document.getElementById("scaleMenuBtn").disabled,
+      info: document.getElementById("scaleInfo").textContent,
       // the tools' places: the status' text never moves them
-      at: ["scaleSlider", "scaleAutoBtn"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
+      at: ["scaleAutoBtn", "scaleMenuBtn"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`; }).join(" ") }));
     const s0 = await scale();
     await cropTool(page, "#textCropBtn");
     await page.waitForFunction(() => /^Text crop/.test(document.getElementById("status").textContent), { timeout: 30000 });
     await page.click("#cropApplyBtn");
-    await page.waitForFunction(() => !document.getElementById("scaleSlider").disabled, { timeout: 30000 });
+    await page.waitForFunction(() => document.getElementById("stage").classList.contains("cropping") === false && document.getElementById("scaleInfo").textContent !== "", { timeout: 30000 });
     const s1 = await scale();
-    const px = (i) => +/· (\d+) px$/.exec(i)[1];
-    const by = (i) => +/×([\d.]+)/.exec(i)[1];
-    // the crop gets Auto at once: the letters towards 30 px as far as the slider reaches, the wand used up
-    ok(s0.off && !s0.auto && !/px$/.test(s0.info) && !s1.off && !s1.auto && by(s1.info) > 0 && s1.min === 9 && s1.max <= 45 && px(s1.info) === Math.min(30, s1.max),
-      `Scale: off without a crop ("${s0.info}"); a crop gets Auto at once: "${s1.info}" on a slider ${s1.min} … ${s1.max} px`);
+    ok(!s0.auto && !s0.menu && !s1.auto && !s1.menu && s1.info === "×1", `Scale: the wand off before a read; a crop reads at "${s1.info}"`);
     // upright the bar is four lines: logo · Help · Settings, then Crop, Adjust, the Read row with Read — each on screen,
     // the sizes not cut
     const head = await page.evaluate(() => {
@@ -511,11 +506,11 @@ const autoRect = async (page) => {
       const cut = ["scaleInfo", "bakeInfo"].filter((id) => { const e = document.getElementById(id); return e.scrollWidth > e.clientWidth; });
       const beside = r("readBtn").left - r("presetBox").right;
       return { top, rows: top.every((t, k) => k === 0 || t > top[k - 1]), readLine: Math.abs(r("readBtn").top - r("readRow").top) < 8 && beside >= 0 && beside < 16,
-        right: Math.max(...["cropRow", "adjustRow", "readBtn"].map((id) => r(id).right)), vw: innerWidth, slider: Math.round(r("scaleSlider").width),
+        right: Math.max(...["cropRow", "adjustRow", "readBtn"].map((id) => r(id).right)), vw: innerWidth,
         h: Math.round(document.querySelector(".titlebar").getBoundingClientRect().height), cut };
     });
-    ok(head.rows && head.readLine && head.right <= head.vw && head.slider >= 120 && head.cut.length === 0 && head.h < 190,
-      `phone bar upright: four lines at ${head.top.join(" / ")} (${head.h} px), slider ${head.slider} px, cut: ${head.cut.join(" ") || "none"}`);
+    ok(head.rows && head.readLine && head.right <= head.vw && head.cut.length === 0 && head.h < 190,
+      `phone bar upright: four lines at ${head.top.join(" / ")} (${head.h} px), cut: ${head.cut.join(" ") || "none"}`);
     // expert mode off: the preset list goes, Read and the rows stay where they are
     const readAt = () => page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect();
@@ -529,21 +524,14 @@ const autoRect = async (page) => {
     await page.evaluate(() => document.getElementById("expertChk").click());
     ok(withList.list && !noList.list && withList.read === noList.read && withList.rows === noList.rows,
       `expert mode off on the phone: no preset list, Read at ${noList.read} as before (${withList.read}), rows ${noList.rows}`);
-    // Auto applied → off until the slider moves; the slider to its low end: smaller at once, Auto offered; the slider
-    // back to the crop's own letter height: 1:1 again
-    await page.click("#scaleAutoBtn");
-    const sA = await scale();
-    const slide = (v) => page.evaluate((v) => { const s = document.getElementById("scaleSlider"); s.value = v === null ? s.min : String(v); s.dispatchEvent(new Event("input")); }, v);
-    await slide(null);
-    const s2 = await scale();
     await page.screenshot({ path: `${OUT}/11c_phone_scale.png` });
-    // contrast changes the ink, not the letters: the Scale stays (the measure is the crop's geometry)
+    // contrast changes the ink, not the geometry: the scale stays
     await page.evaluate(() => { window.__ops = []; });
     await page.click('[data-op="autoContrast"]');
     await page.waitForFunction(() => window.__ops.some((o) => o.includes("autoContrast")));
     await new Promise((r) => setTimeout(r, 800));
     const sC = await scale();
-    ok(sC.info === s2.info && !sC.off, `contrast keeps the Scale: "${s2.info}" → "${sC.info}"`);
+    ok(sC.info === s1.info, `contrast keeps the scale: "${s1.info}" → "${sC.info}"`);
     // contrast is on or off, never stacked: a second press takes it out again
     const cOn = await page.evaluate(() => document.querySelector('[data-op="autoContrast"]').classList.contains("on"));
     await page.evaluate(() => { window.__ops = []; });
@@ -553,17 +541,13 @@ const autoRect = async (page) => {
     const cOps = await page.evaluate(() => window.__ops.join(" "));
     const cOff = await page.evaluate(() => !document.querySelector('[data-op="autoContrast"]').classList.contains("on"));
     ok(cOn && cOff && !cOps.includes("autoContrast"), `contrast toggles: on, then off with the chain ${cOps}`);
-    await slide(px(s1.info));
-    const s3 = await scale();
-    ok(!sA.auto && px(s2.info) === 9 && by(s2.info) < by(s1.info) && s2.auto && s3.info === s1.info,
-      `Scale: Auto → "${sA.info}" (Auto off), slider → "${s2.info}" (Auto on), back → "${s3.info}"`);
-    ok([s1.at, sA.at, s2.at, s3.at].every((a) => a === s0.at), `the tools stay put while the status changes: ${s0.at} · ${s2.at}`);
+    ok([s1.at, sC.at].every((a) => a === s0.at), `the tools stay put while the status changes: ${s0.at} · ${sC.at}`);
     // a new image: as is, the Scale off
     const [ch3] = await Promise.all([page.waitForFileChooser(), page.click("#openBtn")]);
     await ch3.accept([path.join(REPO, "site", "examples", "humboldt_17r.jpg")]);
-    await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("1176 ×") && document.getElementById("scaleSlider").disabled);
+    await page.waitForFunction(() => document.getElementById("bakeInfo").dataset.tip.startsWith("1176 ×"));
     const s4 = await scale();
-    ok(s4.off && !s4.auto && !/px$/.test(s4.info), `Scale reset for a new image: "${s4.info}"`);
+    ok(!s4.auto && !s4.menu, `Scale reset for a new image: "${s4.info}", the wand off`);
     // the text: Fit takes every line whole, two fingers zoom it
     await page.click("#paneTabs [data-tab=text]");
     await page.click("#markupBtn");

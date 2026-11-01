@@ -228,8 +228,10 @@ pub fn scaled(ops_json: &str) -> Result<Object, JsError> {
     .map_err(js_err)
 }
 
-/// the Scale slider for the prepared (cropped) page, measured at its bake scale: { xh, pitch, lo, auto, hi } — the glyph
-/// height and line pitch (bake px), the slider's factors (ocr-layout scale::xh_range); { none: why, code } without
+/// the Scale slider for the prepared (cropped) page, measured at its bake scale: { xh, pitch, lo, auto, hi, bake } — the
+/// glyph height and line pitch (bake px), the slider's factors (ocr-layout scale::xh_range), the bake scale (bake px per
+/// page px: the factors × it count from the page's own pixels), `edge` = the factor from the page's own pixels to the
+/// 1540 px edge (`bake` and `edge` in the answers without a measure too: the steps need only the crop's size); { none: why, code } without
 /// measurable writing (code "noWriting") or when its letters stay below the slider even at the 1540 px edge (code
 /// "small" + xh, min, longest) — the UI words it from the code in its language, `none` is the detail for the trail
 #[wasm_bindgen]
@@ -238,28 +240,35 @@ pub fn glyph_height(ops_json: &str) -> Result<String, JsError> {
         let (img, _) = prepared(ops_json)?;
         let small = at_bake_scale(&img);
         let (sw, sh) = small.dimensions();
+        let bake = sw as f64 / img.width() as f64;
+        let edge = ocr_layout::scale::LONGEST / img.width().max(img.height()) as f64;
         Ok(match ocr_layout::tools::page_glyphs(small.as_raw(), sw as usize, sh as usize) {
             Ok(g) => match ocr_layout::scale::xh_range(g.xh, sw.max(sh) as f64) {
-                Some(r) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "lo": r.lo, "auto": r.auto, "hi": r.hi }),
+                Some(r) => serde_json::json!({ "xh": g.xh, "pitch": g.pitch, "lo": r.lo, "auto": r.auto, "hi": r.hi, "bake": bake, "edge": edge }),
                 None => serde_json::json!({ "none": format!("letters {} px — below {} px even at {} px, crop tighter", g.xh.round() as i64, ocr_layout::scale::SLIDE_MIN, ocr_layout::scale::LONGEST),
-                    "code": "small", "xh": g.xh.round(), "min": ocr_layout::scale::SLIDE_MIN, "longest": ocr_layout::scale::LONGEST }),
+                    "code": "small", "xh": g.xh.round(), "min": ocr_layout::scale::SLIDE_MIN, "longest": ocr_layout::scale::LONGEST, "bake": bake, "edge": edge }),
             },
-            Err(e) => serde_json::json!({ "none": e.to_string(), "code": "noWriting" }),
+            Err(e) => serde_json::json!({ "none": e.to_string(), "code": "noWriting", "bake": bake, "edge": edge }),
         }
         .to_string())
     })()
     .map_err(js_err)
 }
 
-/// a read's preparation with the page scaled by `factor` (the Scale slider) on top of its bake scale — one Lanczos3
-/// resize from the page's own pixels (imageops::bake_region over the whole page): as bake
+/// the page scaled by `factor` (the Scale slider) on top of its bake scale — one Lanczos3 resize from the page's own
+/// pixels (imageops::bake_region over the whole page)
+fn scaled_bake(img: &RgbImage, factor: f64) -> Result<(RgbImage, imageops::BakePlan)> {
+    let (w, h) = (img.width() as f64, img.height() as f64);
+    let page = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
+    imageops::bake_region(img, &page, Bake::PIXTRAL, &imageops::RegionInput { scale: factor, ..imageops::RegionInput::PLAIN })
+}
+
+/// a read's preparation with the page scaled by `factor` (scaled_bake): as bake
 #[wasm_bindgen]
 pub fn bake_scaled(ops_json: &str, factor: f64) -> Result<Object, JsError> {
     (|| -> Result<Object> {
         let (img, stem) = prepared(ops_json)?;
-        let (w, h) = (img.width() as f64, img.height() as f64);
-        let page = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
-        let (baked, plan) = imageops::bake_region(&img, &page, Bake::PIXTRAL, &imageops::RegionInput { scale: factor, ..imageops::RegionInput::PLAIN })?;
+        let (baked, plan) = scaled_bake(&img, factor)?;
         let o = Object::new();
         set(&o, "w", baked.width())?;
         set(&o, "h", baked.height())?;
@@ -347,12 +356,12 @@ pub fn document(title: &str, text: &str) -> Result<String, JsError> {
     Ok(Marks::profile().map_err(js_err)?.document(title, text))
 }
 
-/// the baked model input as PNG bytes
+/// the model input as PNG bytes — scaled by `factor` as the read gets it (scaled_bake): a 1:1 look at what the model sees
 #[wasm_bindgen]
-pub fn baked_png(ops_json: &str) -> Result<Vec<u8>, JsError> {
+pub fn baked_png(ops_json: &str, factor: f64) -> Result<Vec<u8>, JsError> {
     (|| -> Result<Vec<u8>> {
         let (img, _) = prepared(ops_json)?;
-        imageops::png(&imageops::bake(&img, Bake::PIXTRAL).0)
+        imageops::png(&scaled_bake(&img, factor)?.0)
     })()
     .map_err(js_err)
 }
