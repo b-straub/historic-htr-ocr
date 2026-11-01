@@ -670,7 +670,10 @@ function drawBakeInfo() {
   if (Math.min(fw, fh) < 56) {
     if (fw <= fh) { fw = 56; } else { fh = 56; }
   }
-  setTip($("bakeInfo"), t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, mw: Math.ceil(fw / 28) * 28, mh: Math.ceil(fh / 28) * 28 }));
+  const tip = t("bake.title", { w: p.w, h: p.h, by, sw: w, sh: h, mw: Math.ceil(fw / 28) * 28, mh: Math.ceil(fh / 28) * 28 });
+  setTip($("bakeInfo"), tip);
+  // the scale's tip too: on a phone upright (tab mode) the size line goes and this is where the sizes are
+  setTip($("scaleInfo"), tip);
 }
 function drawOverlay() {
   const rect = $("rect");
@@ -1303,6 +1306,8 @@ $("readBtn").onclick = async () => {
   }
   S.streamed = "";
   stoppedHidden = false;
+  // tab mode: the read shows on the image (its scan); the Text tab comes back with the first text (ocr:text)
+  setTab("image");
   await S.editor.show("");
   $("src").value = "";
   S.starting = false; // straight into reading: Read never shows enabled in between

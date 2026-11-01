@@ -497,8 +497,25 @@ body.stacked[data-tab="text"] #imgCard, body.stacked[data-tab="image"] #textCard
   /* the crop's size goes; the model input's stays */
   #bakeInfo .from { display: none; }
 }
-/* the Text tab: only the Read row stays (Read again), the image's rows and zoom go */
-body.stacked[data-tab="text"] #cropRow, body.stacked[data-tab="text"] #adjustRow, body.stacked[data-tab="text"] #zoomSeg { display: none; }
+/* the Text tab: the Read row stays (Read again) and the wand with it (its offer comes after a read, when the Text tab
+   shows); the crop row, contrast · pencil and zoom go */
+body.stacked[data-tab="text"] #cropRow, body.stacked[data-tab="text"] #adjSeg, body.stacked[data-tab="text"] #zoomSeg { display: none; }
+/* tab mode upright: Adjust and Read share one line — contrast · pencil, the wand, its scale, the preset (expert mode,
+   narrow), Read; the image's size goes to the scale's tooltip */
+@media (orientation: portrait) {
+  body.stacked #adjustRow { flex: 0 0 auto; flex-basis: auto; }
+  /* the Text tab: the crop row goes — a break keeps the wand on Read's line, not beside the logo */
+  body.stacked[data-tab="text"] .rowbreak { display: block; order: 1; }
+}
+/* a phone on its side, the Text tab: the wand joins the Read line (the first line, crop · adjust, goes) */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.stacked[data-tab="text"] #adjustRow { order: 4; flex: 0 0 auto; }
+}
+@media (max-width: 480px) and (orientation: portrait) {
+  body.stacked #bakeInfo { display: none; }
+  body.stacked #scaleInfo { width: 40px; }
+  body.stacked #presetSel { max-width: 92px; }
+}
 /* the crop rectangle's handles: corners and edge middles — where a finger adjusts it (elsewhere a finger pans); the
    held one filled and larger, so a grab is plain to see */
 #rect .hd { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--accent); background: #fff; border-radius: 3px; box-sizing: border-box; }
