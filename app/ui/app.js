@@ -679,7 +679,8 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   let pan = null;            // { id, x, y, left, top, t } — a drag outside the crop mode
   let cropEnd = -Infinity, pinchEnd = -Infinity; // when the last crop drag / pinch ended
   const cropUnderWay = () => drag !== null && (performance.now() - drag.t > PINCH_GRACE_MS || Math.hypot(drag.cx - drag.x, drag.cy - drag.y) > PINCH_GRACE_PX);
-  const zoomLocked = () => cropUnderWay() || performance.now() - cropEnd < GESTURE_QUIET_MS;
+  // a read locks the view too: no zoom, no pan (see applyState)
+  const zoomLocked = () => isBusy() || cropUnderWay() || performance.now() - cropEnd < GESTURE_QUIET_MS;
   // a short tap: two in a row = fit (touch / pen; the mouse has dblclick)
   const tap = (ev, t0) => {
     if (ev.pointerType === "mouse" || performance.now() - t0 >= 300) return;
@@ -706,7 +707,7 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
     drawOverlay();
   };
   pane.addEventListener("pointerdown", (ev) => {
-    if (!S.prev || stage.hidden) return;
+    if (!S.prev || stage.hidden || isBusy()) return;
     if (ev.pointerType === "touch") {
       if (ev.isPrimary) {
         // a fresh first finger: no finger is down — one whose end the pane missed (it lifted outside) is gone
@@ -814,7 +815,7 @@ const GESTURE_QUIET_MS = 500, PINCH_GRACE_MS = 250, PINCH_GRACE_PX = 10;
   };
   pane.addEventListener("pointerup", (ev) => end(ev, false));
   pane.addEventListener("pointercancel", (ev) => end(ev, true));
-  pane.addEventListener("dblclick", (ev) => { if (!cropMode && stage.contains(ev.target)) zoomTo(1, paneCentre()); });
+  pane.addEventListener("dblclick", (ev) => { if (!cropMode && !isBusy() && stage.contains(ev.target)) zoomTo(1, paneCentre()); });
   // ⌘ / ctrl + wheel and the trackpad pinch (Chrome / Edge send it as a ctrl + wheel) zoom about the pointer;
   // a plain wheel scrolls the pane
   pane.addEventListener("wheel", (ev) => {
@@ -1606,8 +1607,8 @@ for (const a of $("aboutDlg").querySelectorAll("a.ext")) {
 //                                  opens: read the crop, not the whole scan)      "Finding the crop…" · "Crop first…" ·
 //                                                                                 starting: "Checking before the read…"
 //     reading → "Stop" (enabled) · stopping → "Stopping…" (disabled)
-//   zoom out, fit                  image · zoom > 100 %
-//   zoom in                        image · zoom < 800 %
+//   zoom out, fit                  image · zoom > 100 % · not busy                busy (also no pinch, pan, wheel zoom)
+//   zoom in                        image · zoom < 800 % · not busy                busy
 //   format, ▨, table cell          the rendered view · not busy                   busy · (hidden in the markup view)
 //   undo, redo                     the rendered view · not busy · a step there    (hidden in the markup view)
 //   Markup                         not busy                                       busy
@@ -1670,9 +1671,11 @@ function applyState() {
   // Auto stands out while a crop is due (✓ is the green one while its rectangle waits)
   $("textCropBtn").classList.toggle("primary", img && !cropped);
   // the image card
-  enable($("zoomOutBtn"), img && zoom > 1);
-  enable($("zoomFitBtn"), img && zoom > 1);
-  enable($("zoomInBtn"), img && zoom < zoomMax() - 0.005);
+  // the image stays as it is while a read runs (a zoom's re-layout beside the read's GPU memory ended the page on the
+  // iPhone)
+  enable($("zoomOutBtn"), img && zoom > 1 && !busy, busy ? busyWhy() : "");
+  enable($("zoomFitBtn"), img && zoom > 1 && !busy, busy ? busyWhy() : "");
+  enable($("zoomInBtn"), img && zoom < zoomMax() - 0.005 && !busy, busy ? busyWhy() : "");
   // the text card
   for (const b of $("fmtSeg").children) {
     enable(b, editing && !busy, busyWhy());
