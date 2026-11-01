@@ -15,17 +15,23 @@ The [project site](https://b-straub.github.io/historic-htr-ocr/) explains the ou
 trained and scored. Questions, problems and reading errors worth reporting:
 [issues](https://github.com/b-straub/historic-htr-ocr/issues).
 
-## What's new in v1.4.0
+## What's new in v1.5.0
 
-- **The tools in three rows**, in the order you work: **Crop** (what part of the image), **Adjust** (how it looks to
-  the model), **Read**. Every button keeps its place — one that cannot act is greyed out, never hidden — so the image
-  never jumps. On a phone's side the rows take two lines; the preset sits right beside Read.
-- **Crop**: **Page** takes the whole image, **Auto** finds the text block — now also on scans with a colour chart and a
-  ruler beside the sheet. Adjust the rectangle by its edges, then the green ✓ or the red ✕.
-- **Scale** replaces Text size: a slider sets how tall the letters reach the model, the wand brings them into the range
-  the model learned from. The size the model gets is shown beside it.
-- **Contrast** and **Pencil** are on / off — a second press takes them out again.
-- **Phones**: quick taps no longer zoom the page; on its side a free strip at the top leaves room for Control Center.
+- **German and English**: OCR Lite follows the browser's language; Settings can fix it. A **How to** (the five steps,
+  also shown before the first image) guides first-time users.
+- **Guided crop**: when an image opens, **Auto** puts a rectangle around the writing by itself — fit it to whole lines
+  of the text you want, then the green ✓; Read waits for it. A **book spread** is recognised: the ▾ beside Auto asks
+  which page (Left, Right, Double). An archive's printed label below a book stays out of the crop.
+- **Touch**: the rectangle has handles at its corners and edge middles; the one you hold lights up. A finger elsewhere
+  moves the image, two fingers zoom. While a read runs the image stays still.
+- **Scale after the read**: a crop is read at its own size. Afterwards OCR Lite measures how wide the characters reach
+  the model; when they are smaller or larger than on the training pages, the **wand** lights up and reads again at a
+  better size (its ▾ offers a little smaller, a little larger and ×1). Save → model input image shows what the model
+  sees, at the current scale.
+- **Expert mode** (Settings): off by default — the presets and technical details stay out of the way. The model shows
+  as one entry with its version; a newer version is offered when it comes out.
+- **Install**: a sheet per browser and device shows how to add OCR Lite as an app.
+- **Firefox** is not supported (its storage and timer limits); OCR Lite runs in Chrome, Edge and Safari 26+.
 
 ## This repository
 
