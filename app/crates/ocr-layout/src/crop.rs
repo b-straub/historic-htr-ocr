@@ -51,6 +51,10 @@ const SHEET_DENSER: f64 = 1.5;
 const SHEET_TINT_MOST: f64 = 0.25;
 /// the writing counts from this far inside the sheet's edge (pitch) — its torn edge and the specks along it do not
 const SHEET_EDGE: f64 = 0.5;
+/// a strip joined to the sheet: the sheet narrows below STRIP_NECK of the width within STRIP_NECK_SPAN pitch inside it
+/// (a printed archive label under a book: about 0.4) — UNMEASURED beyond one scan
+const STRIP_NECK: f64 = 0.8;
+const STRIP_NECK_SPAN: f64 = 1.0;
 /// the colour phase: a sheet fills this much of its box, and covers this much of the image
 const SHEET_FILL: f64 = 0.9;
 const SHEET_MIN: f64 = 0.45;
@@ -128,8 +132,20 @@ fn bright_region(pg: &Page, blur: &img::Gray, t: u8) -> Option<(Mask, f64)> {
     let o = (SHEET_OPEN * pg.pitch) as usize | 1;
     let (n, lab, st) = img::components(&img::open_rect(&filled, o, o));
     let big = (1..n).max_by_key(|&c| st[c].area)?;
-    let share = st[big].area as f64 / (w * h) as f64;
-    Some((Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() }, share))
+    let mut m = Mask { w, h, px: lab.iter().map(|&l| l == big as u32).collect() };
+    // a strip across the whole image at its bottom (an archive's printed label) joined to the sheet through a neck
+    // where the gap under a book is not dark: its rows (≥ SHEET_ALL of the width) dropped when the sheet within
+    // STRIP_NECK_SPAN pitch above it narrows below STRIP_NECK of the width (a page that fills the scan's width widens
+    // gradually and stays; at the top a scanner bed's strip held the sheet test together on a training page)
+    let width = |m: &Mask, y: usize| m.px[y * w..(y + 1) * w].iter().filter(|&&b| b).count() as f64 / w as f64;
+    let span = ((STRIP_NECK_SPAN * pg.pitch) as usize).max(1);
+    let n = (0..h).rev().take_while(|&y| width(&m, y) >= SHEET_ALL).count();
+    let neck = (0..h - n).rev().take(span).any(|y| width(&m, y) < STRIP_NECK);
+    if n > 0 && n < h && neck {
+        m.px[(h - n) * w..].iter_mut().for_each(|b| *b = false);
+    }
+    let share = m.px.iter().filter(|&&b| b).count() as f64 / (w * h) as f64;
+    Some((m, share))
 }
 
 /// a sheet candidate: its mask, how much denser the text is on it than off it — by ink and by blobs (a colour chart's
@@ -343,10 +359,13 @@ pub struct Crop {
 const SPREAD_SIDE: f64 = 0.25;
 const SPREAD_MARGIN: f64 = 1.0;
 const SPREAD_GAP: f64 = 0.35;
+/// … or, where the writing runs up to the spine (no inner margin), a dip this deep: a binding's dark line or shadow
+/// (spreads 0.31 … 0.44; folded charters 0.63 … 0.85, the darkest fold 0.63) — UNMEASURED beyond them
+const SPREAD_DEEP: f64 = 0.5;
 
 /// the middle gutter of a spread with writing on both pages (work px), or None
 fn spread_gutter(pg: &Page, text: &[bool]) -> Option<usize> {
-    let g = gutter(pg, Side::Double)?;
+    let (g, dip) = gutter_dip(pg, Side::Double)?;
     let w = pg.w();
     let mut col = vec![0f64; w];
     for i in 0..w * pg.h() {
@@ -361,7 +380,7 @@ fn spread_gutter(pg: &Page, text: &[bool]) -> Option<usize> {
     let low = col[g.saturating_sub(m)..(g + m + 1).min(w)].iter().cloned().fold(f64::MAX, f64::min);
     let written: Vec<f64> = col.iter().cloned().filter(|&v| v > RUN_LEVEL * peak).collect();
     let typical = img::median(&written).unwrap_or(peak);
-    if low > SPREAD_GAP * typical {
+    if low > SPREAD_GAP * typical && dip > SPREAD_DEEP {
         return None;
     }
     let (mut l, mut r) = (0usize, 0usize);
@@ -394,6 +413,12 @@ const GUTTER_MID: (f64, f64) = (0.3, 0.7);
 
 /// the gutter's column (work px) for `side`; None = nothing dips enough in its search range
 fn gutter(pg: &Page, side: Side) -> Option<usize> {
+    gutter_dip(pg, side).map(|d| d.0)
+}
+
+/// the gutter's column (work px) and its dip (its paper brightness / the flanks') for `side`; None = nothing dips
+/// enough in its search range
+fn gutter_dip(pg: &Page, side: Side) -> Option<(usize, f64)> {
     let (w, h) = (pg.w(), pg.h());
     let (r0, r1) = ((GUTTER_ROWS * h as f64) as usize, ((1.0 - GUTTER_ROWS) * h as f64) as usize);
     let mut paper = vec![0f64; w];
@@ -441,9 +466,9 @@ fn gutter(pg: &Page, side: Side) -> Option<usize> {
     // Left / Right: the dip nearest the kept page (beyond it lie the facing page's outer edge, a neighbour leaf, the
     // background); Double: the deepest in the middle
     match side {
-        Side::Left => dips.first().map(|d| d.0),
-        Side::Right => dips.last().map(|d| d.0),
-        _ => dips.iter().min_by(|a, b| a.1.total_cmp(&b.1)).map(|d| d.0),
+        Side::Left => dips.first().copied(),
+        Side::Right => dips.last().copied(),
+        _ => dips.iter().min_by(|a, b| a.1.total_cmp(&b.1)).copied(),
     }
 }
 
