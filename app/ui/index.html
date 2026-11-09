@@ -257,10 +257,11 @@
           <button type="button" class="btn primary" id="modelFromHub">Download from Hugging Face</button>
           <button type="button" class="btn" id="modelVerify" data-i18n="set.verify" data-i18n-tip="set.verify.title" data-tip="Compare the stored files with the released model (MD5) — a few seconds, no network">Verify model</button>
           <button type="button" class="btn" id="modelDelete" data-i18n="model.delete">Delete</button>
-        </div>
-        <div class="field wide" id="modelOtherSources">
+          <!-- the user's own files: one row with the model's other buttons (they wrap together, with the row's gap) -->
           <label class="btn" for="modelFiles" data-i18n="set.upload">Upload model files…</label>
           <input id="modelFiles" type="file" accept=".gguf" multiple hidden>
+        </div>
+        <div class="field wide" id="modelOtherSources">
           <input id="modelUrl" type="url" spellcheck="false" data-i18n-placeholder="set.url" placeholder="or download from a folder URL holding both files (https://…)">
           <button type="button" class="btn" id="modelDownload" data-i18n="set.download">Download</button>
         </div>

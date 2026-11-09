@@ -723,7 +723,7 @@ async function storeModel(job) {
 document.querySelector('label[for="modelFiles"]').hidden = !allows("upload");
 $("modelUrl").hidden = !allows("url");
 $("modelDownload").hidden = !allows("url");
-$("modelOtherSources").hidden = !allows("upload") && !allows("url");
+$("modelOtherSources").hidden = !allows("url");
 async function busy(job) {
   $("settingsErr").textContent = "";
   for (const id of ["modelFiles", "modelDownload", "modelFromHub"]) $(id).disabled = true;
