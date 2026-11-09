@@ -49,11 +49,12 @@ export const MODEL_TEST = false;
 /// where a model may come from — ONE switch for the page (the setup's and Settings' controls, ?model=) and the engine
 /// worker (told at its start: its commands refuse a source not listed):
 ///   hub     the model's Hugging Face repo (MODEL_BASE)
-///   upload  the user's own two files (setup "I have the files", Settings "Upload model files…") — off
+///   upload  the user's own two files (setup "I have the files", Settings "Upload model files…") — stored only when
+///           their MD5s are a release's (worker.js upload): the same model as the hub's, got another way
 ///   url     a download from another folder URL (Settings) — off
 ///   stream  ?model=<folder>: the model read by HTTP range requests, never stored — off
 /// A model stored earlier from a source not listed is not used: the setup downloads the hub's.
-export const MODEL_SOURCES = ["hub"];
+export const MODEL_SOURCES = ["hub", "upload"];
 
 /// the project's links (About, setup)
 export const LINKS = {

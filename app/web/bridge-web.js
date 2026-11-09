@@ -8,8 +8,9 @@
 //             the end of a job that wrote ocr:status (the model check)
 //   files     Open = a file input, drag-drop = HTML5 drop, Save = a download (Blob URL)
 //   settings  { preset, modelUrl } + the user's presets in localStorage; the model lives in OPFS (Settings: download
-//             it, see what is stored, delete) — the other sources (upload the two files, download them from a folder
-//             URL, `?model=<url>` streaming by HTTP range requests) are switched off: web/config.js MODEL_SOURCES
+//             it or upload the two files — only a released model's, by MD5 —, see what is stored, delete) — the other
+//             sources (a download from a folder URL, `?model=<url>` streaming by HTTP range requests) are switched off:
+//             web/config.js MODEL_SOURCES
 //   model     the model's Hugging Face repo (web/config.js MODEL). A first start with no model in OPFS says so; the
 //             setup and Settings offer the download
 //   device    a lost GPU device / GPU error (the worker's gpuFatal) and the crash marker (below): a device that ran out
@@ -249,7 +250,20 @@ function onWorkerMessage(e) {
   if (m.event === "loaded") { engineLoaded(m.info); return; }
   const w = waiting.get(m.id);
   waiting.delete(m.id);
-  if (m.ok) w.resolve(m.result); else w.reject(m.code === "storageBlocked" ? t("st.storageBlocked") : m.error);
+  if (m.ok) w.resolve(m.result); else w.reject(replyError(m));
+}
+/// a failed command's message: the worker's codes in words (the current language), else its own (English) message
+function replyError(m) {
+  if (m.code === "storageBlocked") {
+    return t("st.storageBlocked");
+  }
+  if (m.code === "notReleased") {
+    return t(m.detail.names.length === 1 ? "h.notReleased1" : "h.notReleasedN", { files: m.detail.names.join(", "), from: MODEL_FROM });
+  }
+  if (m.code === "mixedReleases") {
+    return t("h.mixedReleases", { from: MODEL_FROM });
+  }
+  return m.error;
 }
 // the update's reload (pwa.js reloadNow): the engine worker ends before the page goes — its wasm heap and its GPU
 // device (the weights are freed after each read anyway) are not left to be released behind the new page's start
@@ -277,7 +291,11 @@ function statusText(m) {
 let progressTo = null; // the setup's callback ({ line, fraction }) while it stores the model
 function progress(m) {
   const pct = m.total ? Math.round((100 * m.done) / m.total) : 0;
-  const what = m.label === "load" ? t("h.prog.load") : t(m.label === "upload" ? "h.prog.upload" : "h.prog.download", { name: m.name });
+  const PROG = { upload: "h.prog.upload", download: "h.prog.download", check: "h.prog.check" };
+  if (m.label !== "load" && !(m.label in PROG)) {
+    throw new Error(`worker: unknown progress ${m.label}`);
+  }
+  const what = m.label === "load" ? t("h.prog.load") : t(PROG[m.label], { name: m.name });
   const done = fixed(m.done / 1e6, 0);
   const line = `${what} · ${m.total ? t("h.prog.of", { done, total: fixed(m.total / 1e6, 0), pct }) : t("h.prog.mb", { done })}`;
   if (m.label === "load") { emit("ocr:status", line); return; }
@@ -780,8 +798,11 @@ $("modelFiles").onchange = () => {
   $("modelFiles").value = "";
   const wrong = files.filter((f) => !MODEL_FILES.includes(f.name));
   if (wrong.length) { $("settingsErr").textContent = wrongFiles(wrong); return; }
-  busy(() => work("upload", { files }));
+  busy(() => uploadModel(files));
 };
+/// the user's own model files into OPFS (Settings and the setup): the worker stores only a released model's files —
+/// it checks their MD5s against the releases sent here
+const uploadModel = (files) => work("upload", { files, releases: MODEL.releases });
 const wrongFiles = (wrong) => t("h.wrongFiles", { names: wrong.map((f) => f.name).join(", "), files: MODEL_FILES.join(" + ") });
 /// both model files from a folder URL into OPFS (Settings and the setup). The download streams each file straight
 /// into OPFS (worker.js download — also from the Hugging Face repo: its resolve URLs answer a browser fetch with CORS,
@@ -798,7 +819,8 @@ async function downloadModel(url) {
   // the hub repo may name the files differently (web/config.js MODEL.remoteFiles); stored under MODEL_FILES either way.
   // A test override (?modelBase=) holds MODEL_FILES itself
   const remote = own && base.href === new URL(HUB_BASE, location.href).href ? MODEL.remoteFiles : null;
-  await work("download", { base: base.href, record, remote });
+  // the hub's release: a file stored already with its MD5 is kept (worker.js download)
+  await work("download", { base: base.href, record, remote, md5: record.source === "hub" ? CURRENT.md5 : null });
 }
 function downloadFrom(url) {
   busy(() => downloadModel(url));
@@ -991,7 +1013,8 @@ export const setup = {
   download(onProgress) {
     return withProgress(onProgress, () => downloadModel(MODEL_BASE));
   },
-  /// the user's own model files may be stored (MODEL_SOURCES "upload"): the setup shows "I have the files" only then
+  /// the user's own model files may be stored (MODEL_SOURCES "upload"): the setup shows "I have the files" only then;
+  /// stored only when they are a released model's (their MD5s)
   canUpload: allows("upload"),
   /// model files picked by the user (both, or the one still missing)
   upload(files, onProgress) {
@@ -1002,7 +1025,7 @@ export const setup = {
     if (wrong.length) {
       return Promise.reject(new Error(wrongFiles(wrong)));
     }
-    return withProgress(onProgress, () => work("upload", { files }));
+    return withProgress(onProgress, () => uploadModel(files));
   },
   cancel() {
     worker.postMessage({ cmd: "cancelDownload" });

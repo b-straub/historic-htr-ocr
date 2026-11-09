@@ -3,20 +3,26 @@
 //
 // The first-run setup + help (ui/setup.js, bridge-web.js setup) on the built site, with a stand-in model (lib.cjs
 // fakeModel) from web/serve.py's /model/ (?modelBase=/model/) and the device check skipped (?gpuCheck=skip — both
-// honoured on localhost only): install hints, the download with progress + cancel, the done step, help, a removed
-// model, an installed app (standalone), too little storage, the phone layout.
+// honoured on localhost only): install hints, the download with progress + cancel, the user's own files ("I have the
+// files…": the stand-in's are refused — not a released model's), the done step, help, a removed model, an installed app
+// (standalone), too little storage, the phone layout. With OCR_LITE_MODEL_DIR (the released model's files): they are
+// stored as the user's own files while the download runs, a download after that fetches nothing, and with one file
+// removed only that one.
 //   node tests/browser/setup.cjs
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { launch, serve, outDir, results, testImages, fakeModel, sleep } = require("./lib.cjs");
+const { launch, serve, outDir, results, testImages, fakeModel, sleep, MODEL_DIR } = require("./lib.cjs");
 const R = results("setup");
 const ok = R.ok;
 const OUT = outDir("setup");
 let srv = null;
+let srvReal = null;
+const FILES = ["text-q8_0.gguf", "mmproj-bf16.gguf"];
 
 (async () => {
-  srv = await serve(8803, { modelDir: fakeModel() });
+  const FAKE = fakeModel();
+  srv = await serve(8803, { modelDir: FAKE });
   const BASE = `${srv.base}?modelBase=/model/&gpuCheck=skip`;
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "ocrlite-setup-"));
   const browser = await launch({ userDataDir: profile });
@@ -110,7 +116,7 @@ let srv = null;
   await page.waitForFunction(() => /downloading text-q8_0\.gguf · \d+ \/ 63 MB \(\d+ %\)/.test(document.getElementById("suProgressText").textContent) && document.getElementById("suProgress").value > 0.1, { timeout: 30000 });
   ok(true, `download started on its own: ${await text(page, "suProgressText")}`);
   await shot(page, "4_download");
-  ok(await page.evaluate(() => getComputedStyle(document.getElementById("suFilesBtn")).display === "none"), "model step: no \"I have the files\"");
+  ok(await page.evaluate(() => getComputedStyle(document.getElementById("suFilesBtn")).display !== "none" && !document.getElementById("suFiles").disabled), "model step: \"I have the files…\" offered, also during the download");
   await page.click("#suCancel");
   await page.waitForFunction(() => document.getElementById("suModelErr").textContent !== "");
   const opfs = () => page.evaluate(async () => {
@@ -119,8 +125,14 @@ let srv = null;
     try { for await (const [n] of (await root.getDirectoryHandle("models")).entries()) names.push(n); } catch {}
     return names.sort();
   });
-  ok((await text(page, "suModelErr")).startsWith("Download cancelled") && (await opfs()).length === 0, `cancel: "${await text(page, "suModelErr")}", OPFS ${JSON.stringify(await opfs())}`);
+  ok((await text(page, "suModelErr")).startsWith("Cancelled") && (await opfs()).length === 0, `cancel: "${await text(page, "suModelErr")}", OPFS ${JSON.stringify(await opfs())}`);
   await shot(page, "4b_cancelled");
+  // the user's own files: the stand-in's are no released model's (their MD5s) — refused, nothing stored
+  await (await page.$("#suFiles")).uploadFile(...FILES.map((n) => path.join(FAKE, n)));
+  await page.waitForFunction(() => /not files of the released model/.test(document.getElementById("suModelErr").textContent), { timeout: 30000 });
+  ok((await opfs()).length === 0 && (await page.evaluate(() => !document.getElementById("suDownload").hidden && document.getElementById("suCancel").hidden)),
+    `own files that are not the released model's: "${await text(page, "suModelErr")}", OPFS ${JSON.stringify(await opfs())}, Download offered again`);
+  await shot(page, "4c_files_refused");
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   await page.click("#suDownload");
   await waitStep(page, "done");
@@ -226,8 +238,84 @@ let srv = null;
   await p3.close();
   await ctx2.close();
 
+  // ── the released model's files (OCR_LITE_MODEL_DIR) as the user's own; a download keeps what is stored ──
+  if (MODEL_DIR === null) {
+    R.skip("the user's own files stored, a download after it fetches nothing, one file removed → only that one downloaded (3 checks) — set OCR_LITE_MODEL_DIR");
+  } else {
+    srvReal = await serve(8813, { modelDir: MODEL_DIR });
+    // a browser of its own with a profile on disk: a browser context (incognito) gets a small storage quota of a random
+    // size — the model's 1.4 GB did not always fit ("No space available")
+    const profile4 = fs.mkdtempSync(path.join(os.tmpdir(), "ocrlite-setup-model-"));
+    const browser4 = await launch({ userDataDir: profile4 });
+    const p4 = await browser4.newPage();
+    // the done step after a store of the whole model — or the setup's error, said at once (not a timeout)
+    const stored4 = async (page) => {
+      const at = await page.waitForFunction(() => {
+        const d = document.getElementById("setupDlg");
+        const s = [...d.querySelectorAll("[data-step]")].find((x) => !x.hidden);
+        const err = document.getElementById("suModelErr").textContent;
+        return d.open && s.dataset.step === "done" ? "done" : err !== "" && !/^Cancelled/.test(err) ? `the setup says: ${err}` : false;
+      }, { timeout: 150000 });
+      if ((await at.jsonValue()) !== "done") {
+        throw new Error(await at.jsonValue());
+      }
+    };
+    await prep(p4);
+    const fetched = [];
+    p4.on("request", (r) => { if (/\.gguf$/.test(new URL(r.url()).pathname)) fetched.push(path.basename(new URL(r.url()).pathname)); });
+    const record = () => p4.evaluate(async () => JSON.parse(await (await (await (await navigator.storage.getDirectory()).getFileHandle("model-source.json")).getFile()).text()));
+    const stored = () => p4.evaluate(async () => {
+      const names = [];
+      for await (const [n] of (await (await navigator.storage.getDirectory()).getDirectoryHandle("models")).entries()) names.push(n);
+      return names.sort();
+    });
+    const cdp4 = await p4.createCDPSession();
+    await cdp4.send("Network.enable");
+    await cdp4.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: 8e6, uploadThroughput: 8e6 });
+    await p4.goto(`${srvReal.base}?modelBase=/model/&gpuCheck=skip`, { waitUntil: "networkidle0" });
+    await waitStep(p4, "where");
+    await p4.click("#suInBrowser");
+    await waitStep(p4, "model");
+    await p4.waitForFunction(() => /downloading text-q8_0\.gguf/.test(document.getElementById("suProgressText").textContent), { timeout: 30000 });
+    // picked while the setup's own download runs: it ends, the files are checked and stored
+    await (await p4.$("#suFiles")).uploadFile(...FILES.map((n) => path.join(MODEL_DIR, n)));
+    await stored4(p4);
+    let rec = await record();
+    ok(JSON.stringify(await stored()) === JSON.stringify([...FILES].sort()) && rec.source === "upload" && typeof rec.version === "string" && FILES.every((n) => rec.files[n] === "upload"),
+      `own files (the released model's) picked during the download → stored, done step; record ${JSON.stringify(rec)}`);
+    await cdp4.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await p4.click("#suDone");
+    // Download again: both files are the release's → nothing fetched, the files stay "uploaded"
+    fetched.length = 0;
+    await p4.click("#helpBtn");
+    await p4.waitForFunction(() => document.getElementById("helpDlg").open);
+    await p4.click("#helpSetupBtn");
+    await waitStep(p4, "where");
+    await p4.click("#suInBrowser");
+    await waitStep(p4, "model");
+    await p4.waitForFunction(() => !document.getElementById("suNext").hidden);
+    await p4.click("#suDownload");
+    await stored4(p4);
+    rec = await record();
+    ok(fetched.length === 0 && typeof rec.version === "string" && FILES.every((n) => rec.files[n] === "upload"), `download with the model stored: fetched ${JSON.stringify(fetched)} (want none), record ${JSON.stringify(rec)}`);
+    await p4.click("#suDone");
+    // one file gone (a download that failed at the second file): only that one is downloaded
+    await p4.evaluate(async () => { await (await (await navigator.storage.getDirectory()).getDirectoryHandle("models")).removeEntry("mmproj-bf16.gguf"); });
+    fetched.length = 0;
+    await p4.reload({ waitUntil: "networkidle0" });
+    await waitStep(p4, "where");
+    await p4.click("#suInBrowser");
+    await stored4(p4);
+    rec = await record();
+    ok(JSON.stringify(fetched) === JSON.stringify(["mmproj-bf16.gguf"]) && rec.files["text-q8_0.gguf"] === "upload" && rec.files["mmproj-bf16.gguf"] === "hub" && JSON.stringify(await stored()) === JSON.stringify([...FILES].sort()),
+      `one file missing: fetched ${JSON.stringify(fetched)} (want only mmproj-bf16.gguf), record ${JSON.stringify(rec)}`);
+    await browser4.close();
+    fs.rmSync(profile4, { recursive: true, force: true });
+    srvReal.kill();
+  }
+
   await browser.close();
   srv.kill();
   fs.rmSync(profile, { recursive: true, force: true });
   R.done();
-})().catch(async (e) => { console.log("ERROR", e.message); process.exitCode = 1; if (srv) srv.kill("SIGTERM"); process.exit(1); });
+})().catch(async (e) => { console.log("ERROR", e.message); process.exitCode = 1; if (srv) srv.kill("SIGTERM"); if (srvReal) srvReal.kill("SIGTERM"); process.exit(1); });

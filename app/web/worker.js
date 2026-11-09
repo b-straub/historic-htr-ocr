@@ -23,6 +23,9 @@
 // check when the files' MD5 pair is a release's; absent for a model stored before versions were recorded.
 // The sources allowed (web/config.js MODEL_SOURCES, the page's first message { cmd: "sources", sources }): upload /
 // download / an HTTP model refused for a source not listed — and all of them before the page said.
+// The user's own files (upload): each file's MD5 must be a release's (the page sends MODEL.releases) — checked on the
+// picked file, before anything is written; a download from the hub skips a file that is stored already with the
+// release's MD5.
 import init, * as ocr from "./pkg/ocr_web.js";
 
 const MODEL_FILES = ["text-q8_0.gguf", "mmproj-bf16.gguf"];
@@ -36,6 +39,14 @@ function allowSource(source) {
   if (sources === null || !sources.includes(source)) {
     throw new Error(`the model source "${source}" is switched off (allowed: ${sources === null ? "none yet" : sources.join(", ")})`);
   }
+}
+
+/// an error the page words in its language (bridge-web.js replyError): { code, detail } beside the English message
+function coded(code, detail, message) {
+  const e = new Error(message);
+  e.code = code;
+  e.detail = detail;
+  return e;
 }
 
 const post = (m) => self.postMessage(m);
@@ -76,6 +87,51 @@ async function opfsDelete(name) {
 /// the model files present in OPFS (names only)
 async function modelNames() {
   return (await opfsList()).map((f) => f.name).filter((n) => MODEL_FILES.includes(n));
+}
+
+/// the MD5 (hex) of `size` bytes read by `read(offset, view)`; progress events "check" per 32 MB
+function md5Of(name, size, read) {
+  let shown = 0;
+  return ocr.md5_file(name, size, (off, view) => {
+    const n = read(off, view);
+    if (off + n - shown >= 32 << 20 || off + n === size) {
+      shown = off + n;
+      post({ event: "progress", label: "check", name, done: off + n, total: size });
+    }
+    return n;
+  });
+}
+
+/// the MD5 of a file the user picked (read synchronously, chunk by chunk — never held as a whole)
+function fileMd5(f) {
+  const fr = new FileReaderSync();
+  return md5Of(f.name, f.size, (off, view) => {
+    const b = new Uint8Array(fr.readAsArrayBuffer(f.slice(off, off + view.length)));
+    view.set(b);
+    return b.length;
+  });
+}
+
+/// the MD5 of the stored model file `name`, or null when it is not stored
+async function storedMd5(name) {
+  let fh;
+  try {
+    fh = await (await modelDir()).getFileHandle(name);
+  } catch (e) {
+    if (e.name === "NotFoundError") {
+      return null;
+    }
+    throw e;
+  }
+  if (opened === "opfs") {
+    closeEngine();
+  }
+  const h = await fh.createSyncAccessHandle({ mode: "read-only" });
+  try {
+    return md5Of(name, h.getSize(), (off, view) => h.read(view, { at: off }));
+  } finally {
+    h.close();
+  }
 }
 
 /// the stored source record, or null when there is none
@@ -133,12 +189,13 @@ const fileSource = (record, name) => (record.files && name in record.files ? rec
 
 /// after the model file `name` was stored from `next` ({ source: "hub" } | { source: "upload" } |
 /// { source: "url", url }): the record rewritten — after each file, so a store that fails half way leaves a record
-/// for what is there
-async function recordStore(name, next) {
+/// for what is there. `own`: the file's own source where it differs from the record's (a download that kept a file
+/// stored before: what that file came from)
+async function recordStore(name, next, own = next.source) {
   const { record: prev, names } = await effectiveSource();
   const files = {};
   for (const n of names) {
-    files[n] = n === name ? next.source : fileSource(prev, n);
+    files[n] = n === name ? own : fileSource(prev, n);
   }
   await writeSource({ ...next, files });
 }
@@ -157,8 +214,9 @@ async function recordDelete() {
   await writeSource({ ...prev, files });
 }
 
-/// write a byte stream into OPFS as `name` (removed again if anything fails); progress events per MB
-async function opfsWrite(name, stream, total, label) {
+/// write a byte stream into OPFS as `name` (removed again if anything fails, or when `signal` is aborted); progress
+/// events per MB
+async function opfsWrite(name, stream, total, label, signal) {
   if (!MODEL_FILES.includes(name)) throw new Error(`${name}: the model files are ${MODEL_FILES.join(" + ")}`);
   if (opened === "opfs") closeEngine();
   const dir = await modelDir();
@@ -168,6 +226,11 @@ async function opfsWrite(name, stream, total, label) {
     h.truncate(0);
     const reader = stream.getReader();
     for (;;) {
+      if (signal.aborted) {
+        // not awaited: the cancel of a stream whose fetch was aborted need not settle before the file is removed
+        reader.cancel().catch(() => {});
+        throw new Error(`${name}: cancelled`);
+      }
       const { done, value } = await reader.read();
       if (done) break;
       let off = 0;
@@ -187,7 +250,7 @@ async function opfsWrite(name, stream, total, label) {
   return at;
 }
 
-let downloadAbort = null; // the running download's AbortController (the setup's Cancel: { cmd: "cancelDownload" })
+let storeAbort = null; // the running download's or upload's AbortController (the setup's Cancel: { cmd: "cancelDownload" })
 
 async function download(base, name, signal, remoteName) {
   const url = `${base.replace(/\/$/, "")}/${remoteName}`;
@@ -198,7 +261,24 @@ async function download(base, name, signal, remoteName) {
   }
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
   const total = Number(r.headers.get("Content-Length")) || 0;
-  return opfsWrite(name, r.body, total, "download");
+  return opfsWrite(name, r.body, total, "download", signal);
+}
+
+/// a store (download / upload) that Cancel can end: `job(signal)`; cancelled → "download cancelled" (the file being
+/// written is removed by opfsWrite; a file stored before it stays)
+async function cancellable(job) {
+  storeAbort = new AbortController();
+  const { signal } = storeAbort;
+  try {
+    return await job(signal);
+  } catch (e) {
+    if (signal.aborted) {
+      throw new Error("download cancelled");
+    }
+    throw e;
+  } finally {
+    storeAbort = null;
+  }
 }
 
 /// a reader for the engine: (offset, view) → bytes written into the view; counts the model bytes for the progress bar
@@ -364,39 +444,80 @@ async function memory() {
 const handlers = {
   async list() { return opfsList(); },
   async delete({ name }) { return opfsDelete(name); },
-  async upload({ files }) {
+  // the user's own files: only a released model's — each file's MD5 is one of `releases` (MODEL.releases, sent by the
+  // page), checked on the picked file before anything is written (a wrong file leaves the stored model as it was);
+  // both files in one upload must be ONE release's pair. The record gets the version once the stored pair is a release's
+  async upload({ files, releases }) {
     allowSource("upload");
-    const out = [];
-    for (const f of files) {
-      out.push({ name: f.name, size: await opfsWrite(f.name, f.stream(), f.size, "upload") });
-      await recordStore(f.name, { source: "upload" });
+    if (!releases) {
+      throw new Error("upload: no releases to check the files against (bridge-web.js uploadModel sends them)");
     }
-    return out;
+    return cancellable(async (signal) => {
+      const md5 = {};
+      for (const f of files) {
+        if (!MODEL_FILES.includes(f.name)) {
+          throw new Error(`${f.name}: the model files are ${MODEL_FILES.join(" + ")}`);
+        }
+        md5[f.name] = fileMd5(f);
+        if (signal.aborted) {
+          throw new Error("cancelled");
+        }
+      }
+      const wrong = files.filter((f) => !releases.some((r) => r.md5[f.name] === md5[f.name])).map((f) => f.name);
+      if (wrong.length) {
+        throw coded("notReleased", { names: wrong }, `${wrong.join(", ")}: not a file of a released model (MD5 ${wrong.map((n) => md5[n]).join(", ")})`);
+      }
+      const pair = (r) => MODEL_FILES.every((n) => md5[n] === r.md5[n]);
+      if (MODEL_FILES.every((n) => n in md5) && !releases.some(pair)) {
+        throw coded("mixedReleases", {}, "the two files belong to different releases of the model");
+      }
+      const out = [];
+      for (const f of files) {
+        out.push({ name: f.name, size: await opfsWrite(f.name, f.stream(), f.size, "upload", signal) });
+        await recordStore(f.name, { source: "upload" });
+      }
+      // one file uploaded beside one stored before: the stored one's MD5 decides whether the pair is a release
+      for (const n of MODEL_FILES) {
+        if (!(n in md5)) {
+          md5[n] = await storedMd5(n);
+        }
+      }
+      const release = releases.find(pair);
+      if (release) {
+        await writeSource({ ...(await readSource()), version: release.version });
+      }
+      return out;
+    });
   },
   // record: { source: "hub" } for the model's Hugging Face repo, else { source: "url", url } — decided by the page
-  // (bridge-web.js downloadModel); remote: the repo's file names when they differ (web/config.js MODEL.remoteFiles)
+  // (bridge-web.js downloadModel); remote: the repo's file names when they differ (web/config.js MODEL.remoteFiles);
+  // md5: the release's MD5s ({ name: hex }; null: not known — a folder URL) — a file stored already with that MD5 is
+  // kept, not downloaded again (a download that failed at the second file, or the user's own file), under the source
+  // it came from.
   // a cancelled download removes the file it was writing (opfsWrite); a file stored before it stays
-  async download({ base, record, remote }) {
+  async download({ base, record, remote, md5 }) {
     if (!record) {
       throw new Error("download: no source record (bridge-web.js downloadModel decides it)");
     }
     allowSource(record.source);
-    const out = [];
-    downloadAbort = new AbortController();
-    try {
+    return cancellable(async (signal) => {
+      const out = [];
       for (const name of MODEL_FILES) {
-        out.push({ name, size: await download(base, name, downloadAbort.signal, remote ? remote[name] : name) });
+        if (md5 && (await storedMd5(name)) === md5[name]) {
+          const { record: prev } = await effectiveSource();
+          const was = fileSource(prev, name);
+          await recordStore(name, record, sources.includes(was) ? was : record.source);
+          out.push({ name, size: null, kept: true });
+          continue;
+        }
+        if (signal.aborted) {
+          throw new Error("cancelled");
+        }
+        out.push({ name, size: await download(base, name, signal, remote ? remote[name] : name) });
         await recordStore(name, record);
       }
-    } catch (e) {
-      if (downloadAbort.signal.aborted) {
-        throw new Error("download cancelled");
-      }
-      throw e;
-    } finally {
-      downloadAbort = null;
-    }
-    return out;
+      return out;
+    });
   },
   async source() { return effectiveSource(); },
   // the model check found the files to be the release `version` (their MD5 pair): kept in the record
@@ -443,8 +564,8 @@ self.onmessage = async (e) => {
     return;
   }
   if (cmd === "cancelDownload") {
-    if (downloadAbort) {
-      downloadAbort.abort();
+    if (storeAbort) {
+      storeAbort.abort();
     }
     return;
   }
@@ -457,6 +578,6 @@ self.onmessage = async (e) => {
     // the browser refuses its storage (OPFS) to this page — a private window, or site data blocked: a code the page
     // words in its language ("Security error when calling GetDirectory" says nothing to a user)
     const blocked = err instanceof DOMException && err.name === "SecurityError";
-    post({ id, ok: false, error: err instanceof Error ? err.message : String(err), code: blocked ? "storageBlocked" : null });
+    post({ id, ok: false, error: err instanceof Error ? err.message : String(err), code: blocked ? "storageBlocked" : typeof err.code === "string" ? err.code : null, detail: err.detail ?? null });
   }
 };

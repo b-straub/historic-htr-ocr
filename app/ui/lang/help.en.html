@@ -3,7 +3,7 @@
      every language file has the same slots). The short texts: lang/en.json -->
 <template data-slot="help">
 <h3>Setup</h3>
-<p>OCR Lite needs the model (1.4 GB) in this browser's storage — the setup checks the device and downloads it once from Hugging Face. An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage: set it up inside the app you use.</p>
+<p>OCR Lite needs the model (1.4 GB) in this browser's storage — the setup checks the device and downloads it once from Hugging Face. If you already have the model's two files (<code>text-q8_0.gguf</code> and <code>mmproj-bf16.gguf</code>, from its Hugging Face repository), choose “I have the files…” in the setup instead: they are checked against the released model and stored without a download. An installed app (Home Screen, Dock, Chrome / Edge app) has its own storage: set it up inside the app you use.</p>
 <p>The model is <a href="https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting" target="_blank" rel="noopener">LightOnOCR-3-1B · Historic German Handwriting</a> (open, CC BY-SA 4.0). About the project, the output format and the source: <a href="https://b-straub.github.io/historic-htr-ocr/" target="_blank" rel="noopener">the project page</a> and <a href="https://github.com/b-straub/historic-htr-ocr" target="_blank" rel="noopener">GitHub</a> (questions and reading errors worth reporting: its issues).</p>
 <h3>Workflow</h3>
 <ol>

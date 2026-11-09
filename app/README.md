@@ -60,8 +60,8 @@ read -- x.png --model <folder> --out x`).
 ## The model
 
 `web/config.js` is the one place that says where the model comes from: `MODEL` (base name, Hugging Face repo, the
-repo's file names, the releases) and `MODEL_SOURCES` (only `"hub"` is on; uploading files, another folder URL and `?model=` streaming are
-switched off). It points at
+repo's file names, the releases) and `MODEL_SOURCES` (`"hub"` and `"upload"` are on; another folder URL and `?model=`
+streaming are switched off). It points at
 [b-straub/LightOnOCR-3-1B-Historic-German-Handwriting](https://huggingface.co/b-straub/LightOnOCR-3-1B-Historic-German-Handwriting),
 whose `text-q8_0.gguf` + `mmproj-bf16.gguf` the setup downloads. Another GGUF repo of the same architecture works by
 changing `base`, `repo` and `releases`, plus `remoteFiles` when its file names differ:
@@ -87,6 +87,17 @@ version" — never guessed); an older release stored offers the current one.
 
 A model stored in the browser is used only when its record (`model-source.json` in OPFS) says it came from an allowed
 source; otherwise the setup downloads the model again.
+
+**The files without the download**: who already has `text-q8_0.gguf` + `mmproj-bf16.gguf` (from the model's repo, by
+`wget`, `hf download`, a copy from another machine) picks them in the setup — "I have the files…", also during the
+download the setup starts by itself, which it ends — or in Settings → "Upload model files…". They are stored only when
+their MD5s are a release's (checked on the picked files, before anything is written: a wrong file leaves the stored
+model as it was); the record then says "uploaded" and names the version. Writing into the browser's profile folder by
+hand does not work: its layout is the browser's own, and a model without the record is not used.
+
+**A download keeps what is there**: a file stored already with the release's MD5 — the first file after a download
+that failed at the second, or one uploaded before — is not downloaded again (it is read once to check, a few seconds).
+A download that breaks off in the middle of a file starts that file again: there is no resume.
 
 **A test build** that does not download from Hugging Face (testing on your own web space would count as downloads of
 the model on the Hub): `web/dist.sh --model-base <path>` (or `OCR_LITE_MODEL_BASE=<path> app/ci.sh build`) takes the
@@ -115,7 +126,8 @@ app/ci.sh browser          # the browser tests on _site/ (after build + site)
 - **Browser** — run locally before a tag; the CI leaves them out (their timing on a shared runner made tag pushes
   fail) (`tests/browser/`, headless Chrome via puppeteer-core; `npm ci` in `app/tests/`, Chrome from `$CHROME`
   or the usual install): `ui` (zoom, crop mapping, pencil, About, layout), `setup` (the first-run setup with a stand-in
-  model), `state` (every control's state), `pages` (the published site: pages, links, examples, CSP, service worker,
+  model: the stand-in's files picked as "I have the files…" are refused; with `OCR_LITE_MODEL_DIR` the real files are
+  stored that way and a download after it fetches nothing), `state` (every control's state), `pages` (the published site: pages, links, examples, CSP, service worker,
   manifest; with `OCR_LITE_HF_DOWNLOAD=1` a real Hugging Face download started and cancelled — off by
   default: each run counts as a download of the model on the Hub, so it runs by hand before a release). The parts that
   need a read — the Read / Stop states, a read compared with the native read — run with `OCR_LITE_MODEL_DIR` (+

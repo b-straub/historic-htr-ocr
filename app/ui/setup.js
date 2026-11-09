@@ -16,7 +16,8 @@
 //            Home Screen / apps, the setup goes on there (an installed app skips this step)
 //   model    download from the model's Hugging Face repo (web/config.js) — on its own after the install step, the free
 //            storage checked first — with progress and cancel; the user's own two files ("I have the files") only
-//            where the host allows them (api.canUpload — web/config.js MODEL_SOURCES; switched off)
+//            where the host allows them (api.canUpload — web/config.js MODEL_SOURCES): picked during the download,
+//            they end it and are stored instead — when they are the released model's (the host checks their MD5s)
 //   done     open an image and press Read
 // Nothing is remembered: closed without a model, the setup is due again, and Read refuses with a link back here.
 import { t, fixed } from "./i18n.js";
@@ -313,11 +314,13 @@ export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
   };
 
   // ── model ──
-  function setBusy(on) {
+  // uploading: the user's own files are being stored — no other files then; during a download "I have the files"
+  // stays: picking them ends the download (the setup starts it by itself)
+  function setBusy(on, uploading = false) {
     busy = on;
     $("suDownload").hidden = on;
-    $("suFilesBtn").classList.toggle("disabled", on);
-    $("suFiles").disabled = on;
+    $("suFilesBtn").classList.toggle("disabled", on && uploading);
+    $("suFiles").disabled = on && uploading;
     $("suCancel").hidden = !on;
     $("suProgress").hidden = !on;
   }
@@ -354,8 +357,13 @@ export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
     $("suProgress").value = p.fraction;
     $("suProgressText").textContent = p.line;
   }
-  async function store(job) {
-    setBusy(true);
+  let storing = null; // the store running now (its promise: settled when its job ended and its result is shown)
+  function store(job, uploading = false) {
+    storing = storeJob(job, uploading);
+    return storing;
+  }
+  async function storeJob(job, uploading) {
+    setBusy(true, uploading);
     $("suModelErr").textContent = "";
     $("suProgress").value = 0;
     $("suProgressText").textContent = t("su.starting");
@@ -385,12 +393,18 @@ export function setupDialog(api, { pickImage, openHelp, paintIcons }) {
   $("suDownload").onclick = () => store(() => api.download(drawProgress));
   $("suCancel").onclick = () => api.cancel();
   $("suNext").onclick = () => show("done");
-  $("suFiles").onchange = () => {
+  $("suFiles").onchange = async () => {
     const files = [...$("suFiles").files];
     $("suFiles").value = "";
-    if (files.length) {
-      store(() => api.upload(files, drawProgress));
+    if (!files.length) {
+      return;
     }
+    // a download running (the setup's own): ended first — the files take its place
+    if (busy) {
+      api.cancel();
+      await storing;
+    }
+    store(() => api.upload(files, drawProgress), true);
   };
 
   // ── done ──
